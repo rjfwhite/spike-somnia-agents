@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, parseAbiItem, toHex, fromHex, numberToBytes } from 'viem';
+import { createPublicClient, createWalletClient, http, parseAbiItem, toHex, hexToBytes, bytesToHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defineChain } from 'viem';
 import 'dotenv/config';
@@ -150,20 +150,14 @@ async function handleAgentRequest(
   console.log(`\n🔄 Processing request ${requestId}...`);
 
   try {
-    // Decode callData from hex to string for the HTTP request
-    let callDataStr: string;
-    try {
-      callDataStr = fromHex(callData, 'string');
-    } catch {
-      // If it's not valid UTF-8, use the raw hex
-      callDataStr = callData;
-    }
+    // Convert callData from hex to bytes
+    const callDataBytes = hexToBytes(callData);
 
     // Call the agent's container
-    const response = await callAgentContainer(cid, method, callDataStr);
+    const responseBytes = await callAgentContainer(cid, method, callDataBytes);
 
-    // Encode response as bytes
-    const responseData = toHex(response);
+    // Convert response bytes to hex for the contract
+    const responseData = bytesToHex(responseBytes);
     const receipts: bigint[] = []; // Empty receipts for now
 
     console.log(`📤 Sending response for request ${requestId}...`);
