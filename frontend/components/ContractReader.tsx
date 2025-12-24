@@ -26,27 +26,27 @@ export function ContractReader() {
   });
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-6 space-y-4 border border-gray-200">
-      <h2 className="text-2xl font-bold text-gray-900">Contract Information</h2>
+    <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 space-y-3 sm:space-y-4 border border-gray-200">
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Contract Information</h2>
       
-      <div className="space-y-3">
-        <div className="flex justify-between items-center">
-          <span className="text-gray-700 font-medium">Contract Name:</span>
-          <span className="font-semibold text-gray-900">{name?.toString() || "Loading..."}</span>
+      <div className="space-y-2.5 sm:space-y-3">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-0.5 sm:gap-2">
+          <span className="text-gray-700 font-medium text-sm">Contract Name:</span>
+          <span className="font-semibold text-gray-900 text-sm sm:text-base">{name?.toString() || "Loading..."}</span>
         </div>
         
-        <div className="flex justify-between items-center">
-          <span className="text-gray-700 font-medium">Symbol:</span>
-          <span className="font-semibold text-gray-900">{symbol?.toString() || "Loading..."}</span>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-0.5 sm:gap-2">
+          <span className="text-gray-700 font-medium text-sm">Symbol:</span>
+          <span className="font-semibold text-gray-900 text-sm sm:text-base">{symbol?.toString() || "Loading..."}</span>
         </div>
         
-        <div className="flex justify-between items-center">
-          <span className="text-gray-700 font-medium">Total Agents:</span>
-          <span className="font-semibold text-gray-900">{maxAgentId?.toString() || "0"}</span>
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-0.5 sm:gap-2">
+          <span className="text-gray-700 font-medium text-sm">Total Agents:</span>
+          <span className="font-semibold text-gray-900 text-sm sm:text-base">{maxAgentId?.toString() || "0"}</span>
         </div>
 
         <div className="flex flex-col gap-1 pt-2 border-t border-gray-200">
-          <span className="text-gray-700 font-medium text-sm">Contract Address:</span>
+          <span className="text-gray-700 font-medium text-xs sm:text-sm">Contract Address:</span>
           <span className="font-mono text-xs text-gray-900 break-all">{CONTRACT_ADDRESS}</span>
         </div>
       </div>
