@@ -1,0 +1,48 @@
+# Agent Host
+
+A TypeScript Node.js application that listens for agent requests on the Somnia blockchain and responds to them.
+
+## Setup
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Create a `.env` file with your private key:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Edit `.env` and add your responder wallet's private key:
+   ```
+   PRIVATE_KEY=your_private_key_here
+   ```
+
+   > **Note:** The wallet must be registered as a responder on the contract.
+
+## Running
+
+### Development mode (with hot reload):
+```bash
+npm run dev
+```
+
+### Production mode:
+```bash
+npm run build
+npm start
+```
+
+## How it works
+
+1. The application connects to the Somnia blockchain (chain ID 5031)
+2. Listens for `RequestCreated` events on the SomniaAgents contract
+3. When a request is received, it logs the request details
+4. Calls `handleResponse` on the contract to respond to the request
+
+## Configuration
+
+- **Contract Address:** `0x8E660a4618E117b7442A96fA2BEe3d7aE5E6Ed7f`
+- **RPC URL:** `https://api.infra.mainnet.somnia.network/`
+- **Chain ID:** `5031`
