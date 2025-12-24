@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, parseAbiItem, toHex, fromHex } from 'viem';
+import { createPublicClient, createWalletClient, http, parseAbiItem, toHex, fromHex, numberToBytes } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defineChain } from 'viem';
 import 'dotenv/config';
@@ -47,14 +47,36 @@ const SOMNIA_AGENTS_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
-  {
-    inputs: [{ internalType: 'uint256', name: 'tokenId', type: 'uint256' }],
-    name: 'tokenURI',
-    outputs: [{ internalType: 'string', name: '', type: 'string' }],
-    stateMutability: 'view',
-    type: 'function',
-  },
 ] as const;
+
+// Base58 alphabet for CIDv0 encoding
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/**
+ * Convert a bigint to base58 string (for CIDv0)
+ */
+function bigintToBase58(num: bigint): string {
+  if (num === 0n) return BASE58_ALPHABET[0];
+  
+  let result = '';
+  while (num > 0n) {
+    const remainder = num % 58n;
+    result = BASE58_ALPHABET[Number(remainder)] + result;
+    num = num / 58n;
+  }
+  return result;
+}
+
+/**
+ * Convert agentId (bigint) to IPFS CID string
+ * The agentId is the CID encoded as a number
+ */
+function agentIdToCID(agentId: bigint): string {
+  // Convert bigint to base58 (CIDv0 format)
+  const cid = bigintToBase58(agentId);
+  console.log(`   Converted agentId ${agentId} to CID: ${cid}`);
+  return cid;
+}
 
 // Get private key from environment
 const privateKey = process.env.PRIVATE_KEY;
@@ -79,69 +101,6 @@ const walletClient = createWalletClient({
   transport: http(),
 });
 
-// Cache for agent CIDs (agentId -> IPFS CID)
-const agentCIDCache = new Map<string, string>();
-
-/**
- * Get the IPFS CID for an agent from the tokenURI
- */
-async function getAgentCID(agentId: bigint): Promise<string> {
-  const cacheKey = agentId.toString();
-  
-  if (agentCIDCache.has(cacheKey)) {
-    return agentCIDCache.get(cacheKey)!;
-  }
-
-  console.log(`🔍 Fetching tokenURI for agent ${agentId}...`);
-  
-  const tokenURI = await publicClient.readContract({
-    address: CONTRACT_ADDRESS,
-    abi: SOMNIA_AGENTS_ABI,
-    functionName: 'tokenURI',
-    args: [agentId],
-  });
-
-  console.log(`   Token URI: ${tokenURI}`);
-
-  // The tokenURI might be:
-  // 1. An IPFS CID directly (e.g., "QmXxx..." or "bafyxxx...")
-  // 2. An IPFS URL (e.g., "ipfs://QmXxx...")
-  // 3. An HTTP URL to metadata JSON
-  
-  let cid: string;
-
-  if (tokenURI.startsWith('ipfs://')) {
-    // Extract CID from ipfs:// URL
-    cid = tokenURI.replace('ipfs://', '').split('/')[0];
-  } else if (tokenURI.startsWith('Qm') || tokenURI.startsWith('bafy')) {
-    // Direct CID
-    cid = tokenURI;
-  } else if (tokenURI.startsWith('http')) {
-    // Fetch metadata JSON and extract image CID
-    const response = await fetch(tokenURI);
-    const metadata = await response.json();
-    
-    // Look for image field in metadata
-    const imageUri = metadata.image || metadata.image_url || metadata.animation_url;
-    if (!imageUri) {
-      throw new Error(`No image field found in metadata: ${JSON.stringify(metadata)}`);
-    }
-    
-    if (imageUri.startsWith('ipfs://')) {
-      cid = imageUri.replace('ipfs://', '').split('/')[0];
-    } else {
-      cid = imageUri;
-    }
-  } else {
-    // Assume it's a CID
-    cid = tokenURI;
-  }
-
-  console.log(`   Resolved CID: ${cid}`);
-  agentCIDCache.set(cacheKey, cid);
-  return cid;
-}
-
 console.log('🚀 Agent Host started');
 console.log(`📋 Contract: ${CONTRACT_ADDRESS}`);
 console.log(`🔑 Responder address: ${account.address}`);
@@ -155,10 +114,14 @@ const unwatch = publicClient.watchEvent({
     for (const log of logs) {
       const { requestId, agentId, method, callData } = log.args;
       
+      // Convert agentId to CID
+      const cid = agentIdToCID(agentId!);
+      
       console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.log('📨 New Request Received!');
       console.log(`   Request ID: ${requestId}`);
       console.log(`   Agent ID: ${agentId}`);
+      console.log(`   Agent CID: ${cid}`);
       console.log(`   Method: ${method}`);
       console.log(`   Call Data: ${callData}`);
       console.log(`   Block: ${log.blockNumber}`);
@@ -167,7 +130,7 @@ const unwatch = publicClient.watchEvent({
 
       // Process the request and respond
       try {
-        await handleAgentRequest(requestId!, agentId!, method!, callData!);
+        await handleAgentRequest(requestId!, cid, method!, callData!);
       } catch (error) {
         console.error('❌ Error handling request:', error);
       }
@@ -180,16 +143,13 @@ const unwatch = publicClient.watchEvent({
 
 async function handleAgentRequest(
   requestId: bigint,
-  agentId: bigint,
+  cid: string,
   method: string,
   callData: `0x${string}`
 ) {
   console.log(`\n🔄 Processing request ${requestId}...`);
 
   try {
-    // Get the IPFS CID for this agent's container image
-    const cid = await getAgentCID(agentId);
-
     // Decode callData from hex to string for the HTTP request
     let callDataStr: string;
     try {
