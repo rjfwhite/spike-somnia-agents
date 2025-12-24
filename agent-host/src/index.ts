@@ -1,7 +1,8 @@
-import { createPublicClient, createWalletClient, http, parseAbiItem, toHex } from 'viem';
+import { createPublicClient, createWalletClient, http, parseAbiItem, toHex, fromHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defineChain } from 'viem';
 import 'dotenv/config';
+import { callAgentContainer, cleanupContainers } from './docker.js';
 
 // Somnia chain configuration
 const somnia = defineChain({
@@ -46,6 +47,13 @@ const SOMNIA_AGENTS_ABI = [
     stateMutability: 'nonpayable',
     type: 'function',
   },
+  {
+    inputs: [{ internalType: 'uint256', name: 'tokenId', type: 'uint256' }],
+    name: 'tokenURI',
+    outputs: [{ internalType: 'string', name: '', type: 'string' }],
+    stateMutability: 'view',
+    type: 'function',
+  },
 ] as const;
 
 // Get private key from environment
@@ -70,6 +78,69 @@ const walletClient = createWalletClient({
   chain: somnia,
   transport: http(),
 });
+
+// Cache for agent CIDs (agentId -> IPFS CID)
+const agentCIDCache = new Map<string, string>();
+
+/**
+ * Get the IPFS CID for an agent from the tokenURI
+ */
+async function getAgentCID(agentId: bigint): Promise<string> {
+  const cacheKey = agentId.toString();
+  
+  if (agentCIDCache.has(cacheKey)) {
+    return agentCIDCache.get(cacheKey)!;
+  }
+
+  console.log(`🔍 Fetching tokenURI for agent ${agentId}...`);
+  
+  const tokenURI = await publicClient.readContract({
+    address: CONTRACT_ADDRESS,
+    abi: SOMNIA_AGENTS_ABI,
+    functionName: 'tokenURI',
+    args: [agentId],
+  });
+
+  console.log(`   Token URI: ${tokenURI}`);
+
+  // The tokenURI might be:
+  // 1. An IPFS CID directly (e.g., "QmXxx..." or "bafyxxx...")
+  // 2. An IPFS URL (e.g., "ipfs://QmXxx...")
+  // 3. An HTTP URL to metadata JSON
+  
+  let cid: string;
+
+  if (tokenURI.startsWith('ipfs://')) {
+    // Extract CID from ipfs:// URL
+    cid = tokenURI.replace('ipfs://', '').split('/')[0];
+  } else if (tokenURI.startsWith('Qm') || tokenURI.startsWith('bafy')) {
+    // Direct CID
+    cid = tokenURI;
+  } else if (tokenURI.startsWith('http')) {
+    // Fetch metadata JSON and extract image CID
+    const response = await fetch(tokenURI);
+    const metadata = await response.json();
+    
+    // Look for image field in metadata
+    const imageUri = metadata.image || metadata.image_url || metadata.animation_url;
+    if (!imageUri) {
+      throw new Error(`No image field found in metadata: ${JSON.stringify(metadata)}`);
+    }
+    
+    if (imageUri.startsWith('ipfs://')) {
+      cid = imageUri.replace('ipfs://', '').split('/')[0];
+    } else {
+      cid = imageUri;
+    }
+  } else {
+    // Assume it's a CID
+    cid = tokenURI;
+  }
+
+  console.log(`   Resolved CID: ${cid}`);
+  agentCIDCache.set(cacheKey, cid);
+  return cid;
+}
 
 console.log('🚀 Agent Host started');
 console.log(`📋 Contract: ${CONTRACT_ADDRESS}`);
@@ -115,14 +186,28 @@ async function handleAgentRequest(
 ) {
   console.log(`\n🔄 Processing request ${requestId}...`);
 
-  // For now, create a simple response
-  // In a real implementation, this would process the request and generate an appropriate response
-  const responseData = toHex(`Response for request ${requestId}`);
-  const receipts: bigint[] = []; // Empty receipts for now
-
-  console.log(`📤 Sending response for request ${requestId}...`);
-
   try {
+    // Get the IPFS CID for this agent's container image
+    const cid = await getAgentCID(agentId);
+
+    // Decode callData from hex to string for the HTTP request
+    let callDataStr: string;
+    try {
+      callDataStr = fromHex(callData, 'string');
+    } catch {
+      // If it's not valid UTF-8, use the raw hex
+      callDataStr = callData;
+    }
+
+    // Call the agent's container
+    const response = await callAgentContainer(cid, method, callDataStr);
+
+    // Encode response as bytes
+    const responseData = toHex(response);
+    const receipts: bigint[] = []; // Empty receipts for now
+
+    console.log(`📤 Sending response for request ${requestId}...`);
+
     const hash = await walletClient.writeContract({
       address: CONTRACT_ADDRESS,
       abi: SOMNIA_AGENTS_ABI,
@@ -138,20 +223,31 @@ async function handleAgentRequest(
     console.log(`   Status: ${receipt.status === 'success' ? 'Success' : 'Failed'}`);
     console.log(`   Gas used: ${receipt.gasUsed}\n`);
   } catch (error: any) {
-    console.error(`❌ Failed to send response: ${error.message}`);
-    throw error;
+    console.error(`❌ Failed to handle request: ${error.message}`);
+    
+    // Still try to send an error response
+    try {
+      const errorResponse = toHex(`Error: ${error.message}`);
+      const hash = await walletClient.writeContract({
+        address: CONTRACT_ADDRESS,
+        abi: SOMNIA_AGENTS_ABI,
+        functionName: 'handleResponse',
+        args: [requestId, errorResponse, []],
+      });
+      console.log(`📤 Error response sent! Tx hash: ${hash}`);
+    } catch (responseError: any) {
+      console.error(`❌ Failed to send error response: ${responseError.message}`);
+    }
   }
 }
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
+async function shutdown() {
   console.log('\n\n👋 Shutting down agent host...');
   unwatch();
+  await cleanupContainers();
   process.exit(0);
-});
+}
 
-process.on('SIGTERM', () => {
-  console.log('\n\n👋 Shutting down agent host...');
-  unwatch();
-  process.exit(0);
-});
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

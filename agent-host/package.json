@@ -10,10 +10,12 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
+    "dockerode": "^4.0.9",
     "dotenv": "^16.4.7",
     "viem": "^2.21.54"
   },
   "devDependencies": {
+    "@types/dockerode": "^3.3.47",
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
