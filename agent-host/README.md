@@ -1,6 +1,6 @@
 # Agent Host
 
-A TypeScript Node.js application that listens for agent requests on the Somnia blockchain and responds to them.
+A TypeScript Node.js application that listens for agent requests on the Somnia blockchain, runs agent containers via Docker, and responds to them.
 
 ## Setup
 
@@ -21,6 +21,8 @@ A TypeScript Node.js application that listens for agent requests on the Somnia b
 
    > **Note:** The wallet must be registered as a responder on the contract.
 
+4. Ensure Docker is running on your system.
+
 ## Running
 
 ### Development mode (with hot reload):
@@ -38,11 +40,22 @@ npm start
 
 1. The application connects to the Somnia blockchain (chain ID 5031)
 2. Listens for `RequestCreated` events on the SomniaAgents contract
-3. When a request is received, it logs the request details
-4. Calls `handleResponse` on the contract to respond to the request
+3. When a request is received:
+   - The `agentId` is converted to an IPFS CID (it's stored as a base58-encoded bigint)
+   - The container image tarball is fetched from IPFS
+   - The image is loaded into Docker and a container is started (port 80 mapped to a host port)
+   - The request is forwarded to the container via HTTP POST
+   - The response is sent back to the contract via `handleResponse`
 
 ## Configuration
 
 - **Contract Address:** `0x8E660a4618E117b7442A96fA2BEe3d7aE5E6Ed7f`
 - **RPC URL:** `https://api.infra.mainnet.somnia.network/`
 - **Chain ID:** `5031`
+
+## Agent Container Requirements
+
+Agent containers must:
+- Run a web server on port 80
+- Accept POST requests at `/{method}` endpoints
+- Return responses as text/bytes
