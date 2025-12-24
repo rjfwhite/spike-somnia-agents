@@ -144,14 +144,14 @@ export async function stopAgentContainer(agentId: string): Promise<void> {
  * Send a request to an agent's container
  * @param agentId The agent ID (IPFS CID)
  * @param method The HTTP method/endpoint
- * @param callData The request data as bytes
- * @returns The response from the container as bytes
+ * @param callData The request data
+ * @returns The response from the container
  */
 export async function callAgentContainer(
   agentId: string,
   method: string,
-  callData: Uint8Array
-): Promise<Uint8Array> {
+  callData: string
+): Promise<string> {
   // Ensure container is running
   const port = await startAgentContainer(agentId);
 
@@ -165,14 +165,14 @@ export async function callAgentContainer(
       headers: {
         'Content-Type': 'application/octet-stream',
       },
-      body: Buffer.from(callData),
+      body: callData,
     });
 
-    const responseBytes = new Uint8Array(await response.arrayBuffer());
+    const responseText = await response.text();
     console.log(`📥 Response status: ${response.status}`);
-    console.log(`📥 Response size: ${responseBytes.length} bytes`);
+    console.log(`📥 Response: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`);
 
-    return responseBytes;
+    return responseText;
   } catch (error: any) {
     console.error(`❌ Failed to call agent: ${error.message}`);
     throw error;
