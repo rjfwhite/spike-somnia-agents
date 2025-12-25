@@ -79,6 +79,7 @@ program
   .option('-l, --list', 'List all methods')
   .option('-s, --show <name>', 'Show details of a specific method')
   .option('--json', 'Output as JSON')
+  .option('--abi', 'Output method as standard Ethereum ABI format')
   .action(async (directory, options) => {
     try {
       if (options.json && !options.show) {

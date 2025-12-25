@@ -10,22 +10,35 @@ interface ValidationResult {
   warnings: string[];
 }
 
-// Valid Solidity/ABI types
+// Valid Solidity/ABI base types (Ethereum ABI specification)
 const VALID_BASE_TYPES = [
-  'uint8', 'uint16', 'uint32', 'uint64', 'uint128', 'uint256',
-  'int8', 'int16', 'int32', 'int64', 'int128', 'int256',
-  'address', 'bool', 'string', 'bytes',
+  // Unsigned integers
+  'uint8', 'uint16', 'uint24', 'uint32', 'uint40', 'uint48', 'uint56', 'uint64',
+  'uint72', 'uint80', 'uint88', 'uint96', 'uint104', 'uint112', 'uint120', 'uint128',
+  'uint136', 'uint144', 'uint152', 'uint160', 'uint168', 'uint176', 'uint184', 'uint192',
+  'uint200', 'uint208', 'uint216', 'uint224', 'uint232', 'uint240', 'uint248', 'uint256',
+  // Signed integers
+  'int8', 'int16', 'int24', 'int32', 'int40', 'int48', 'int56', 'int64',
+  'int72', 'int80', 'int88', 'int96', 'int104', 'int112', 'int120', 'int128',
+  'int136', 'int144', 'int152', 'int160', 'int168', 'int176', 'int184', 'int192',
+  'int200', 'int208', 'int216', 'int224', 'int232', 'int240', 'int248', 'int256',
+  // Address and bool
+  'address', 'bool',
+  // Dynamic types
+  'string', 'bytes',
+  // Fixed-size bytes
   'bytes1', 'bytes2', 'bytes3', 'bytes4', 'bytes5', 'bytes6', 'bytes7', 'bytes8',
   'bytes9', 'bytes10', 'bytes11', 'bytes12', 'bytes13', 'bytes14', 'bytes15', 'bytes16',
   'bytes17', 'bytes18', 'bytes19', 'bytes20', 'bytes21', 'bytes22', 'bytes23', 'bytes24',
   'bytes25', 'bytes26', 'bytes27', 'bytes28', 'bytes29', 'bytes30', 'bytes31', 'bytes32',
+  // Tuple (struct)
   'tuple',
 ];
 
 export async function validateCommand(directory: string = '.'): Promise<void> {
   const targetDir = path.resolve(directory);
   
-  console.log(chalk.blue('🔍 Validating agent configuration...\\n'));
+  console.log(chalk.blue('🔍 Validating agent configuration...\n'));
 
   const result: ValidationResult = {
     valid: true,
@@ -75,22 +88,23 @@ export async function validateCommand(directory: string = '.'): Promise<void> {
       }
       methodNames.add(method.name);
 
-      // Validate method name format
-      if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(method.name)) {
-        result.errors.push(`Invalid method name: ${method.name} (must start with letter, alphanumeric only)`);
+      // Validate method name format (Solidity identifier rules)
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(method.name)) {
+        result.errors.push(`Invalid method name: ${method.name} (must be valid Solidity identifier)`);
         result.valid = false;
       }
 
-      // Validate ABIs
-      const requestErrors = validateAbiParams(method.requestAbi, `${method.name}.request`);
-      const responseErrors = validateAbiParams(method.responseAbi, `${method.name}.response`);
+      // Validate inputs (request ABI)
+      const inputErrors = validateAbiParams(method.inputs, `${method.name}.inputs`);
+      result.errors.push(...inputErrors.errors);
+      result.warnings.push(...inputErrors.warnings);
       
-      result.errors.push(...requestErrors.errors);
-      result.warnings.push(...requestErrors.warnings);
-      result.errors.push(...responseErrors.errors);
-      result.warnings.push(...responseErrors.warnings);
+      // Validate outputs (response ABI)
+      const outputErrors = validateAbiParams(method.outputs, `${method.name}.outputs`);
+      result.errors.push(...outputErrors.errors);
+      result.warnings.push(...outputErrors.warnings);
       
-      if (requestErrors.errors.length > 0 || responseErrors.errors.length > 0) {
+      if (inputErrors.errors.length > 0 || outputErrors.errors.length > 0) {
         result.valid = false;
       }
     }
@@ -107,6 +121,21 @@ export async function validateCommand(directory: string = '.'): Promise<void> {
   }
 
   printResults(result);
+  
+  // Show ABI summary if valid
+  if (result.valid && spec.methods.length > 0) {
+    console.log(chalk.white('\nMethod ABI Summary:'));
+    for (const method of spec.methods) {
+      console.log(chalk.cyan(`  ${method.name}(`));
+      if (method.inputs.length > 0) {
+        console.log(chalk.gray(`    inputs: ${method.inputs.map(p => `${p.type} ${p.name}`).join(', ')}`));
+      }
+      if (method.outputs.length > 0) {
+        console.log(chalk.gray(`    outputs: ${method.outputs.map(p => `${p.type} ${p.name}`).join(', ')}`));
+      }
+      console.log(chalk.cyan(`  )`));
+    }
+  }
 }
 
 function validateAbiParams(params: AbiParameter[], context: string): { errors: string[], warnings: string[] } {
@@ -115,22 +144,29 @@ function validateAbiParams(params: AbiParameter[], context: string): { errors: s
   const paramNames = new Set<string>();
 
   for (const param of params) {
-    // Check for duplicate param names
-    if (paramNames.has(param.name)) {
-      errors.push(`${context}: Duplicate parameter name "${param.name}"`);
+    // Check for duplicate param names (warning only, Solidity allows this)
+    if (param.name && paramNames.has(param.name)) {
+      warnings.push(`${context}: Duplicate parameter name "${param.name}"`);
     }
-    paramNames.add(param.name);
+    if (param.name) {
+      paramNames.add(param.name);
+    }
 
     // Validate type
-    const baseType = param.type.replace(/\[\]$/, ''); // Remove array suffix
-    
-    if (!VALID_BASE_TYPES.includes(baseType)) {
-      errors.push(`${context}: Invalid type "${param.type}" for parameter "${param.name}"`);
+    const typeValidation = validateAbiType(param.type);
+    if (!typeValidation.valid) {
+      errors.push(`${context}: ${typeValidation.error} for parameter "${param.name}"`);
     }
 
     // Validate tuple has components
+    const baseType = param.type.replace(/\[\d*\]/g, ''); // Remove all array suffixes
     if (baseType === 'tuple' && (!param.components || param.components.length === 0)) {
       errors.push(`${context}: Tuple parameter "${param.name}" must have components`);
+    }
+
+    // Warn if internalType is missing (not required but recommended)
+    if (!param.internalType && (baseType === 'tuple' || baseType === 'address')) {
+      warnings.push(`${context}: Parameter "${param.name}" is missing internalType`);
     }
 
     // Recursively validate tuple components
@@ -142,6 +178,25 @@ function validateAbiParams(params: AbiParameter[], context: string): { errors: s
   }
 
   return { errors, warnings };
+}
+
+function validateAbiType(type: string): { valid: boolean; error?: string } {
+  // Handle arrays - can be multi-dimensional
+  let baseType = type;
+  const arrayMatches = type.match(/\[\d*\]/g);
+  if (arrayMatches) {
+    baseType = type.replace(/\[\d*\]/g, '');
+  }
+  
+  // Check if base type is valid
+  if (!VALID_BASE_TYPES.includes(baseType)) {
+    return { 
+      valid: false, 
+      error: `Invalid ABI type "${type}". Base type "${baseType}" is not a valid Ethereum ABI type` 
+    };
+  }
+
+  return { valid: true };
 }
 
 function printResults(result: ValidationResult): void {
@@ -162,7 +217,7 @@ function printResults(result: ValidationResult): void {
   }
 
   if (result.valid) {
-    console.log(chalk.green('✓ Configuration is valid!'));
+    console.log(chalk.green('✓ Configuration is valid (conforms to Ethereum ABI spec)'));
   } else {
     console.log(chalk.red('✗ Configuration has errors. Please fix them before building.'));
     process.exit(1);

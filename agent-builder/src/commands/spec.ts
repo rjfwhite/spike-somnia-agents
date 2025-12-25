@@ -2,7 +2,7 @@ import path from 'path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
 import { loadSpec, saveSpec, configExists } from '../utils/config.js';
-import type { AgentSpec, MethodAbi, AbiParameter, AbiTypes } from '../types.js';
+import type { AgentSpec, MethodDefinition, AbiParameter } from '../types.js';
 
 interface SpecOptions {
   add?: boolean;
@@ -10,6 +10,7 @@ interface SpecOptions {
   list?: boolean;
   show?: string;
   json?: boolean;
+  abi?: boolean;
 }
 
 const COMMON_ABI_TYPES = [
@@ -20,10 +21,13 @@ const COMMON_ABI_TYPES = [
   'bool',
   'bytes',
   'bytes32',
+  'bytes4',
   'uint256[]',
   'address[]',
   'string[]',
+  'bytes[]',
   'tuple',
+  'tuple[]',
 ];
 
 export async function specCommand(directory: string = '.', options: SpecOptions = {}): Promise<void> {
@@ -46,7 +50,7 @@ export async function specCommand(directory: string = '.', options: SpecOptions 
 
   // List methods
   if (options.list) {
-    console.log(chalk.blue(`Agent: ${spec.name} v${spec.version}\\n`));
+    console.log(chalk.blue(`Agent: ${spec.name} v${spec.version}\n`));
     
     if (spec.methods.length === 0) {
       console.log(chalk.gray('No methods defined.'));
@@ -56,12 +60,12 @@ export async function specCommand(directory: string = '.', options: SpecOptions 
 
     console.log(chalk.white('Methods:'));
     for (const method of spec.methods) {
-      console.log(chalk.cyan(`\\n  ${method.name}`));
+      console.log(chalk.cyan(`\n  ${method.name}`));
       if (method.description) {
         console.log(chalk.gray(`    ${method.description}`));
       }
-      console.log(chalk.gray(`    Request: (${formatAbiParams(method.requestAbi)})`));
-      console.log(chalk.gray(`    Response: (${formatAbiParams(method.responseAbi)})`));
+      console.log(chalk.gray(`    inputs:  (${formatAbiParams(method.inputs)})`));
+      console.log(chalk.gray(`    outputs: (${formatAbiParams(method.outputs)})`));
     }
     return;
   }
@@ -74,17 +78,25 @@ export async function specCommand(directory: string = '.', options: SpecOptions 
       process.exit(1);
     }
 
-    if (options.json) {
-      console.log(JSON.stringify(method, null, 2));
+    if (options.json || options.abi) {
+      // Output as standard Ethereum ABI format
+      const abiFunction = {
+        type: 'function',
+        name: method.name,
+        inputs: method.inputs.map(p => formatParamForAbi(p)),
+        outputs: method.outputs.map(p => formatParamForAbi(p)),
+        stateMutability: 'nonpayable',
+      };
+      console.log(JSON.stringify(options.abi ? abiFunction : method, null, 2));
     } else {
-      console.log(chalk.blue(`Method: ${method.name}\\n`));
+      console.log(chalk.blue(`Method: ${method.name}\n`));
       if (method.description) {
-        console.log(chalk.white(`Description: ${method.description}\\n`));
+        console.log(chalk.white(`Description: ${method.description}\n`));
       }
-      console.log(chalk.white('Request ABI:'));
-      console.log(formatAbiParamsVerbose(method.requestAbi));
-      console.log(chalk.white('\\nResponse ABI:'));
-      console.log(formatAbiParamsVerbose(method.responseAbi));
+      console.log(chalk.white('Inputs (request ABI):'));
+      console.log(formatAbiParamsVerbose(method.inputs));
+      console.log(chalk.white('\nOutputs (response ABI):'));
+      console.log(formatAbiParamsVerbose(method.outputs));
     }
     return;
   }
@@ -110,7 +122,7 @@ export async function specCommand(directory: string = '.', options: SpecOptions 
 }
 
 async function addMethodInteractive(spec: AgentSpec, targetDir: string): Promise<void> {
-  console.log(chalk.blue('Add new method\\n'));
+  console.log(chalk.blue('Add new method\n'));
 
   const { name, description } = await inquirer.prompt([
     {
@@ -120,6 +132,7 @@ async function addMethodInteractive(spec: AgentSpec, targetDir: string): Promise
       validate: (input: string) => {
         if (!input) return 'Name is required';
         if (spec.methods.find(m => m.name === input)) return 'Method already exists';
+        if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(input)) return 'Must start with letter, alphanumeric only';
         return true;
       },
     },
@@ -130,27 +143,38 @@ async function addMethodInteractive(spec: AgentSpec, targetDir: string): Promise
     },
   ]);
 
-  // Request ABI
-  console.log(chalk.white('\\nDefine request parameters (input):'));
-  const requestAbi = await collectAbiParams();
+  // Input parameters (request ABI)
+  console.log(chalk.white('\nDefine input parameters (request ABI):'));
+  const inputs = await collectAbiParams();
 
-  // Response ABI
-  console.log(chalk.white('\\nDefine response parameters (output):'));
-  const responseAbi = await collectAbiParams();
+  // Output parameters (response ABI)
+  console.log(chalk.white('\nDefine output parameters (response ABI):'));
+  const outputs = await collectAbiParams();
 
-  const method: MethodAbi = {
+  const method: MethodDefinition = {
     name,
     description: description || undefined,
-    requestAbi,
-    responseAbi,
+    inputs,
+    outputs,
   };
 
   spec.methods.push(method);
   await saveSpec(spec, targetDir);
 
-  console.log(chalk.green(`\\n✓ Added method: ${name}`));
-  console.log(chalk.gray(`  Request: (${formatAbiParams(requestAbi)})`));
-  console.log(chalk.gray(`  Response: (${formatAbiParams(responseAbi)})`));
+  console.log(chalk.green(`\n✓ Added method: ${name}`));
+  console.log(chalk.gray(`  inputs:  (${formatAbiParams(inputs)})`));
+  console.log(chalk.gray(`  outputs: (${formatAbiParams(outputs)})`));
+  
+  // Show ABI format
+  console.log(chalk.white('\nEthereum ABI format:'));
+  const abiFunction = {
+    type: 'function',
+    name: method.name,
+    inputs: method.inputs.map(p => formatParamForAbi(p)),
+    outputs: method.outputs.map(p => formatParamForAbi(p)),
+    stateMutability: 'nonpayable',
+  };
+  console.log(chalk.gray(JSON.stringify(abiFunction, null, 2)));
 }
 
 async function collectAbiParams(): Promise<AbiParameter[]> {
@@ -187,7 +211,7 @@ async function collectAbiParams(): Promise<AbiParameter[]> {
       const { customType } = await inquirer.prompt([{
         type: 'input',
         name: 'customType',
-        message: 'Enter custom type (e.g., uint128, bytes20):',
+        message: 'Enter custom type (e.g., uint128, bytes20, uint256[][]):',
       }]);
       finalType = customType;
     }
@@ -196,6 +220,27 @@ async function collectAbiParams(): Promise<AbiParameter[]> {
       name: paramName,
       type: finalType,
     };
+
+    // Ask for internalType if it might be different
+    if (finalType === 'address' || finalType === 'tuple' || finalType === 'tuple[]') {
+      const { addInternalType } = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'addInternalType',
+        message: 'Add internalType (e.g., "contract IERC20", "struct MyStruct")?',
+        default: false,
+      }]);
+      
+      if (addInternalType) {
+        const { internalType } = await inquirer.prompt([{
+          type: 'input',
+          name: 'internalType',
+          message: 'Internal type:',
+        }]);
+        if (internalType) {
+          param.internalType = internalType;
+        }
+      }
+    }
 
     // Handle tuple components
     if (finalType === 'tuple' || finalType === 'tuple[]') {
@@ -211,7 +256,7 @@ async function collectAbiParams(): Promise<AbiParameter[]> {
 }
 
 function formatAbiParams(params: AbiParameter[]): string {
-  if (params.length === 0) return '';
+  if (params.length === 0) return 'none';
   return params.map(p => `${p.type} ${p.name}`).join(', ');
 }
 
@@ -219,12 +264,34 @@ function formatAbiParamsVerbose(params: AbiParameter[], indent = '  '): string {
   if (params.length === 0) return `${indent}(none)`;
   
   return params.map(p => {
-    let line = `${indent}${p.type} ${p.name}`;
+    let line = `${indent}${p.name}: ${p.type}`;
+    if (p.internalType && p.internalType !== p.type) {
+      line += ` (${p.internalType})`;
+    }
     if (p.components) {
-      line += '\\n' + formatAbiParamsVerbose(p.components, indent + '  ');
+      line += '\n' + formatAbiParamsVerbose(p.components, indent + '  ');
     }
     return line;
-  }).join('\\n');
+  }).join('\n');
+}
+
+/**
+ * Format a parameter for standard ABI output
+ */
+function formatParamForAbi(param: AbiParameter): any {
+  const result: any = {
+    name: param.name,
+    type: param.type,
+  };
+  
+  // Add internalType (default to type if not specified)
+  result.internalType = param.internalType || param.type;
+  
+  if (param.components) {
+    result.components = param.components.map(c => formatParamForAbi(c));
+  }
+  
+  return result;
 }
 
 /**
@@ -234,4 +301,22 @@ export async function showFullSpec(directory: string = '.'): Promise<void> {
   const targetDir = path.resolve(directory);
   const spec = await loadSpec(targetDir);
   console.log(JSON.stringify(spec, null, 2));
+}
+
+/**
+ * Generate full ABI array from spec
+ */
+export async function generateAbi(directory: string = '.'): Promise<void> {
+  const targetDir = path.resolve(directory);
+  const spec = await loadSpec(targetDir);
+  
+  const abi = spec.methods.map(method => ({
+    type: 'function',
+    name: method.name,
+    inputs: method.inputs.map(p => formatParamForAbi(p)),
+    outputs: method.outputs.map(p => formatParamForAbi(p)),
+    stateMutability: 'nonpayable',
+  }));
+  
+  console.log(JSON.stringify(abi, null, 2));
 }

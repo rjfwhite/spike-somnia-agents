@@ -2,7 +2,7 @@ import { writeFile, mkdir, access } from 'fs/promises';
 import path from 'path';
 import chalk from 'chalk';
 import inquirer from 'inquirer';
-import type { AgentConfig, AgentSpec, MethodAbi, AbiParameter } from '../types.js';
+import type { AgentConfig, AgentSpec, MethodDefinition, AbiParameter } from '../types.js';
 import { saveConfig, saveSpec, configExists } from '../utils/config.js';
 
 const SAMPLE_DOCKERFILE = `# Agent Dockerfile
@@ -38,21 +38,20 @@ const server = http.createServer((req, res) => {
   const url = new URL(req.url || '/', \`http://\${req.headers.host}\`);
   const method = url.pathname.slice(1); // Remove leading slash
 
-  let body = '';
-  req.on('data', chunk => {
-    body += chunk.toString();
-  });
+  let body = [];
+  req.on('data', chunk => body.push(chunk));
 
   req.on('end', () => {
+    const callData = Buffer.concat(body);
     console.log(\`Received request: \${method}\`);
-    console.log(\`Call data: \${body}\`);
+    console.log(\`Call data (hex): \${callData.toString('hex')}\`);
 
     // Handle the request based on method
-    // The body contains ABI-encoded request data
-    // Return ABI-encoded response data
+    // The callData contains ABI-encoded input parameters
+    // Return ABI-encoded output parameters
     
     try {
-      const response = handleMethod(method, body);
+      const response = handleMethod(method, callData);
       res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
       res.end(response);
     } catch (error) {
@@ -63,10 +62,20 @@ const server = http.createServer((req, res) => {
   });
 });
 
-function handleMethod(method: string, callData: string): string {
+function handleMethod(method, callData) {
   switch (method) {
     case 'ping':
-      return '0x' + Buffer.from('pong').toString('hex');
+      // No inputs expected
+      // Output: string message
+      // For simplicity, return raw text (in production, use ABI encoding)
+      return Buffer.from('pong');
+      
+    case 'echo':
+      // Input: string message
+      // Output: string message
+      // Echo back the input (callData is ABI-encoded string)
+      return callData;
+      
     default:
       throw new Error(\`Unknown method: \${method}\`);
   }
@@ -97,7 +106,7 @@ interface InitOptions {
 export async function initCommand(directory: string = '.', options: InitOptions = {}): Promise<void> {
   const targetDir = path.resolve(directory);
   
-  console.log(chalk.blue('🚀 Initializing new Somnia Agent project...\\n'));
+  console.log(chalk.blue('🚀 Initializing new Somnia Agent project...\n'));
 
   // Check if config already exists
   if (!options.force && await configExists(targetDir)) {
@@ -142,8 +151,8 @@ export async function initCommand(directory: string = '.', options: InitOptions 
     },
     {
       type: 'confirm',
-      name: 'createSampleMethod',
-      message: 'Add a sample method (ping)?',
+      name: 'createSampleMethods',
+      message: 'Add sample methods (ping, echo)?',
       default: true,
     },
     {
@@ -160,16 +169,41 @@ export async function initCommand(directory: string = '.', options: InitOptions 
     },
   ]);
 
-  // Build the spec
-  const methods: MethodAbi[] = [];
+  // Build the spec with sample methods using standard ABI format
+  const methods: MethodDefinition[] = [];
   
-  if (answers.createSampleMethod) {
+  if (answers.createSampleMethods) {
+    // Ping method - no inputs, returns string
     methods.push({
       name: 'ping',
-      description: 'Simple ping method that returns pong',
-      requestAbi: [],
-      responseAbi: [
-        { name: 'message', type: 'string' }
+      description: 'Simple ping method that returns "pong"',
+      inputs: [],
+      outputs: [
+        { 
+          name: 'message', 
+          type: 'string',
+          internalType: 'string'
+        }
+      ],
+    });
+    
+    // Echo method - takes string, returns string
+    methods.push({
+      name: 'echo',
+      description: 'Echo back the input message',
+      inputs: [
+        {
+          name: 'message',
+          type: 'string',
+          internalType: 'string'
+        }
+      ],
+      outputs: [
+        {
+          name: 'message',
+          type: 'string',
+          internalType: 'string'
+        }
       ],
     });
   }
@@ -241,10 +275,22 @@ dist/
   await writeFile(path.join(targetDir, '.gitignore'), gitignore);
   console.log(chalk.green('✓ Created .gitignore'));
 
-  console.log(chalk.blue('\\n✨ Agent project initialized!'));
-  console.log(chalk.white('\\nNext steps:'));
+  console.log(chalk.blue('\n✨ Agent project initialized!'));
+  console.log(chalk.white('\nNext steps:'));
   console.log(chalk.gray('  1. Edit agent.spec.json to define your methods and ABIs'));
   console.log(chalk.gray('  2. Implement your agent logic in server.js'));
   console.log(chalk.gray('  3. Run: agent-builder build'));
   console.log(chalk.gray('  4. Run: agent-builder upload'));
+  
+  // Show example ABI format
+  if (answers.createSampleMethods) {
+    console.log(chalk.white('\nExample method ABI format (Ethereum standard):'));
+    console.log(chalk.gray(JSON.stringify({
+      type: 'function',
+      name: 'echo',
+      inputs: [{ name: 'message', type: 'string', internalType: 'string' }],
+      outputs: [{ name: 'message', type: 'string', internalType: 'string' }],
+      stateMutability: 'nonpayable'
+    }, null, 2)));
+  }
 }

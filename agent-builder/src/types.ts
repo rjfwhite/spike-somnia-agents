@@ -1,25 +1,79 @@
 /**
- * Ethereum ABI parameter type
+ * Ethereum ABI parameter type (conforms to Solidity ABI spec)
+ * https://docs.soliditylang.org/en/latest/abi-spec.html
  */
 export interface AbiParameter {
+  /** Parameter name */
   name: string;
+  /** ABI type (e.g., uint256, address, bytes, tuple) */
   type: string;
-  components?: AbiParameter[]; // For tuple types
-  indexed?: boolean; // For event parameters
+  /** Internal Solidity type (e.g., "contract IERC20", "struct MyStruct") */
+  internalType?: string;
+  /** For tuple types: the component parameters */
+  components?: AbiParameter[];
+  /** For event parameters: whether the parameter is indexed */
+  indexed?: boolean;
 }
 
 /**
- * Method ABI definition for agent request/response
+ * Ethereum ABI function item (conforms to Solidity ABI spec)
  */
-export interface MethodAbi {
-  /** Name of the method */
+export interface AbiFunctionItem {
+  /** Always "function" for functions */
+  type: 'function';
+  /** Function name */
   name: string;
-  /** ABI parameters for the request (input) */
-  requestAbi: AbiParameter[];
-  /** ABI parameters for the response (output) */
-  responseAbi: AbiParameter[];
+  /** Input parameters */
+  inputs: AbiParameter[];
+  /** Output parameters */
+  outputs: AbiParameter[];
+  /** State mutability: pure, view, nonpayable, payable */
+  stateMutability: 'pure' | 'view' | 'nonpayable' | 'payable';
+}
+
+/**
+ * Ethereum ABI event item
+ */
+export interface AbiEventItem {
+  type: 'event';
+  name: string;
+  inputs: AbiParameter[];
+  anonymous?: boolean;
+}
+
+/**
+ * Ethereum ABI error item
+ */
+export interface AbiErrorItem {
+  type: 'error';
+  name: string;
+  inputs: AbiParameter[];
+}
+
+/**
+ * Union of all ABI item types
+ */
+export type AbiItem = AbiFunctionItem | AbiEventItem | AbiErrorItem;
+
+/**
+ * Method definition for agent - wraps standard ABI function format
+ * with additional metadata
+ */
+export interface MethodDefinition {
+  /** Method name (must match the HTTP endpoint) */
+  name: string;
   /** Optional description of what this method does */
   description?: string;
+  /** 
+   * ABI for the request (input) - standard Ethereum ABI parameters
+   * These define how callData should be encoded
+   */
+  inputs: AbiParameter[];
+  /** 
+   * ABI for the response (output) - standard Ethereum ABI parameters
+   * These define how responseData should be encoded
+   */
+  outputs: AbiParameter[];
 }
 
 /**
@@ -37,7 +91,7 @@ export interface AgentSpec {
   /** IPFS CID of the container image */
   image?: string;
   /** Methods exposed by this agent with their ABIs */
-  methods: MethodAbi[];
+  methods: MethodDefinition[];
   /** Optional tags for categorization */
   tags?: string[];
   /** Optional homepage/documentation URL */
@@ -97,46 +151,87 @@ export interface AgentConfig {
  * Common Ethereum ABI types for convenience
  */
 export const AbiTypes = {
-  // Basic types
-  uint256: 'uint256',
-  uint128: 'uint128',
-  uint64: 'uint64',
-  uint32: 'uint32',
-  uint16: 'uint16',
+  // Unsigned integers
   uint8: 'uint8',
-  int256: 'int256',
-  int128: 'int128',
-  int64: 'int64',
-  int32: 'int32',
-  int16: 'int16',
+  uint16: 'uint16',
+  uint32: 'uint32',
+  uint64: 'uint64',
+  uint128: 'uint128',
+  uint256: 'uint256',
+  
+  // Signed integers
   int8: 'int8',
+  int16: 'int16',
+  int32: 'int32',
+  int64: 'int64',
+  int128: 'int128',
+  int256: 'int256',
+  
+  // Other basic types
   address: 'address',
   bool: 'bool',
   bytes: 'bytes',
-  bytes32: 'bytes32',
-  bytes4: 'bytes4',
   string: 'string',
   
+  // Fixed-size bytes
+  bytes1: 'bytes1',
+  bytes4: 'bytes4',
+  bytes8: 'bytes8',
+  bytes16: 'bytes16',
+  bytes32: 'bytes32',
+  
   // Array types (append [] to basic types)
-  uint256Array: 'uint256[]',
-  addressArray: 'address[]',
-  bytesArray: 'bytes[]',
-  stringArray: 'string[]',
+  'uint256[]': 'uint256[]',
+  'address[]': 'address[]',
+  'bytes[]': 'bytes[]',
+  'string[]': 'string[]',
+  'bytes32[]': 'bytes32[]',
+  'bool[]': 'bool[]',
   
   // Tuple marker (components should be specified)
   tuple: 'tuple',
-  tupleArray: 'tuple[]',
+  'tuple[]': 'tuple[]',
 } as const;
 
 /**
- * Helper to create an ABI parameter
+ * Helper to create an ABI parameter (standard Ethereum ABI format)
  */
-export function param(name: string, type: string, components?: AbiParameter[]): AbiParameter {
+export function param(
+  name: string, 
+  type: string, 
+  options?: { 
+    internalType?: string; 
+    components?: AbiParameter[];
+    indexed?: boolean;
+  }
+): AbiParameter {
   const p: AbiParameter = { name, type };
-  if (components) {
-    p.components = components;
+  if (options?.internalType) {
+    p.internalType = options.internalType;
+  }
+  if (options?.components) {
+    p.components = options.components;
+  }
+  if (options?.indexed !== undefined) {
+    p.indexed = options.indexed;
   }
   return p;
+}
+
+/**
+ * Helper to create a tuple parameter with components
+ */
+export function tupleParam(
+  name: string, 
+  components: AbiParameter[],
+  options?: { internalType?: string; isArray?: boolean }
+): AbiParameter {
+  return {
+    name,
+    type: options?.isArray ? 'tuple[]' : 'tuple',
+    internalType: options?.internalType,
+    components,
+  };
 }
 
 /**
@@ -144,9 +239,32 @@ export function param(name: string, type: string, components?: AbiParameter[]): 
  */
 export function method(
   name: string,
-  requestAbi: AbiParameter[],
-  responseAbi: AbiParameter[],
+  inputs: AbiParameter[],
+  outputs: AbiParameter[],
   description?: string
-): MethodAbi {
-  return { name, requestAbi, responseAbi, description };
+): MethodDefinition {
+  return { name, inputs, outputs, description };
+}
+
+/**
+ * Convert a MethodDefinition to a standard ABI function item
+ */
+export function methodToAbiFunction(
+  method: MethodDefinition, 
+  stateMutability: AbiFunctionItem['stateMutability'] = 'nonpayable'
+): AbiFunctionItem {
+  return {
+    type: 'function',
+    name: method.name,
+    inputs: method.inputs,
+    outputs: method.outputs,
+    stateMutability,
+  };
+}
+
+/**
+ * Generate a complete ABI array from agent methods
+ */
+export function generateAbiFromMethods(methods: MethodDefinition[]): AbiFunctionItem[] {
+  return methods.map(m => methodToAbiFunction(m));
 }
