@@ -1,0 +1,36 @@
+{
+  "name": "agent-builder",
+  "version": "1.0.0",
+  "description": "CLI tool to build and upload Somnia agent containers",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "agent-builder": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts"
+  },
+  "keywords": [
+    "somnia",
+    "agents",
+    "docker",
+    "ipfs",
+    "cli"
+  ],
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0",
+    "dockerode": "^4.0.9",
+    "dotenv": "^16.4.7",
+    "inquirer": "^12.3.2",
+    "ora": "^8.1.1"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.47",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
