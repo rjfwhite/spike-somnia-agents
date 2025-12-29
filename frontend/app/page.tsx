@@ -3,6 +3,8 @@ import { ContractReader } from "@/components/ContractReader";
 import { AgentViewer } from "@/components/AgentViewer";
 import { MintAgent } from "@/components/MintAgent";
 import { CreateRequest } from "@/components/CreateRequest";
+import { ManageResponders } from "@/components/ManageResponders";
+import { EventStreamWrapper } from "@/components/EventStreamWrapper";
 
 export default function Home() {
   return (
@@ -17,6 +19,11 @@ export default function Home() {
           <WalletConnect />
         </header>
 
+        {/* Live Event Stream */}
+        <div className="mb-6 sm:mb-8">
+          <EventStreamWrapper />
+        </div>
+
         {/* Main Content Grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
           {/* Contract Info */}
@@ -30,12 +37,15 @@ export default function Home() {
 
           {/* Create Request */}
           <CreateRequest />
+
+          {/* Manage Responders */}
+          <ManageResponders />
         </div>
 
         {/* Footer */}
         <footer className="mt-8 sm:mt-12 text-center px-2">
           <p className="text-xs sm:text-sm text-gray-700 font-medium">
-            Contract: <span className="font-mono text-gray-900 break-all">0x1B8c...593f</span> on Somnia Network
+            Contract: <span className="font-mono text-gray-900 break-all">0x9De7...7160</span> on Somnia Network
           </p>
         </footer>
       </div>

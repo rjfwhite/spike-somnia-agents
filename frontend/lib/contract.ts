@@ -1,6 +1,6 @@
 export const SOMNIA_CHAIN_ID = 5031;
 export const SOMNIA_RPC_URL = "https://api.infra.mainnet.somnia.network/";
-export const CONTRACT_ADDRESS = "0x8E660a4618E117b7442A96fA2BEe3d7aE5E6Ed7f" as const;
+export const CONTRACT_ADDRESS = "0x9De7D7a7e0864be11F338b3D1bBfF3e982207160" as const;
 
 // Contract ABI - only the functions we care about
 export const SOMNIA_AGENTS_ABI = [
@@ -329,6 +329,12 @@ export const SOMNIA_AGENTS_ABI = [
         "internalType": "uint256[]",
         "name": "receipts",
         "type": "uint256[]"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
       }
     ],
     "name": "RequestResolved",
@@ -530,6 +536,11 @@ export const SOMNIA_AGENTS_ABI = [
         "internalType": "uint256[]",
         "name": "receipts",
         "type": "uint256[]"
+      },
+      {
+        "internalType": "bool",
+        "name": "success",
+        "type": "bool"
       }
     ],
     "name": "handleResponse",
@@ -553,6 +564,11 @@ export const SOMNIA_AGENTS_ABI = [
         "internalType": "uint256[][]",
         "name": "receiptsArray",
         "type": "uint256[][]"
+      },
+      {
+        "internalType": "bool[]",
+        "name": "successArray",
+        "type": "bool[]"
       }
     ],
     "name": "handleResponsesBulk",
@@ -904,4 +920,3 @@ export const SOMNIA_AGENTS_ABI = [
     "type": "function"
   }
 ] as const;
-

@@ -1,19 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
 import { formatEther } from "viem";
+import type { TokenMetadata, MethodDefinition } from "@/lib/types";
+import { encodeAbi, parseInputValue } from "@/lib/abi-utils";
 
 export function CreateRequest() {
   const [agentId, setAgentId] = useState<string>("1");
-  const [method, setMethod] = useState<string>("");
-  const [callData, setCallData] = useState<string>("");
-  
+  const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(false);
+  const [selectedMethod, setSelectedMethod] = useState<MethodDefinition | null>(null);
+  const [inputValues, setInputValues] = useState<Record<string, string>>({});
+
   const { data: hash, writeContract, isPending, error } = useWriteContract();
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
     hash,
+  });
+
+  // Read agent metadata URI
+  const { data: tokenURI } = useReadContract({
+    address: CONTRACT_ADDRESS,
+    abi: SOMNIA_AGENTS_ABI,
+    functionName: "tokenURI",
+    args: agentId ? [BigInt(agentId)] : undefined,
   });
 
   // Read agent price
@@ -24,30 +36,96 @@ export function CreateRequest() {
     args: agentId ? [BigInt(agentId)] : undefined,
   });
 
+  // Fetch metadata when tokenURI changes
+  useEffect(() => {
+    if (!tokenURI) {
+      setMetadata(null);
+      setSelectedMethod(null);
+      return;
+    }
+
+    const fetchMetadata = async () => {
+      setMetadataLoading(true);
+      try {
+        const uri = tokenURI.toString();
+        const response = await fetch(uri);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch metadata: ${response.status}`);
+        }
+        const data = await response.json();
+        setMetadata(data);
+
+        // Auto-select first method if available
+        const methods = data.agent_spec?.methods || data.methods;
+        if (methods && methods.length > 0) {
+          setSelectedMethod(methods[0]);
+          // Initialize input values
+          const initialValues: Record<string, string> = {};
+          methods[0].inputs.forEach((input: any) => {
+            initialValues[input.name] = '';
+          });
+          setInputValues(initialValues);
+        }
+      } catch (err) {
+        console.error('Failed to fetch metadata:', err);
+        setMetadata(null);
+      } finally {
+        setMetadataLoading(false);
+      }
+    };
+
+    fetchMetadata();
+  }, [tokenURI]);
+
+  // Update input values when method changes
+  useEffect(() => {
+    if (selectedMethod) {
+      const initialValues: Record<string, string> = {};
+      selectedMethod.inputs.forEach(input => {
+        initialValues[input.name] = inputValues[input.name] || '';
+      });
+      setInputValues(initialValues);
+    }
+  }, [selectedMethod]);
+
   const handleCreateRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
+    if (!selectedMethod) {
+      return;
+    }
+
     // Generate a random request ID
     const requestId = BigInt(Math.floor(Math.random() * 1000000000));
-    
-    // Encode the call data as bytes (you can modify this based on your needs)
-    const encodedCallData = callData.startsWith("0x") 
-      ? callData as `0x${string}`
-      : `0x${Buffer.from(callData).toString("hex")}` as `0x${string}`;
 
-    writeContract({
-      address: CONTRACT_ADDRESS,
-      abi: SOMNIA_AGENTS_ABI,
-      functionName: "createRequest",
-      args: [requestId, BigInt(agentId), method, encodedCallData],
-      value: price || BigInt(0),
-    });
+    // Parse and encode call data using ABI
+    try {
+      const values = selectedMethod.inputs.map(input => {
+        const rawValue = inputValues[input.name] || '';
+        return parseInputValue(rawValue, input.type);
+      });
+
+      const encodedCallData = encodeAbi(selectedMethod.inputs, values);
+
+      writeContract({
+        address: CONTRACT_ADDRESS,
+        abi: SOMNIA_AGENTS_ABI,
+        functionName: "createRequest",
+        args: [requestId, BigInt(agentId), selectedMethod.name, encodedCallData],
+        value: price || BigInt(0),
+      });
+    } catch (err: any) {
+      console.error('Failed to encode call data:', err);
+      alert(`Failed to encode call data: ${err.message}`);
+    }
   };
+
+  const methods = metadata?.agent_spec?.methods || metadata?.methods || [];
 
   return (
     <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 space-y-3 sm:space-y-4 border border-gray-200">
       <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Create Agent Request</h2>
-      
+
       <form onSubmit={handleCreateRequest} className="space-y-3 sm:space-y-4">
         <div>
           <label htmlFor="requestAgentId" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
@@ -70,39 +148,81 @@ export function CreateRequest() {
           )}
         </div>
 
-        <div>
-          <label htmlFor="method" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
-            Method
-          </label>
-          <input
-            id="method"
-            type="text"
-            value={method}
-            onChange={(e) => setMethod(e.target.value)}
-            className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-            placeholder="e.g., generateImage, analyzeText"
-            required
-          />
-        </div>
+        {metadataLoading && (
+          <p className="text-sm text-gray-600">Loading agent metadata...</p>
+        )}
 
-        <div>
-          <label htmlFor="callData" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
-            Call Data <span className="font-normal text-gray-600">(plain text or hex)</span>
-          </label>
-          <textarea
-            id="callData"
-            value={callData}
-            onChange={(e) => setCallData(e.target.value)}
-            className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-y"
-            placeholder="Enter request parameters"
-            rows={3}
-            required
-          />
-        </div>
+        {metadata && methods.length > 0 && (
+          <>
+            <div>
+              <label htmlFor="method" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
+                Method
+              </label>
+              <select
+                id="method"
+                value={selectedMethod?.name || ''}
+                onChange={(e) => {
+                  const method = methods.find(m => m.name === e.target.value);
+                  setSelectedMethod(method || null);
+                }}
+                className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                required
+              >
+                {methods.map((method: MethodDefinition) => (
+                  <option key={method.name} value={method.name}>
+                    {method.name}
+                    {method.description && ` - ${method.description}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedMethod && selectedMethod.inputs.length > 0 && (
+              <div className="space-y-3 border border-gray-200 rounded-md p-3">
+                <h3 className="text-sm font-semibold text-gray-900">Parameters</h3>
+                {selectedMethod.inputs.map((input) => (
+                  <div key={input.name}>
+                    <label htmlFor={`input-${input.name}`} className="block text-sm font-medium text-gray-700 mb-1">
+                      {input.name} <span className="font-mono text-xs text-gray-500">({input.type})</span>
+                    </label>
+                    <input
+                      id={`input-${input.name}`}
+                      type="text"
+                      value={inputValues[input.name] || ''}
+                      onChange={(e) => setInputValues({
+                        ...inputValues,
+                        [input.name]: e.target.value
+                      })}
+                      className="w-full px-3 py-2 text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      placeholder={
+                        input.type.startsWith('uint') || input.type.startsWith('int') ? 'e.g., 123' :
+                          input.type === 'bool' ? 'true or false' :
+                            input.type === 'address' ? '0x...' :
+                              input.type.endsWith('[]') ? '[value1, value2, ...]' :
+                                'Enter value'
+                      }
+                      required
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {selectedMethod && selectedMethod.inputs.length === 0 && (
+              <p className="text-sm text-gray-600 italic">This method takes no parameters</p>
+            )}
+          </>
+        )}
+
+        {metadata && methods.length === 0 && (
+          <p className="text-sm text-yellow-700 bg-yellow-50 p-3 rounded border border-yellow-200">
+            No methods found in agent metadata
+          </p>
+        )}
 
         <button
           type="submit"
-          disabled={isPending || isConfirming || !agentId || !method || !callData}
+          disabled={isPending || isConfirming || !agentId || !selectedMethod || metadataLoading}
           className="w-full bg-purple-600 text-white py-3 sm:py-2.5 px-4 rounded-md hover:bg-purple-700 active:bg-purple-800 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold transition-colors text-base sm:text-sm min-h-[48px] sm:min-h-0"
         >
           {isPending ? "Confirming..." : isConfirming ? "Creating..." : "Create Request"}
@@ -130,4 +250,3 @@ export function CreateRequest() {
     </div>
   );
 }
-

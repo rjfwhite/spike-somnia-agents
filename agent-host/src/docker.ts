@@ -1,6 +1,6 @@
 import Docker from 'dockerode';
 import { createReadStream } from 'fs';
-import { fetchImageFromIPFS } from './ipfs.js';
+import { downloadFile } from './uri.js';
 
 const docker = new Docker();
 
@@ -58,7 +58,7 @@ async function loadImage(tarPath: string): Promise<string> {
               }
             }
           }
-        } catch {}
+        } catch { }
         reject(new Error(`Could not parse image name from: ${output}`));
       }
     });
@@ -68,25 +68,26 @@ async function loadImage(tarPath: string): Promise<string> {
 
 /**
  * Start a container for an agent
- * @param agentId The agent ID (IPFS CID of the container image)
- * @returns The host port the container is accessible on
+ * @param agentId The agent ID (numeric ID from contract) - used for naming/tracking
+ * @param containerImage The container image URL or IPFS CID - used for downloading
+ * @returns Object with port and whether container was just started
  */
-export async function startAgentContainer(agentId: string): Promise<number> {
+export async function startAgentContainer(agentId: string, containerImage: string): Promise<{ port: number; justStarted: boolean }> {
   // Check if container is already running
   if (runningContainers.has(agentId)) {
     const container = runningContainers.get(agentId)!;
     const info = await container.inspect();
     if (info.State.Running) {
       console.log(`🐳 Container for agent ${agentId} already running`);
-      return getPortForAgent(agentId);
+      return { port: getPortForAgent(agentId), justStarted: false };
     }
     // Container exists but not running, remove it
     await container.remove({ force: true });
     runningContainers.delete(agentId);
   }
 
-  // Fetch the image from IPFS
-  const tarPath = await fetchImageFromIPFS(agentId);
+  // Fetch the image from URI (IPFS or URL)
+  const tarPath = await downloadFile(containerImage);
 
   // Load the image into Docker
   const imageName = await loadImage(tarPath);
@@ -98,9 +99,12 @@ export async function startAgentContainer(agentId: string): Promise<number> {
   // Create and start the container
   console.log(`🐳 Starting container for agent ${agentId} on port ${hostPort}...`);
 
+  const containerName = `agent-${agentId}`;
+  console.log(`   Container name: ${containerName}`);
+
   const container = await docker.createContainer({
     Image: imageName,
-    name: `agent-${agentId.substring(0, 12)}`,
+    name: containerName,
     ExposedPorts: {
       '80/tcp': {},
     },
@@ -120,7 +124,37 @@ export async function startAgentContainer(agentId: string): Promise<number> {
 
   console.log(`   ✅ Container started, accessible at http://localhost:${hostPort}`);
 
-  return hostPort;
+  return { port: hostPort, justStarted: true };
+}
+
+/**
+ * Wait for a container to be ready to accept requests
+ * @param port The port the container is listening on
+ * @param maxAttempts Maximum number of attempts (default 30)
+ * @param delayMs Delay between attempts in milliseconds (default 1000)
+ */
+async function waitForContainerReady(port: number, maxAttempts = 30, delayMs = 1000): Promise<void> {
+  console.log(`   ⏳ Waiting for container to be ready on port ${port}...`);
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      // Try to connect to the container (using a HEAD or GET to root)
+      const response = await fetch(`http://localhost:${port}/`, {
+        method: 'GET',
+        signal: AbortSignal.timeout(2000), // 2 second timeout per request
+      });
+      
+      // Any response (even 404) means the server is up
+      console.log(`   ✅ Container ready after ${attempt} attempt(s)`);
+      return;
+    } catch (error: any) {
+      if (attempt === maxAttempts) {
+        throw new Error(`Container did not become ready after ${maxAttempts} attempts`);
+      }
+      // Wait before next attempt
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
 }
 
 /**
@@ -142,22 +176,34 @@ export async function stopAgentContainer(agentId: string): Promise<void> {
 
 /**
  * Send a request to an agent's container
- * @param agentId The agent ID (IPFS CID)
+ * @param agentId The agent ID (numeric ID from contract) - used for naming/tracking
+ * @param containerImage The container image URL or IPFS CID - used for downloading
  * @param method The HTTP method/endpoint
  * @param callData The request data
  * @returns The response from the container
  */
 export async function callAgentContainer(
   agentId: string,
+  containerImage: string,
   method: string,
   callData: string
 ): Promise<string> {
   // Ensure container is running
-  const port = await startAgentContainer(agentId);
+  const { port, justStarted } = await startAgentContainer(agentId, containerImage);
+
+  // Wait for container to be ready if it was just started
+  if (justStarted) {
+    await waitForContainerReady(port);
+  }
 
   // Make HTTP request to the container
   const url = `http://localhost:${port}/${method}`;
   console.log(`📤 Calling agent container: ${url}`);
+  console.log(`   Call data (hex): ${callData.substring(0, 200)}${callData.length > 200 ? '...' : ''}`);
+
+  // Convert hex string to binary
+  const callDataHex = callData.startsWith('0x') ? callData.slice(2) : callData;
+  const callDataBytes = Buffer.from(callDataHex, 'hex');
 
   try {
     const response = await fetch(url, {
@@ -165,14 +211,22 @@ export async function callAgentContainer(
       headers: {
         'Content-Type': 'application/octet-stream',
       },
-      body: callData,
+      body: callDataBytes,
     });
 
-    const responseText = await response.text();
-    console.log(`📥 Response status: ${response.status}`);
-    console.log(`📥 Response: ${responseText.substring(0, 200)}${responseText.length > 200 ? '...' : ''}`);
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Agent returned error ${response.status}: ${errorText}`);
+    }
 
-    return responseText;
+    // Read response as bytes
+    const responseBytes = await response.arrayBuffer();
+    const responseHex = '0x' + Buffer.from(responseBytes).toString('hex');
+    
+    console.log(`📥 Response status: ${response.status}`);
+    console.log(`📥 Response (hex): ${responseHex.substring(0, 200)}${responseHex.length > 200 ? '...' : ''}`);
+
+    return responseHex;
   } catch (error: any) {
     console.error(`❌ Failed to call agent: ${error.message}`);
     throw error;
