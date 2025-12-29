@@ -76,14 +76,16 @@ export async function startAgentContainer(agentId: string, containerImage: strin
   // Check if container is already running
   if (runningContainers.has(agentId)) {
     const container = runningContainers.get(agentId)!;
-    const info = await container.inspect();
-    if (info.State.Running) {
-      console.log(`🐳 Container for agent ${agentId} already running`);
-      return { port: getPortForAgent(agentId), justStarted: false };
+    try {
+      const info = await container.inspect();
+      if (info.State.Running) {
+        console.log(`🐳 Container for agent ${agentId} already running`);
+        return { port: getPortForAgent(agentId), justStarted: false };
+      }
+    } catch (e) {
+      // Container mapped but not found/inspectable, plain cleanup
+      runningContainers.delete(agentId);
     }
-    // Container exists but not running, remove it
-    await container.remove({ force: true });
-    runningContainers.delete(agentId);
   }
 
   // Fetch the image from URI (IPFS or URL)
@@ -96,10 +98,25 @@ export async function startAgentContainer(agentId: string, containerImage: strin
   // Allocate a port for this agent
   const hostPort = getPortForAgent(agentId);
 
+  // Define container name
+  const containerName = `agent-${agentId}`;
+
+  // Cleanup orphaned container if it exists (e.g. from previous run)
+  try {
+    const existingContainer = docker.getContainer(containerName);
+    await existingContainer.inspect();
+    // If we reach here, the container exists but wasn't in our valid running map
+    console.log(`   Found orphaned container ${containerName}, removing...`);
+    await existingContainer.remove({ force: true });
+  } catch (error: any) {
+    // 404 means not found, which is what we want
+    if (error.statusCode !== 404) {
+      console.warn(`   Warning: checking for orphan container failed: ${error.message}`);
+    }
+  }
+
   // Create and start the container
   console.log(`🐳 Starting container for agent ${agentId} on port ${hostPort}...`);
-
-  const containerName = `agent-${agentId}`;
   console.log(`   Container name: ${containerName}`);
 
   const container = await docker.createContainer({
@@ -135,7 +152,7 @@ export async function startAgentContainer(agentId: string, containerImage: strin
  */
 async function waitForContainerReady(port: number, maxAttempts = 30, delayMs = 1000): Promise<void> {
   console.log(`   ⏳ Waiting for container to be ready on port ${port}...`);
-  
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       // Try to connect to the container (using a HEAD or GET to root)
@@ -143,7 +160,7 @@ async function waitForContainerReady(port: number, maxAttempts = 30, delayMs = 1
         method: 'GET',
         signal: AbortSignal.timeout(2000), // 2 second timeout per request
       });
-      
+
       // Any response (even 404) means the server is up
       console.log(`   ✅ Container ready after ${attempt} attempt(s)`);
       return;
@@ -222,7 +239,7 @@ export async function callAgentContainer(
     // Read response as bytes
     const responseBytes = await response.arrayBuffer();
     const responseHex = '0x' + Buffer.from(responseBytes).toString('hex');
-    
+
     console.log(`📥 Response status: ${response.status}`);
     console.log(`📥 Response (hex): ${responseHex.substring(0, 200)}${responseHex.length > 200 ? '...' : ''}`);
 
