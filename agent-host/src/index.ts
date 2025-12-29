@@ -356,3 +356,26 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
+// Health server for Cloud Run (keeps the service alive)
+import { createServer } from 'http';
+
+const healthPort = parseInt(process.env.PORT || '8080');
+const healthServer = createServer((req, res) => {
+  if (req.url === '/health' || req.url === '/') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: 'healthy',
+      service: 'agent-host',
+      uptime: process.uptime(),
+      cachedAgents: agentCache.size,
+    }));
+  } else {
+    res.writeHead(404);
+    res.end('Not found');
+  }
+});
+
+healthServer.listen(healthPort, () => {
+  console.log(`🏥 Health server listening on port ${healthPort}`);
+});

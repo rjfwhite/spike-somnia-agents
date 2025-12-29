@@ -1,0 +1,25 @@
+# Dependencies
+node_modules
+
+# Build output (we rebuild in Docker)
+dist
+
+# Development files
+*.log
+.env
+.env.*
+
+# Image cache (downloaded at runtime)
+image-cache/*.tar
+
+# IDE
+.vscode
+.idea
+
+# Git
+.git
+.gitignore
+
+# Docs
+README.md
+
