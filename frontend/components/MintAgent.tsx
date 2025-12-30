@@ -8,7 +8,7 @@ export function MintAgent() {
   const [recipient, setRecipient] = useState<string>("");
   const [metadataUri, setMetadataUri] = useState<string>("");
   const { address } = useAccount();
-  
+
   const { data: hash, writeContract, isPending, error } = useWriteContract();
 
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
@@ -17,7 +17,7 @@ export function MintAgent() {
 
   const handleMint = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     const targetAddress = recipient || address;
     if (!targetAddress) {
       alert("Please connect wallet or specify recipient address");
@@ -33,63 +33,68 @@ export function MintAgent() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 space-y-3 sm:space-y-4 border border-gray-200">
-      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Mint New Agent</h2>
-      
-      <form onSubmit={handleMint} className="space-y-3 sm:space-y-4">
+    <div className="glass-panel rounded-xl shadow-xl p-8 space-y-6 max-w-2xl mx-auto">
+      <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">Mint New Agent</h2>
+
+      <form onSubmit={handleMint} className="space-y-6">
         <div>
-          <label htmlFor="recipient" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
-            Recipient Address <span className="font-normal text-gray-600">(optional)</span>
+          <label htmlFor="recipient" className="block text-sm font-semibold text-gray-300 mb-2">
+            Recipient Address <span className="font-normal text-gray-500">(optional)</span>
           </label>
           <input
             id="recipient"
             type="text"
             value={recipient}
             onChange={(e) => setRecipient(e.target.value)}
-            className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-transparent transition-all"
             placeholder="0x... (defaults to your address)"
           />
         </div>
 
         <div>
-          <label htmlFor="uri" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
+          <label htmlFor="uri" className="block text-sm font-semibold text-gray-300 mb-2">
             Metadata URI
           </label>
-          <input
-            id="uri"
-            type="text"
-            value={metadataUri}
-            onChange={(e) => setMetadataUri(e.target.value)}
-            className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="ipfs://... or https://..."
-            required
-          />
+          <div className="relative">
+            <input
+              id="uri"
+              type="text"
+              value={metadataUri}
+              onChange={(e) => setMetadataUri(e.target.value)}
+              className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-secondary/50 focus:border-transparent transition-all pl-10"
+              placeholder="ipfs://... or https://..."
+              required
+            />
+            <div className="absolute left-3 top-3.5 text-gray-500">
+              🔗
+            </div>
+          </div>
         </div>
 
         <button
           type="submit"
           disabled={isPending || isConfirming || !metadataUri}
-          className="w-full bg-blue-600 text-white py-3 sm:py-2.5 px-4 rounded-md hover:bg-blue-700 active:bg-blue-800 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold transition-colors text-base sm:text-sm min-h-[48px] sm:min-h-0"
+          className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-4 px-6 rounded-xl hover:from-blue-500 hover:to-cyan-500 active:from-blue-700 active:to-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed font-bold shadow-lg shadow-blue-500/20 transition-all transform hover:-translate-y-0.5"
         >
           {isPending ? "Confirming..." : isConfirming ? "Minting..." : "Mint Agent"}
         </button>
 
         {hash && (
-          <div className="text-sm bg-blue-50 p-3 rounded-md border border-blue-200">
-            <p className="text-gray-900 font-semibold mb-1">Transaction Hash:</p>
-            <p className="font-mono text-xs break-all text-gray-900">{hash}</p>
+          <div className="text-sm bg-black/30 p-4 rounded-xl border border-white/10 mt-4">
+            <p className="text-gray-400 font-semibold mb-1 uppercase tracking-wider text-xs">Transaction Hash</p>
+            <p className="font-mono text-xs break-all text-secondary">{hash}</p>
           </div>
         )}
 
         {isSuccess && (
-          <div className="bg-green-100 border border-green-400 text-green-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm">
-            Agent minted successfully!
+          <div className="bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-xl font-semibold text-sm flex items-center gap-2">
+            <span>✅</span> Agent minted successfully!
           </div>
         )}
 
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm break-words">
-            Error: {error.message}
+          <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl font-semibold text-sm break-words flex items-center gap-2">
+            <span>⚠️</span> Error: {error.message}
           </div>
         )}
       </form>

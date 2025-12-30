@@ -4,111 +4,7 @@ import { useEffect, useState } from "react";
 import { createPublicClient, webSocket, type Hex } from "viem";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL } from "@/lib/contract";
 import type { TokenMetadata, MethodDefinition } from "@/lib/types";
-import { decodeAbi, formatDecodedValue } from "@/lib/abi-utils";
-
-function DecodedData({
-  data,
-  label,
-  method
-}: {
-  data: string;
-  label: string;
-  method?: MethodDefinition;
-}) {
-  const [copied, setCopied] = useState(false);
-  const [showRaw, setShowRaw] = useState(false);
-
-  const copyToClipboard = async () => {
-    try {
-      await navigator.clipboard.writeText(data);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy:", err);
-    }
-  };
-
-  // Try to decode using ABI if method is provided
-  let decodedValues: any[] | null = null;
-  let decodeError: string | null = null;
-
-  if (method && data && data !== '0x') {
-    try {
-      const params = label === "Call Data" ? method.inputs : method.outputs;
-      if (params && params.length > 0) {
-        decodedValues = decodeAbi(params, data as Hex);
-      }
-    } catch (err: any) {
-      decodeError = err.message;
-    }
-  }
-
-  return (
-    <div className="mt-2 bg-white rounded border border-gray-300 p-2">
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-semibold text-gray-700">{label}:</span>
-        <div className="flex gap-1">
-          {decodedValues && (
-            <button
-              onClick={() => setShowRaw(!showRaw)}
-              className="text-xs px-2 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded transition-colors"
-            >
-              {showRaw ? "Show decoded" : "Show raw"}
-            </button>
-          )}
-          <button
-            onClick={copyToClipboard}
-            className="text-xs px-2 py-1 bg-purple-100 hover:bg-purple-200 text-purple-700 rounded transition-colors flex items-center gap-1"
-          >
-            {copied ? (
-              <>
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Copied!
-              </>
-            ) : (
-              <>
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-                Copy
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {!showRaw && decodedValues ? (
-        <div className="space-y-1">
-          {decodedValues.map((value, idx) => {
-            const params = label === "Call Data" ? method!.inputs : method!.outputs;
-            const param = params[idx];
-            return (
-              <div key={idx} className="bg-green-50 p-2 rounded">
-                <span className="text-xs font-semibold text-gray-700">{param.name}:</span>
-                <div className="font-mono text-xs text-green-800 mt-1">
-                  {formatDecodedValue(value, param.type)}
-                </div>
-                <div className="text-xs text-gray-500 mt-0.5">({param.type})</div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="font-mono text-xs text-gray-900 break-all bg-gray-50 p-2 rounded">
-          {data}
-        </div>
-      )}
-
-      {decodeError && !showRaw && (
-        <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded">
-          Failed to decode: {decodeError}
-        </div>
-      )}
-    </div>
-  );
-}
+import { DecodedData } from "@/components/DecodedData";
 
 interface RequestEvent {
   requestId: bigint;
@@ -299,41 +195,43 @@ export function EventStream() {
   const eventList = Array.from(events.values()).sort((a, b) => b.timestamp - a.timestamp);
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 space-y-3 sm:space-y-4 border border-gray-200 lg:col-span-2">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Live Event Stream</h2>
+    <div className="glass-panel rounded-xl shadow-xl p-6 lg:col-span-2 space-y-4 h-full flex flex-col">
+      <div className="flex items-center justify-between border-b border-white/10 pb-4">
+        <h2 className="text-2xl font-bold text-white flex items-center gap-3">
+          <span className="relative flex h-3 w-3">
+            <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${connectionStatus === "connected" ? "bg-green-400" : "bg-red-400"}`}></span>
+            <span className={`relative inline-flex rounded-full h-3 w-3 ${connectionStatus === "connected" ? "bg-green-500" : "bg-red-500"}`}></span>
+          </span>
+          Live Event Stream
+        </h2>
         <div className="flex items-center gap-2">
-          <div
-            className={`w-2 h-2 rounded-full ${connectionStatus === "connected"
-                ? "bg-green-500"
-                : connectionStatus === "connecting"
-                  ? "bg-yellow-500 animate-pulse"
-                  : "bg-red-500"
-              }`}
-          />
-          <span className="text-xs sm:text-sm font-medium text-gray-700">
+          <span className={`text-xs px-2 py-1 rounded-full border border-white/5 ${connectionStatus === "connected"
+            ? "bg-green-500/10 text-green-400"
+            : "bg-red-500/10 text-red-400"
+            }`}>
             {connectionStatus === "connected"
-              ? "Live"
+              ? "● Connected"
               : connectionStatus === "connecting"
-                ? "Connecting..."
-                : "Disconnected"}
+                ? "○ Connecting..."
+                : "✕ Disconnected"}
           </span>
         </div>
       </div>
 
       {eventList.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
-          <p className="text-sm sm:text-base">Waiting for events...</p>
-          <p className="text-xs sm:text-sm mt-2">Create a request to see it appear here in real-time</p>
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-12 text-gray-500 space-y-2 min-h-[200px]">
+          <div className="text-4xl opacity-20 mb-2">📡</div>
+          <p className="font-medium">Waiting for events...</p>
+          <p className="text-xs">Create a request to see it appear here in real-time</p>
         </div>
       ) : (
-        <div className="space-y-2 max-h-[500px] overflow-y-auto">
+        <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
           {eventList.map((event) => {
-            const bgColor = !event.resolved
-              ? "bg-blue-50 border-blue-300"
+            const statusStyle = !event.resolved
+              ? "bg-blue-500/5 border-blue-500/20 hover:border-blue-500/40"
               : event.success
-                ? "bg-green-50 border-green-300"
-                : "bg-red-50 border-red-300";
+                ? "bg-green-500/5 border-green-500/20 hover:border-green-500/40"
+                : "bg-red-500/5 border-red-500/20 hover:border-red-500/40";
 
             // Find the method definition from metadata
             const methods = event.metadata?.agent_spec?.methods || event.metadata?.methods;
@@ -342,86 +240,47 @@ export function EventStream() {
             return (
               <div
                 key={event.requestId.toString()}
-                className={`p-3 sm:p-4 border rounded-lg transition-all ${bgColor}`}
+                className={`p-4 border rounded-xl transition-all ${statusStyle}`}
               >
-                <div className="flex items-start gap-3">
+                <div className="flex items-start gap-4">
                   <div className="flex-shrink-0 mt-1">
                     {!event.resolved ? (
-                      <svg
-                        className="w-5 h-5 text-blue-600 animate-pulse"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
+                      <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 animate-pulse">
+                        ⏳
+                      </div>
                     ) : event.success ? (
-                      <svg
-                        className="w-5 h-5 text-green-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
+                      <div className="w-8 h-8 rounded-full bg-green-500/10 flex items-center justify-center text-green-400">
+                        ✓
+                      </div>
                     ) : (
-                      <svg
-                        className="w-5 h-5 text-red-600"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
+                      <div className="w-8 h-8 rounded-full bg-red-500/10 flex items-center justify-center text-red-400">
+                        ✕
+                      </div>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-semibold text-gray-700 bg-white px-2 py-1 rounded">
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-gray-500">
                         Request #{event.requestId.toString()}
-                      </span>
-                      <span className="text-xs font-semibold text-gray-700 bg-white px-2 py-1 rounded">
+                        <span className="text-gray-700">•</span>
                         Agent #{event.agentId.toString()}
-                      </span>
-                      {event.resolved && event.success && (
-                        <span className="text-xs font-semibold text-green-700 bg-green-200 px-2 py-1 rounded">
-                          ✓ Success
-                        </span>
-                      )}
-                      {event.resolved && event.success === false && (
-                        <span className="text-xs font-semibold text-red-700 bg-red-200 px-2 py-1 rounded">
-                          ✗ Error
-                        </span>
-                      )}
+                      </div>
+                      <div className="flex-1"></div>
+                      <div className="text-xs text-gray-500 font-mono">
+                        {new Date(event.timestamp).toLocaleTimeString()}
+                      </div>
                     </div>
-                    <p className="text-sm font-semibold text-gray-900 mt-2">
-                      Method: <span className="font-mono text-purple-700">{event.method}</span>
-                    </p>
+
+                    <div className="flex items-center gap-2 mb-3">
+                      <span className="text-gray-400 text-sm">Method:</span>
+                      <span className="font-mono text-white font-bold bg-white/5 px-2 py-0.5 rounded text-sm">{event.method}</span>
+                    </div>
 
                     <DecodedData data={event.callData} label="Call Data" method={methodDef} />
 
                     {event.resolved && event.responseData && (
                       <DecodedData data={event.responseData} label="Response" method={methodDef} />
                     )}
-
-                    <p className="text-xs text-gray-500 mt-2">
-                      Block: {event.blockNumber.toString()} • {new Date(event.timestamp).toLocaleTimeString()}
-                    </p>
                   </div>
                 </div>
               </div>

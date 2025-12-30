@@ -44,6 +44,11 @@ ENV NODE_ENV=production
 # Required:
 #   PRIVATE_KEY - Your wallet private key
 #   DOCKER_HOST - Remote Docker daemon (e.g., tcp://10.128.0.2:2375)
+#   RPC_URL     - HTTP RPC Endpoint (optional)
+#   WSS_RPC_URL - WebSocket RPC Endpoint (recommended for timeout issues)
+
+ENV RPC_URL="https://dream-rpc.somnia.network"
+ENV WSS_RPC_URL="wss://dream-rpc.somnia.network/ws"
 
 # Cloud Run v2 health check port
 ENV PORT=8080

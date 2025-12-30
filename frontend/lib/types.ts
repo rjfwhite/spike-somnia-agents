@@ -27,7 +27,7 @@ export interface AgentSpec {
     version: string;
     description: string;
     author?: string;
-    image: string; // Container image URI (required)
+    container_image: string; // Container image URI (required)
     methods: MethodDefinition[];
     tags?: string[];
     homepage?: string;

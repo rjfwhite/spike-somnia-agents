@@ -79,154 +79,167 @@ export function ManageResponders() {
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-md p-4 sm:p-6 space-y-4 sm:space-y-5 border border-gray-200">
-      <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Manage Authorized Responders</h2>
-
-      {/* Owner warning */}
-      {!isOwner && address && (
-        <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm">
-          Note: Only the contract owner can manage responders
-        </div>
-      )}
-
-      {/* Check Responder Status */}
-      <div className="space-y-3 sm:space-y-4 border-b border-gray-200 pb-4">
-        <h3 className="text-lg sm:text-xl font-semibold text-gray-900">Check Responder Status</h3>
-        <div>
-          <label htmlFor="checkAddress" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
-            Responder Address
-          </label>
-          <input
-            id="checkAddress"
-            type="text"
-            value={checkAddress}
-            onChange={(e) => setCheckAddress(e.target.value)}
-            className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-            placeholder="0x..."
-          />
-        </div>
-
-        {checkAddress && isAddress(checkAddress) && (
-          <div className={`px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm ${
-            isAuthorized
-              ? "bg-green-100 border border-green-400 text-green-800"
-              : "bg-gray-100 border border-gray-400 text-gray-800"
-          }`}>
-            Status: {isAuthorized ? "✓ Authorized Responder" : "✗ Not Authorized"}
-          </div>
-        )}
-
-        {checkAddress && !isAddress(checkAddress) && (
-          <div className="bg-red-100 border border-red-400 text-red-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm">
-            Invalid Ethereum address format
-          </div>
-        )}
-
-        {checkError && (
-          <div className="bg-red-100 border border-red-400 text-red-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm break-words">
-            Error: {checkError.message}
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-emerald-500">Manage Responders</h2>
+        {!isOwner && address && (
+          <div className="bg-yellow-500/10 border border-yellow-500/30 text-yellow-500 px-3 py-1 rounded-full font-bold text-xs flex items-center gap-2">
+            <span>⚠️</span> View Only (Not Owner)
           </div>
         )}
       </div>
 
-      {/* Add Responder */}
-      <div className="space-y-3 sm:space-y-4 border-b border-gray-200 pb-4">
-        <h3 className="text-lg sm:text-xl font-semibold text-gray-900">Add Responder</h3>
-        <form onSubmit={handleAddResponder} className="space-y-3 sm:space-y-4">
-          <div>
-            <label htmlFor="addAddress" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
-              Responder Address
-            </label>
-            <input
-              id="addAddress"
-              type="text"
-              value={addAddress}
-              onChange={(e) => setAddAddress(e.target.value)}
-              className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              placeholder="0x..."
-              required
-            />
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Check Responder Status */}
+        <div className="glass-panel rounded-xl shadow-xl p-6 space-y-6 h-full border border-white/5">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-4">
+            <span className="w-1.5 h-6 bg-blue-500 rounded-full"></span>
+            Check Status
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label htmlFor="checkAddress" className="block text-sm font-semibold text-gray-300 mb-2">
+                Address
+              </label>
+              <input
+                id="checkAddress"
+                type="text"
+                value={checkAddress}
+                onChange={(e) => setCheckAddress(e.target.value)}
+                className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all"
+                placeholder="0x..."
+              />
+            </div>
+
+            {checkAddress && isAddress(checkAddress) && (
+              <div className={`px-4 py-3 rounded-xl font-semibold text-sm border flex items-center gap-2 ${isAuthorized
+                ? "bg-green-500/10 border-green-500/30 text-green-400"
+                : "bg-gray-500/10 border-gray-500/30 text-gray-400"
+                }`}>
+                <span>{isAuthorized ? "✓" : "✗"}</span>
+                {isAuthorized ? "Authorized" : "Not Authorized"}
+              </div>
+            )}
+
+            {checkAddress && !isAddress(checkAddress) && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl font-semibold text-sm">
+                Invalid Address
+              </div>
+            )}
+
+            {checkError && (
+              <div className="bg-red-900/20 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl font-semibold text-sm break-words">
+                Error: {checkError.message}
+              </div>
+            )}
           </div>
+        </div>
 
-          <button
-            type="submit"
-            disabled={isAddPending || isAddConfirming || !addAddress || !isAddress(addAddress)}
-            className="w-full bg-green-600 text-white py-3 sm:py-2.5 px-4 rounded-md hover:bg-green-700 active:bg-green-800 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold transition-colors text-base sm:text-sm min-h-[48px] sm:min-h-0"
-          >
-            {isAddPending ? "Confirming..." : isAddConfirming ? "Adding..." : "Add Responder"}
-          </button>
-
-          {addHash && (
-            <div className="text-sm bg-blue-50 p-3 rounded-md border border-blue-200">
-              <p className="text-gray-900 font-semibold mb-1">Transaction Hash:</p>
-              <p className="font-mono text-xs break-all text-gray-900">{addHash}</p>
+        {/* Add Responder */}
+        <div className="glass-panel rounded-xl shadow-xl p-6 space-y-6 h-full border border-white/5">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-4">
+            <span className="w-1.5 h-6 bg-green-500 rounded-full"></span>
+            Add Responder
+          </h3>
+          <form onSubmit={handleAddResponder} className="space-y-4">
+            <div>
+              <label htmlFor="addAddress" className="block text-sm font-semibold text-gray-300 mb-2">
+                Responder Address
+              </label>
+              <input
+                id="addAddress"
+                type="text"
+                value={addAddress}
+                onChange={(e) => setAddAddress(e.target.value)}
+                className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-transparent transition-all"
+                placeholder="0x..."
+                required
+              />
             </div>
-          )}
 
-          {isAddSuccess && (
-            <div className="bg-green-100 border border-green-400 text-green-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm">
-              Responder added successfully!
+            <button
+              type="submit"
+              disabled={isAddPending || isAddConfirming || !addAddress || !isAddress(addAddress)}
+              className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white py-3 px-6 rounded-xl hover:from-green-500 hover:to-emerald-500 active:from-green-700 active:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed font-bold shadow-lg shadow-green-500/20 transition-all transform hover:-translate-y-0.5"
+            >
+              {isAddPending ? "Confirming..." : isAddConfirming ? "Adding..." : "Add Access"}
+            </button>
+
+            {addHash && (
+              <div className="text-xs bg-black/30 p-3 rounded-lg border border-white/10 mt-4">
+                <p className="text-gray-500 mb-1 uppercase tracking-wider text-[10px]">Tx Hash</p>
+                <p className="font-mono break-all text-secondary">{addHash}</p>
+              </div>
+            )}
+
+            {isAddSuccess && (
+              <div className="bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-xl font-semibold text-sm flex items-center gap-2">
+                <span>✅</span> Added!
+              </div>
+            )}
+
+            {addError && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl font-semibold text-sm break-words">
+                {addError.message.includes("OwnableUnauthorizedAccount")
+                  ? "Only owner can add"
+                  : `Error`}
+              </div>
+            )}
+          </form>
+        </div>
+
+        {/* Remove Responder */}
+        <div className="glass-panel rounded-xl shadow-xl p-6 space-y-6 h-full border border-white/5">
+          <h3 className="text-lg font-bold text-white flex items-center gap-2 border-b border-white/10 pb-4">
+            <span className="w-1.5 h-6 bg-red-500 rounded-full"></span>
+            Remove Responder
+          </h3>
+          <form onSubmit={handleRemoveResponder} className="space-y-4">
+            <div>
+              <label htmlFor="removeAddress" className="block text-sm font-semibold text-gray-300 mb-2">
+                Responder Address
+              </label>
+              <input
+                id="removeAddress"
+                type="text"
+                value={removeAddress}
+                onChange={(e) => setRemoveAddress(e.target.value)}
+                className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-transparent transition-all"
+                placeholder="0x..."
+                required
+              />
             </div>
-          )}
 
-          {addError && (
-            <div className="bg-red-100 border border-red-400 text-red-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm break-words">
-              {addError.message.includes("OwnableUnauthorizedAccount")
-                ? "Only the contract owner can add responders"
-                : `Error: ${addError.message}`}
-            </div>
-          )}
-        </form>
-      </div>
+            <button
+              type="submit"
+              disabled={isRemovePending || isRemoveConfirming || !removeAddress || !isAddress(removeAddress)}
+              className="w-full bg-gradient-to-r from-red-600 to-rose-600 text-white py-3 px-6 rounded-xl hover:from-red-500 hover:to-rose-500 active:from-red-700 active:to-rose-700 disabled:opacity-50 disabled:cursor-not-allowed font-bold shadow-lg shadow-red-500/20 transition-all transform hover:-translate-y-0.5"
+            >
+              {isRemovePending ? "Confirming..." : isRemoveConfirming ? "Removing..." : "Remove Access"}
+            </button>
 
-      {/* Remove Responder */}
-      <div className="space-y-3 sm:space-y-4">
-        <h3 className="text-lg sm:text-xl font-semibold text-gray-900">Remove Responder</h3>
-        <form onSubmit={handleRemoveResponder} className="space-y-3 sm:space-y-4">
-          <div>
-            <label htmlFor="removeAddress" className="block text-sm font-semibold text-gray-900 mb-1.5 sm:mb-2">
-              Responder Address
-            </label>
-            <input
-              id="removeAddress"
-              type="text"
-              value={removeAddress}
-              onChange={(e) => setRemoveAddress(e.target.value)}
-              className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
-              placeholder="0x..."
-              required
-            />
-          </div>
+            {removeHash && (
+              <div className="text-xs bg-black/30 p-3 rounded-lg border border-white/10 mt-4">
+                <p className="text-gray-500 mb-1 uppercase tracking-wider text-[10px]">Tx Hash</p>
+                <p className="font-mono break-all text-secondary">{removeHash}</p>
+              </div>
+            )}
 
-          <button
-            type="submit"
-            disabled={isRemovePending || isRemoveConfirming || !removeAddress || !isAddress(removeAddress)}
-            className="w-full bg-red-600 text-white py-3 sm:py-2.5 px-4 rounded-md hover:bg-red-700 active:bg-red-800 disabled:bg-gray-400 disabled:cursor-not-allowed font-semibold transition-colors text-base sm:text-sm min-h-[48px] sm:min-h-0"
-          >
-            {isRemovePending ? "Confirming..." : isRemoveConfirming ? "Removing..." : "Remove Responder"}
-          </button>
+            {isRemoveSuccess && (
+              <div className="bg-green-500/10 border border-green-500/30 text-green-400 px-4 py-3 rounded-xl font-semibold text-sm flex items-center gap-2">
+                <span>✅</span> Removed!
+              </div>
+            )}
 
-          {removeHash && (
-            <div className="text-sm bg-blue-50 p-3 rounded-md border border-blue-200">
-              <p className="text-gray-900 font-semibold mb-1">Transaction Hash:</p>
-              <p className="font-mono text-xs break-all text-gray-900">{removeHash}</p>
-            </div>
-          )}
-
-          {isRemoveSuccess && (
-            <div className="bg-green-100 border border-green-400 text-green-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm">
-              Responder removed successfully!
-            </div>
-          )}
-
-          {removeError && (
-            <div className="bg-red-100 border border-red-400 text-red-800 px-3 sm:px-4 py-2.5 sm:py-3 rounded font-semibold text-sm break-words">
-              {removeError.message.includes("OwnableUnauthorizedAccount")
-                ? "Only the contract owner can remove responders"
-                : `Error: ${removeError.message}`}
-            </div>
-          )}
-        </form>
+            {removeError && (
+              <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-3 rounded-xl font-semibold text-sm break-words">
+                {removeError.message.includes("OwnableUnauthorizedAccount")
+                  ? "Only owner can remove"
+                  : `Error`}
+              </div>
+            )}
+          </form>
+        </div>
       </div>
     </div>
   );

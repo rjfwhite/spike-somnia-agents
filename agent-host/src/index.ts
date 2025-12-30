@@ -1,4 +1,4 @@
-import { createPublicClient, createWalletClient, http, parseAbiItem, toHex } from 'viem';
+import { createPublicClient, createWalletClient, http, webSocket, parseAbiItem, toHex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { defineChain } from 'viem';
 import 'dotenv/config';
@@ -119,25 +119,47 @@ if (!privateKey) {
   process.exit(1);
 }
 
+// Determine Transport mechanism
+const rpcUrl = process.env.RPC_URL || process.env.WSS_RPC_URL;
+let transport;
+
+if (rpcUrl && rpcUrl.startsWith('wss://')) {
+  console.log('🔌 Using WebSocket Transport');
+  transport = webSocket(rpcUrl, {
+    keepAlive: {
+      interval: 60_000,
+    },
+    reconnect: true,
+  });
+} else {
+  console.log('🔌 Using HTTP Transport');
+  transport = http(rpcUrl); // If rpcUrl is undefined, it uses default chain RPC
+}
+
 // Create account from private key
 const account = privateKeyToAccount(privateKey.startsWith('0x') ? privateKey as `0x${string}` : `0x${privateKey}`);
 
 // Create clients
 const publicClient = createPublicClient({
   chain: somnia,
-  transport: http(),
+  transport,
 });
 
 const walletClient = createWalletClient({
   account,
   chain: somnia,
-  transport: http(),
+  transport: http(rpcUrl), // Always use http for transactions for reliability? Or can use same transport. let's stick to http for writes usually.
 });
 
 console.log('🚀 Agent Host started');
 console.log(`📋 Contract: ${CONTRACT_ADDRESS}`);
 console.log(`🔑 Responder address: ${account.address}`);
 console.log('👀 Listening for RequestCreated events...\n');
+
+// Heartbeat to keep logs alive
+setInterval(() => {
+  console.log(`💓 Heartbeat: ${new Date().toISOString()} - Agent Host is running...`);
+}, 60000);
 
 // Listen for RequestCreated events
 const unwatch = publicClient.watchEvent({
@@ -308,11 +330,11 @@ async function handleAgentRequest(
     console.log(`   Status: ${receipt.status === 'success' ? 'Success' : 'Failed'}`);
     console.log(`   Gas used: ${receipt.gasUsed}`);
     console.log(`   ⏱️  Tx confirmation: ${txConfirmMs.toFixed(0)}ms`);
-    
+
     // Detailed timing breakdown
     const totalTime = txConfirmedAt - timings.eventReceivedAt;
     const timeToSent = txSentAt - timings.eventReceivedAt;
-    
+
     console.log('');
     console.log('┌─────────────────────────────────────────────────┐');
     console.log('│              📊 TIMING BREAKDOWN                │');

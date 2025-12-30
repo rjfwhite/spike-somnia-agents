@@ -1,0 +1,53 @@
+{
+    "name": "JSON Selector Agent",
+    "description": "An agent that fetches JSON from a specified URL and extracts a value using a selector path.",
+    "image": "https://picsum.photos/300/300",
+    "container_image": "https://storage.googleapis.com/my-public-stuff/json-selector-agent.tar",
+    "version": "1.0.0",
+    "author": "Antigravity",
+    "methods": [
+        {
+            "name": "fetch",
+            "description": "Fetches a JSON object from a URL and extracts a value using a selector.",
+            "inputs": [
+                {
+                    "name": "url",
+                    "type": "string"
+                },
+                {
+                    "name": "selector",
+                    "type": "string"
+                }
+            ],
+            "outputs": [
+                {
+                    "name": "result",
+                    "type": "string"
+                }
+            ]
+        }
+    ],
+    "tags": [
+        "utility",
+        "json",
+        "fetch",
+        "selector"
+    ],
+    "homepage": "https://example.com/json-selector-agent",
+    "repository": "https://github.com/example/json-selector-agent",
+    "external_url": "https://example.com/json-selector-agent/1",
+    "attributes": [
+        {
+            "trait_type": "Category",
+            "value": "Utility"
+        },
+        {
+            "trait_type": "Complexity",
+            "value": "Simple"
+        },
+        {
+            "trait_type": "Version",
+            "value": "1.0.0"
+        }
+    ]
+}
