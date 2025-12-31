@@ -47,8 +47,8 @@ ENV NODE_ENV=production
 #   RPC_URL     - HTTP RPC Endpoint (optional)
 #   WSS_RPC_URL - WebSocket RPC Endpoint (recommended for timeout issues)
 
-ENV RPC_URL="https://dream-rpc.somnia.network"
-ENV WSS_RPC_URL="wss://dream-rpc.somnia.network/ws"
+ENV RPC_URL="https://api.infra.mainnet.somnia.network/"
+ENV WSS_RPC_URL="wss://api.infra.mainnet.somnia.network/ws"
 
 # Cloud Run v2 health check port
 ENV PORT=8080
