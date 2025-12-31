@@ -70,16 +70,21 @@ async function loadImage(tarPath: string): Promise<string> {
  * Start a container for an agent
  * @param agentId The agent ID (numeric ID from contract) - used for naming/tracking
  * @param containerImage The container image URL or IPFS CID - used for downloading
+ * @param env Environment variables to set in the container (key=value)
  * @returns Object with port and whether container was just started
  */
-export async function startAgentContainer(agentId: string, containerImage: string): Promise<{ port: number; justStarted: boolean }> {
+export async function startAgentContainer(
+  agentId: string,
+  containerImage: string,
+  env: string[] = []
+): Promise<{ port: number; justStarted: boolean }> {
   // Check if container is already running
   if (runningContainers.has(agentId)) {
     const container = runningContainers.get(agentId)!;
     try {
       const info = await container.inspect();
       if (info.State.Running) {
-        console.log(`🐳 Container for agent ${agentId} already running`);
+        // console.log(`🐳 Container for agent ${agentId} already running`);
         return { port: getPortForAgent(agentId), justStarted: false };
       }
     } catch (e) {
@@ -118,10 +123,12 @@ export async function startAgentContainer(agentId: string, containerImage: strin
   // Create and start the container
   console.log(`🐳 Starting container for agent ${agentId} on port ${hostPort}...`);
   console.log(`   Container name: ${containerName}`);
+  console.log(`   Environment: ${env.join(', ')}`);
 
   const container = await docker.createContainer({
     Image: imageName,
     name: containerName,
+    Env: env,
     ExposedPorts: {
       '80/tcp': {},
     },
@@ -197,16 +204,20 @@ export async function stopAgentContainer(agentId: string): Promise<void> {
  * @param containerImage The container image URL or IPFS CID - used for downloading
  * @param method The HTTP method/endpoint
  * @param callData The request data
+ * @param headers Optional headers to pass to the container
+ * @param env Optional environment variables to set in the container (only used if starting new)
  * @returns The response from the container
  */
 export async function callAgentContainer(
   agentId: string,
   containerImage: string,
   method: string,
-  callData: string
+  callData: string,
+  headers: Record<string, string> = {},
+  env: string[] = []
 ): Promise<string> {
   // Ensure container is running
-  const { port, justStarted } = await startAgentContainer(agentId, containerImage);
+  const { port, justStarted } = await startAgentContainer(agentId, containerImage, env);
 
   // Wait for container to be ready if it was just started
   if (justStarted) {
@@ -227,6 +238,7 @@ export async function callAgentContainer(
       method: 'POST',
       headers: {
         'Content-Type': 'application/octet-stream',
+        ...headers,
       },
       body: callDataBytes,
     });

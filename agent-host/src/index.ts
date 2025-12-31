@@ -262,7 +262,7 @@ async function processLog(log: any, client: any) {
 
     await handleAgentRequest(requestId!, agentId!, containerImage, method!, callData!, {
       eventReceivedAt, uriFetchMs, metadataFetchMs
-    }, client);
+    }, client, log); // Pass log object
 
   } catch (error) {
     console.error('❌ Error processing request:', error);
@@ -282,13 +282,39 @@ async function handleAgentRequest(
   method: string,
   callData: `0x${string}`,
   timings: Timings,
-  publicClient: any
+  publicClient: any,
+  log: any
 ) {
   console.log(`\n🔄 Processing request ${requestId}...`);
 
   try {
     const containerStartAt = performance.now();
-    const response = await callAgentContainer(agentId.toString(), containerImage, method, callData);
+
+    // Construct Headers (Per-Request Context)
+    const headers: Record<string, string> = {
+      'X-Somnia-Agent-ID': agentId.toString(),
+      'X-Somnia-Request-ID': requestId.toString(),
+      'X-Somnia-Block-Number': log.blockNumber ? log.blockNumber.toString() : '0',
+      'X-Somnia-Tx-Hash': log.transactionHash || '',
+      'X-Somnia-Timestamp': Date.now().toString(),
+    };
+
+    // Construct Environment Variables (Lifecycle Context)
+    const env = [
+      `SOMNIA_AGENT_ID=${agentId.toString()}`,
+      `SOMNIA_RPC_URL=${HTTP_RPC_URL}`,
+      `SOMNIA_CONTRACT_ADDRESS=${CONTRACT_ADDRESS}`,
+      `SOMNIA_HOST_VERSION=1.0.0`
+    ];
+
+    const response = await callAgentContainer(
+      agentId.toString(),
+      containerImage,
+      method,
+      callData,
+      headers,
+      env
+    );
     const containerEndAt = performance.now();
     const containerCallMs = containerEndAt - containerStartAt;
     console.log(`   ⏱️  Container call: ${containerCallMs.toFixed(0)}ms`);

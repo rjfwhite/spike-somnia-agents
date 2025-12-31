@@ -129,16 +129,26 @@ export function parseInputValue(value: string, type: string): any {
 
     // Handle arrays
     if (type.endsWith('[]')) {
+        const elementType = type.slice(0, -2);
+
+        // Try JSON parsing first (supports nested arrays, strings with commas, etc.)
         try {
             const parsed = JSON.parse(trimmed);
-            if (!Array.isArray(parsed)) {
-                throw new Error('Expected array');
+            if (Array.isArray(parsed)) {
+                return parsed.map(item => parseInputValue(String(item), elementType));
             }
-            const elementType = type.slice(0, -2);
-            return parsed.map(item => parseInputValue(String(item), elementType));
         } catch (e) {
-            throw new Error(`Invalid array format for ${type}`);
+            // Ignore JSON error and try fallback
         }
+
+        // Fallback: Split by comma
+        // This is a simple split and won't handle commas inside strings gracefully,
+        // but it covers the 80% case of simple lists of IDs, addresses, or numbers.
+        if (trimmed.length > 0) {
+            return trimmed.split(',').map(item => parseInputValue(item.trim(), elementType));
+        }
+
+        return [];
     }
 
     // Handle string (default)

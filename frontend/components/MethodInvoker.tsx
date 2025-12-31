@@ -149,9 +149,10 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                                         })}
                                         className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
                                         placeholder={
-                                            input.type.startsWith('uint') || input.type.startsWith('int') ? '123' :
-                                                input.type === 'bool' ? 'true' :
-                                                    'value'
+                                            input.type.endsWith('[]') ? '["a", "b"] or a, b' :
+                                                input.type.startsWith('uint') || input.type.startsWith('int') ? '123' :
+                                                    input.type === 'bool' ? 'true' :
+                                                        'value'
                                         }
                                         required
                                     />
@@ -217,7 +218,7 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                                     <span className="text-red-400">✕</span>
                                 )}
                                 <span className={`text-sm font-bold ${trackedRequest.status === 'pending' ? 'text-blue-300' :
-                                        trackedRequest.success ? 'text-green-300' : 'text-red-300'
+                                    trackedRequest.success ? 'text-green-300' : 'text-red-300'
                                     }`}>
                                     {trackedRequest.status === 'pending' ? 'Waiting for Response...' :
                                         trackedRequest.success ? 'Execution Successful' : 'Execution Failed'}
