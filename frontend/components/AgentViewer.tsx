@@ -147,11 +147,11 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
                     )}
 
                     {/* Container Image - support both flat and nested */}
-                    {(metadata.agent_spec?.container_image || (metadata as any).image) && (
+                    {(metadata.agent_spec?.container_image || (metadata as any).container_image) && (
                       <div className="bg-secondary/5 p-4 rounded-xl border border-secondary/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 overflow-x-auto">
                         <span className="text-xs font-bold text-secondary uppercase tracking-wider whitespace-nowrap">Container Image</span>
                         <span className="font-mono text-xs text-gray-300 bg-black/20 px-3 py-1.5 rounded-md border border-white/5 break-all">
-                          {metadata.agent_spec?.container_image || (metadata as any).image}
+                          {metadata.agent_spec?.container_image || (metadata as any).container_image}
                         </span>
                       </div>
                     )}
