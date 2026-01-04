@@ -22,6 +22,16 @@ const nextConfig: NextConfig = {
       },
     },
   },
+
+  // Turbopack-specific configuration
+  turbopack: {
+    rules: {
+      '*.md': {
+        loaders: ['raw-loader'],
+        as: '*.js',
+      },
+    },
+  },
 };
 
 export default nextConfig;
