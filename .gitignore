@@ -7,8 +7,10 @@ out/
 /broadcast/*/31337/
 /broadcast/**/dry-run/
 
-# Docs
+# Docs (but keep frontend docs)
 docs/
+!frontend/docs/
+!frontend/app/docs/
 
 # Dotenv file
 .env

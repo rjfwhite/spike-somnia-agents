@@ -13,7 +13,8 @@ import {
     FileText,
     Search,
     Menu,
-    X
+    X,
+    BookOpen
 } from "lucide-react";
 import { useAgents } from "@/lib/agents-context";
 import { formatEther } from "viem";
@@ -28,6 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         { id: 'live', label: 'Live Feed', icon: Activity, path: '/live' },
         { id: 'mint', label: 'Mint Agent', icon: PlusCircle, path: '/mint' },
         { id: 'responders', label: 'Manage Responders', icon: Users, path: '/responders' },
+        { id: 'docs', label: 'Documentation', icon: BookOpen, path: '/docs' },
     ];
 
     const agentCount = Object.keys(agents).length;
