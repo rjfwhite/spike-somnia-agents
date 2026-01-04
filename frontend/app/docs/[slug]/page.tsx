@@ -1,9 +1,28 @@
 import { notFound } from 'next/navigation';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { getDocBySlug, docPages } from '@/lib/docs-config';
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
-import { Book, Clock, Tag } from 'lucide-react';
+import { Book } from 'lucide-react';
+
+// Import all markdown files at build time
+import overview from '@/docs/00-overview.md';
+import agentSpec from '@/docs/01-agent-specification.md';
+import buildingAgents from '@/docs/02-building-agents.md';
+import containerReqs from '@/docs/03-container-requirements.md';
+import runningAgents from '@/docs/04-running-agents.md';
+import abiEncoding from '@/docs/05-abi-encoding.md';
+import examples from '@/docs/06-examples.md';
+import apiReference from '@/docs/07-api-reference.md';
+
+const docContents: Record<string, string> = {
+  '00-overview.md': overview,
+  '01-agent-specification.md': agentSpec,
+  '02-building-agents.md': buildingAgents,
+  '03-container-requirements.md': containerReqs,
+  '04-running-agents.md': runningAgents,
+  '05-abi-encoding.md': abiEncoding,
+  '06-examples.md': examples,
+  '07-api-reference.md': apiReference,
+};
 
 interface DocsPageProps {
   params: {
@@ -32,26 +51,18 @@ export async function generateMetadata({ params }: DocsPageProps) {
   };
 }
 
-async function getDocContent(filename: string): Promise<string> {
-  try {
-    const docsDirectory = path.join(process.cwd(), 'docs');
-    const filePath = path.join(docsDirectory, filename);
-    const content = await fs.readFile(filePath, 'utf8');
-    return content;
-  } catch (error) {
-    console.error('Error reading doc file:', error);
-    return '';
-  }
+function getDocContent(filename: string): string {
+  return docContents[filename] || '';
 }
 
-export default async function DocPage({ params }: DocsPageProps) {
+export default function DocPage({ params }: DocsPageProps) {
   const doc = getDocBySlug(params.slug);
 
   if (!doc) {
     notFound();
   }
 
-  const content = await getDocContent(doc.file);
+  const content = getDocContent(doc.file);
 
   if (!content) {
     return (
