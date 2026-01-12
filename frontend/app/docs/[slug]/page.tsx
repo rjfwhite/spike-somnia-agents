@@ -1,14 +1,11 @@
 import { notFound } from 'next/navigation';
-import { promises as fs } from 'fs';
-import path from 'path';
 import { getDocBySlug, docPages } from '@/lib/docs-config';
+import { getDocContent } from '@/lib/docs-content';
 import { MarkdownRenderer } from '@/components/MarkdownRenderer';
-import { Book, Clock, Tag } from 'lucide-react';
+import { Book } from 'lucide-react';
 
 interface DocsPageProps {
-  params: {
-    slug: string;
-  };
+  params: Promise<{ slug: string }>;
 }
 
 export async function generateStaticParams() {
@@ -18,7 +15,8 @@ export async function generateStaticParams() {
 }
 
 export async function generateMetadata({ params }: DocsPageProps) {
-  const doc = getDocBySlug(params.slug);
+  const { slug } = await params;
+  const doc = getDocBySlug(slug);
 
   if (!doc) {
     return {
@@ -32,26 +30,15 @@ export async function generateMetadata({ params }: DocsPageProps) {
   };
 }
 
-async function getDocContent(filename: string): Promise<string> {
-  try {
-    const docsDirectory = path.join(process.cwd(), 'docs');
-    const filePath = path.join(docsDirectory, filename);
-    const content = await fs.readFile(filePath, 'utf8');
-    return content;
-  } catch (error) {
-    console.error('Error reading doc file:', error);
-    return '';
-  }
-}
-
 export default async function DocPage({ params }: DocsPageProps) {
-  const doc = getDocBySlug(params.slug);
+  const { slug } = await params;
+  const doc = getDocBySlug(slug);
 
   if (!doc) {
     notFound();
   }
 
-  const content = await getDocContent(doc.file);
+  const content = getDocContent(doc.file);
 
   if (!content) {
     return (
