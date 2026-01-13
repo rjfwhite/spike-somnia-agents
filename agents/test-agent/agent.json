@@ -1,0 +1,50 @@
+{
+  "name": "Test Agent 2",
+  "description": "A test agent for validating the agent-host-http implementation with basic string and math operations",
+  "version": "1.0.0",
+  "author": "Somnia Team",
+  "abi": [
+    {
+      "type": "function",
+      "name": "greet",
+      "inputs": [
+        { "name": "name", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "greeting", "type": "string" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "add",
+      "inputs": [
+        { "name": "a", "type": "uint256" },
+        { "name": "b", "type": "uint256" }
+      ],
+      "outputs": [
+        { "name": "sum", "type": "uint256" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "echo",
+      "inputs": [
+        { "name": "message", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "response", "type": "string" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "reverse",
+      "inputs": [
+        { "name": "text", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "reversed", "type": "string" }
+      ]
+    }
+  ],
+  "tags": ["test", "utility", "example"]
+}

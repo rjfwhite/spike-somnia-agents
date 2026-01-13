@@ -1,23 +1,20 @@
 {
-  "name": "agent-host",
+  "name": "agent-host-http",
   "version": "1.0.0",
-  "description": "Somnia Agents request listener and responder",
-  "main": "dist/index.js",
+  "description": "Simplified HTTP-only agent host for running containerized agents",
   "type": "module",
+  "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "tsx src/index.ts"
+    "dev": "npx tsx src/index.ts"
   },
   "dependencies": {
-    "dockerode": "^4.0.9",
-    "dotenv": "^16.4.7",
-    "viem": "^2.21.54"
+    "dockerode": "^4.0.9"
   },
   "devDependencies": {
-    "@types/dockerode": "^3.3.47",
-    "@types/node": "^22.10.2",
-    "tsx": "^4.19.2",
+    "@types/dockerode": "^3.3.34",
+    "@types/node": "^22.10.5",
     "typescript": "^5.7.2"
   }
 }

@@ -23,4 +23,6 @@ image-cache/*.tar
 # Docs
 README.md
 
-
+# Deploy scripts and secrets
+deploy
+gcp-sa-key.json

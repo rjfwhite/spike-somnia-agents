@@ -1,0 +1,29 @@
+{
+  "name": "rob-somnia-agent",
+  "version": "1.0.0",
+  "description": "CLI tool for testing Somnia agents locally",
+  "type": "module",
+  "bin": {
+    "rob-somnia-agent": "src/cli.js"
+  },
+  "files": [
+    "src",
+    "template"
+  ],
+  "keywords": [
+    "somnia",
+    "agents",
+    "cli",
+    "testing",
+    "blockchain"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/cli.js"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  }
+}

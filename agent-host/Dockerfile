@@ -41,19 +41,11 @@ RUN mkdir -p image-cache
 
 # Environment variables (set these at runtime)
 ENV NODE_ENV=production
-# Required:
-#   PRIVATE_KEY - Your wallet private key
+# Optional:
 #   DOCKER_HOST - Remote Docker daemon (e.g., tcp://10.128.0.2:2375)
-#   RPC_URL     - HTTP RPC Endpoint (optional)
-#   WSS_RPC_URL - WebSocket RPC Endpoint (recommended for timeout issues)
 
-ENV RPC_URL="https://api.infra.mainnet.somnia.network/"
-ENV WSS_RPC_URL="wss://api.infra.mainnet.somnia.network/ws"
-
-# Cloud Run v2 health check port
 ENV PORT=8080
 EXPOSE 8080
 
-# Run the agent host (includes health server on PORT)
+# Run the agent host
 CMD ["node", "dist/index.js"]
-

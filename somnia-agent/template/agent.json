@@ -1,0 +1,19 @@
+{
+  "name": "{{name}}",
+  "description": "{{description}}",
+  "version": "1.0.0",
+  "author": "",
+  "abi": [
+    {
+      "type": "function",
+      "name": "greet",
+      "inputs": [
+        { "name": "name", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "greeting", "type": "string" }
+      ]
+    }
+  ],
+  "tags": []
+}
