@@ -1,4 +1,4 @@
-# Somnia Agents Platform - Overview
+# Somnia Agents Overview
 
 Somnia Agents extend the Somnia blockchain by enabling Smart Contracts and users to trigger decentralized, auditable compute jobs—including AI tasks—executed across Somnia's decentralized network. By integrating with Somnia's native on-chain reactivity, Agents make it possible to build and run fully featured decentralized applications.
 
@@ -101,85 +101,6 @@ The interface and schema of each Agent closely follows the **standard Solidity c
 - Agents feel like native blockchain contracts
 - Enables richer off-chain compute and connectivity
 
-## Architecture Overview
-
-```mermaid
-flowchart TB
-    subgraph Frontend["User / Frontend"]
-        U[Browse Agents]
-        U --> V[Create Requests]
-        V --> W[View Responses]
-    end
-
-    subgraph Blockchain["Somnia Blockchain"]
-        X[Agent Registry]
-        Y[Request/Response Storage]
-        Z[Event Emission]
-    end
-
-    subgraph Nodes["Decentralized Agent Network"]
-        N1[Node 1]
-        N2[Node 2]
-        N3[Node 3]
-    end
-
-    subgraph Containers["Agent Containers"]
-        C1[HTTP Server on Port 80]
-        C2[ABI Decode/Encode]
-        C3[Execute Logic]
-    end
-
-    Frontend -->|Web3| Blockchain
-    Blockchain -->|Events| Nodes
-    Nodes -->|Docker| Containers
-    Containers -->|Response| Nodes
-    Nodes -->|Consensus| Blockchain
-```
-
-## Platform Components
-
-### 1. Agent Builder (CLI)
-
-A command-line tool for creating and deploying agents:
-- Initialize agent projects
-- Define method specifications
-- Build Docker containers
-- Upload to IPFS
-- Generate metadata
-
-**Repository:** `/agent-builder/`
-
-### 2. Agent Host (Service)
-
-A Node.js service that executes agent requests:
-- Listens to blockchain events
-- Manages Docker containers
-- Routes requests to agents
-- Submits responses on-chain
-
-**Repository:** `/agent-host/`
-
-### 3. Frontend (Web Interface)
-
-A Next.js web application for interacting with agents:
-- Browse available agents
-- Invoke agent methods
-- View live events
-- Manage responder nodes
-- Mint new agents
-
-**Repository:** `/frontend/`
-
-### 4. Smart Contract
-
-Solidity contracts deployed on Somnia blockchain:
-- Agent NFT minting
-- Request creation and payment
-- Response handling
-- Event emission
-
-**Contract Address:** `0x9De7D7a7e0864be11F338b3D1bBfF3e982207160`
-
 ## Roadmap
 
 Agents will roll out in phases:
@@ -240,21 +161,9 @@ timeline
 - **Permissionless**: Anyone can invoke agents
 - **Deterministic AI**: On-chain AI with consensus guarantees
 
-## Network Information
-
-| Property | Value |
-|----------|-------|
-| Blockchain | Somnia Mainnet |
-| Chain ID | 5031 |
-| RPC URL | `https://api.infra.mainnet.somnia.network/` |
-| WebSocket | `wss://api.infra.mainnet.somnia.network/` |
-| Block Explorer | [Somnia Explorer](https://explorer.somnia.network/) |
-| Payment Token | SOMI |
-
 ## Next Steps
 
 - [Explore Core Agents](./01-core-agents.md)
-- [Learn about Agent Specifications](./02-agent-specification.md)
-- [Build your first agent](./03-building-agents.md)
+- [Learn about Agent Definitions](./02-agent-specification.md)
 - [Understand ABI encoding](./06-abi-encoding.md)
-- [Explore examples](./07-examples.md)
+- [See implementation examples](./07-examples.md)

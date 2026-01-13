@@ -631,6 +631,6 @@ console.log(result); // "Hello, Alice!"
 
 ## Next Steps
 
-- [See complete agent examples](./07-examples.md)
-- [Learn about container requirements](./04-container-requirements.md)
-- [Build your first agent](./03-building-agents.md)
+- [See implementation examples](./05-examples.md)
+- [Understand container requirements](./03-container-requirements.md)
+- [Learn about agent definitions](./02-agent-specification.md)

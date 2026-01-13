@@ -768,6 +768,6 @@ app.use((err, req, res, next) => {
 
 ## Next Steps
 
-- [Learn about ABI encoding in detail](./06-abi-encoding.md)
-- [Explore example implementations](./07-examples.md)
-- [Set up an agent host to run agents](./05-running-agents.md)
+- [Learn about ABI encoding](./04-abi-encoding.md)
+- [See implementation examples](./05-examples.md)
+- [Learn about agent definitions](./02-agent-specification.md)

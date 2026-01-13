@@ -597,7 +597,7 @@ Use semantic versioning:
 
 ## Next Steps
 
-- [Build your first agent](./03-building-agents.md)
-- [Understand container requirements](./04-container-requirements.md)
-- [Learn about ABI encoding](./06-abi-encoding.md)
-- [See complete examples](./07-examples.md)
+- [Understand container requirements](./03-container-requirements.md)
+- [Learn about ABI encoding](./04-abi-encoding.md)
+- [See implementation examples](./05-examples.md)
+- [Explore core agents](./01-core-agents.md)

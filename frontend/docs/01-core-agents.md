@@ -451,6 +451,6 @@ const analysisResult = await invokeAgent('ai-llm', 'generate', {
 ## Next Steps
 
 - [Learn about Agent Definitions](./02-agent-specification.md)
-- [Build your own agent](./03-building-agents.md)
-- [Understand ABI encoding](./06-abi-encoding.md)
-- [See more examples](./07-examples.md)
+- [Understand container requirements](./03-container-requirements.md)
+- [Learn about ABI encoding](./04-abi-encoding.md)
+- [See implementation examples](./05-examples.md)
