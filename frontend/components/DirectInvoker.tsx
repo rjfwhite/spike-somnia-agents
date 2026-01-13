@@ -66,12 +66,42 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
 
     const getContainerImage = (): string | null => {
         if (!metadata) return null;
-        return metadata.agent_spec?.container_image || (metadata as any).container_image || null;
+        // Support multiple field names for container image
+        return metadata.agent_spec?.container_image
+            || (metadata as any).container_image
+            || (metadata as any).image
+            || (metadata as any).container
+            || null;
     };
 
     const getMethods = (): MethodDefinition[] => {
         if (!metadata) return [];
-        return metadata.agent_spec?.methods || metadata.methods || [];
+
+        // Support multiple formats:
+        // 1. agent_spec.methods (nested format)
+        // 2. methods (flat format)
+        // 3. abi array with type: "function" entries
+        if (metadata.agent_spec?.methods) {
+            return metadata.agent_spec.methods;
+        }
+        if (metadata.methods) {
+            return metadata.methods;
+        }
+
+        // Handle ABI format - filter for functions and convert to MethodDefinition
+        const abi = (metadata as any).abi;
+        if (Array.isArray(abi)) {
+            return abi
+                .filter((item: any) => item.type === 'function')
+                .map((item: any) => ({
+                    name: item.name,
+                    description: item.description,
+                    inputs: item.inputs || [],
+                    outputs: item.outputs || [],
+                }));
+        }
+
+        return [];
     };
 
     const invokeMethod = async (method: MethodDefinition) => {
