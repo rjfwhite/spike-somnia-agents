@@ -40,15 +40,6 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      - name: Create Artifact Registry Repository
-        run: |
-          if ! gcloud artifacts repositories describe ${{ env.REPO_NAME }} --location=${{ env.REGION }} &>/dev/null; then
-            gcloud artifacts repositories create ${{ env.REPO_NAME }} \
-              --repository-format=docker \
-              --location=${{ env.REGION }} \
-              --description="Docker repository for Somnia Agent Host"
-          fi
-
       - name: Build and Push Docker Image
         working-directory: ./agent-host
         run: |
