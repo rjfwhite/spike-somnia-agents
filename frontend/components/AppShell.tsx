@@ -14,7 +14,8 @@ import {
     Search,
     Menu,
     X,
-    BookOpen
+    BookOpen,
+    Zap
 } from "lucide-react";
 import { useAgents } from "@/lib/agents-context";
 import { formatEther } from "viem";
@@ -27,6 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const navItems = [
         { id: 'overview', label: 'Overview', icon: LayoutGrid, path: '/' },
         { id: 'live', label: 'Live Feed', icon: Activity, path: '/live' },
+        { id: 'invoke', label: 'Direct Invoke', icon: Zap, path: '/invoke' },
         { id: 'mint', label: 'Mint Agent', icon: PlusCircle, path: '/mint' },
         { id: 'responders', label: 'Manage Responders', icon: Users, path: '/responders' },
         { id: 'docs', label: 'Documentation', icon: BookOpen, path: '/docs' },
