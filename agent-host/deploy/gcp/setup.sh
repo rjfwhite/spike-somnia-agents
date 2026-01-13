@@ -42,7 +42,7 @@ fi
 echo "Granting permissions..."
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/artifactregistry.writer" \
+    --role="roles/artifactregistry.admin" \
     --quiet
 
 gcloud projects add-iam-policy-binding $PROJECT_ID \
