@@ -5,6 +5,78 @@ import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Link from 'next/link';
+import { useEffect, useRef, useState } from 'react';
+import mermaid from 'mermaid';
+
+// Initialize mermaid with dark theme
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  themeVariables: {
+    primaryColor: '#3b82f6',
+    primaryTextColor: '#fff',
+    primaryBorderColor: '#1e40af',
+    lineColor: '#64748b',
+    secondaryColor: '#1e293b',
+    tertiaryColor: '#0f172a',
+    background: '#0f172a',
+    mainBkg: '#1e293b',
+    nodeBorder: '#3b82f6',
+    clusterBkg: '#1e293b',
+    titleColor: '#fff',
+    edgeLabelBackground: '#1e293b',
+  },
+  flowchart: {
+    htmlLabels: true,
+    curve: 'basis',
+  },
+  securityLevel: 'loose',
+});
+
+interface MermaidDiagramProps {
+  chart: string;
+}
+
+function MermaidDiagram({ chart }: MermaidDiagramProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const renderChart = async () => {
+      if (!containerRef.current) return;
+
+      try {
+        const id = `mermaid-${Math.random().toString(36).substr(2, 9)}`;
+        const { svg } = await mermaid.render(id, chart);
+        setSvg(svg);
+        setError(null);
+      } catch (err) {
+        console.error('Mermaid rendering error:', err);
+        setError('Failed to render diagram');
+      }
+    };
+
+    renderChart();
+  }, [chart]);
+
+  if (error) {
+    return (
+      <div className="my-4 p-4 bg-red-900/20 border border-red-500/30 rounded-lg text-red-300 text-sm">
+        {error}
+        <pre className="mt-2 text-xs overflow-x-auto">{chart}</pre>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      className="my-6 p-4 bg-slate-900/50 border border-white/10 rounded-lg overflow-x-auto flex justify-center"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
 
 interface MarkdownRendererProps {
   content: string;
@@ -82,10 +154,16 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
             );
           },
 
-          // Code blocks
+          // Code blocks - with mermaid support
           code: ({ node, inline, className, children, ...props }: any) => {
             const match = /language-(\w+)/.exec(className || '');
             const language = match ? match[1] : '';
+            const codeContent = String(children).replace(/\n$/, '');
+
+            // Handle mermaid diagrams
+            if (language === 'mermaid') {
+              return <MermaidDiagram chart={codeContent} />;
+            }
 
             return !inline ? (
               <div className="my-4 rounded-lg overflow-hidden border border-white/10">
@@ -101,7 +179,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
                   }}
                   {...props}
                 >
-                  {String(children).replace(/\n$/, '')}
+                  {codeContent}
                 </SyntaxHighlighter>
               </div>
             ) : (

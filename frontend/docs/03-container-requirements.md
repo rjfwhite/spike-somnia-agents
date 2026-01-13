@@ -25,83 +25,238 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80)
 ```
 
-### 2. Method Endpoints
+### 2. Single Root Endpoint with Function Selector Routing
 
-Each method in your agent specification must have a corresponding HTTP POST endpoint at `/{methodName}`.
+Agents receive all requests at a **single POST endpoint (`/`)** and route based on the 4-byte function selector in the request body.
 
-**Example:**
-- Method `greet` → Endpoint `POST /greet`
-- Method `calculate` → Endpoint `POST /calculate`
-- Method `fetchData` → Endpoint `POST /fetchData`
+```mermaid
+flowchart TB
+    subgraph Request["Incoming Request"]
+        R[POST /]
+        B["Request Body:<br/>4-byte selector + ABI params"]
+    end
 
-### 3. ABI-Encoded Requests
+    subgraph Agent["Agent Container"]
+        P[Parse Selector]
+        M{Route by Selector}
+        F1[fetch handler]
+        F2[generate handler]
+        F3[search handler]
+    end
 
-All requests use **Ethereum ABI encoding**:
-- Request body contains **raw binary data** (ABI-encoded)
-- Content-Type: `application/octet-stream` (or similar)
-- Data encoded according to method's `inputs` specification
+    subgraph Response["Response"]
+        E[ABI-Encoded Output]
+    end
 
-### 4. ABI-Encoded Responses
+    R --> B --> P --> M
+    M -->|0x3b3b57de| F1 --> E
+    M -->|0xa1b2c3d4| F2 --> E
+    M -->|0xe5f6a7b8| F3 --> E
+```
 
-All responses must use **Ethereum ABI encoding**:
-- Response body contains **raw binary data** (ABI-encoded)
-- Data encoded according to method's `outputs` specification
-- HTTP status 200 for successful responses
+**Important:** Unlike traditional REST APIs, agents do NOT have separate endpoints for each method. All requests go to `/` and are dispatched based on the function selector.
+
+### 3. Request Format
+
+The request body contains:
+- **Bytes 0-3**: 4-byte function selector
+- **Bytes 4+**: ABI-encoded parameters
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Bytes 0-3    │  Bytes 4+                                       │
+│  Selector     │  ABI-encoded parameters                         │
+│  (4 bytes)    │  (variable length)                              │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 4. Response Format
+
+The response body contains **only ABI-encoded outputs** (no selector):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  ABI-encoded return values                                      │
+│  (variable length)                                              │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ### 5. Error Handling
 
 Return appropriate HTTP status codes:
 - **200**: Success
-- **400**: Invalid input (bad ABI encoding, validation failed)
+- **400**: Invalid input (bad ABI encoding, validation failed, unknown selector)
 - **500**: Internal server error
 - **503**: Service unavailable (temporary)
 
+---
+
 ## Implementation Guide
 
-### Node.js Implementation
+### Node.js Implementation (Recommended)
 
-Using **viem** (recommended):
+Using **viem** with function selector routing:
 
 ```javascript
 const express = require('express');
-const { decodeAbiParameters, encodeAbiParameters } = require('viem');
+const { decodeFunctionData, encodeFunctionResult, keccak256, toBytes, slice } = require('viem');
 
 const app = express();
-
-// Important: Use raw body parser
 app.use(express.raw({ type: '*/*', limit: '10mb' }));
 
-// Decode helper
-function decodeInput(buffer, types) {
-  const hex = `0x${buffer.toString('hex')}`;
-  return decodeAbiParameters(types, hex);
+// Define your agent's ABI
+const abi = [
+  {
+    type: 'function',
+    name: 'greet',
+    inputs: [{ name: 'name', type: 'string' }],
+    outputs: [{ name: 'greeting', type: 'string' }]
+  },
+  {
+    type: 'function',
+    name: 'add',
+    inputs: [
+      { name: 'a', type: 'uint256' },
+      { name: 'b', type: 'uint256' }
+    ],
+    outputs: [{ name: 'sum', type: 'uint256' }]
+  }
+];
+
+// Compute selectors at startup
+const selectors = {};
+for (const fn of abi.filter(x => x.type === 'function')) {
+  const sig = `${fn.name}(${fn.inputs.map(i => i.type).join(',')})`;
+  const hash = keccak256(toBytes(sig));
+  selectors[slice(hash, 0, 4)] = fn;
 }
 
-// Encode helper
-function encodeOutput(values, types) {
-  const hex = encodeAbiParameters(types, values);
-  return Buffer.from(hex.slice(2), 'hex');
-}
-
-// Method endpoint
-app.post('/greet', (req, res) => {
+// Single root endpoint handles all requests
+app.post('/', (req, res) => {
   try {
-    // Decode input
-    const [name] = decodeInput(req.body, [
-      { type: 'string', name: 'name' }
-    ]);
+    const data = '0x' + req.body.toString('hex');
+    const selector = data.slice(0, 10); // 0x + 8 hex chars = 4 bytes
 
-    // Execute logic
-    const greeting = `Hello, ${name}!`;
+    const fn = selectors[selector];
+    if (!fn) {
+      return res.status(400).send('Unknown function selector');
+    }
 
-    // Encode output
-    const encoded = encodeOutput([greeting], [
-      { type: 'string', name: 'greeting' }
-    ]);
+    // Decode the full calldata
+    const { args } = decodeFunctionData({ abi, data });
 
-    res.send(encoded);
+    // Route to handler based on function name
+    let result;
+    switch (fn.name) {
+      case 'greet':
+        result = `Hello, ${args[0]}!`;
+        break;
+      case 'add':
+        result = args[0] + args[1];
+        break;
+      default:
+        return res.status(400).send('Not implemented');
+    }
+
+    // Encode the response
+    const encoded = encodeFunctionResult({
+      abi,
+      functionName: fn.name,
+      result: Array.isArray(result) ? result : [result]
+    });
+
+    res.send(Buffer.from(encoded.slice(2), 'hex'));
   } catch (error) {
-    console.error(error);
+    console.error('Error:', error);
+    res.status(500).send('Error processing request');
+  }
+});
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+app.listen(80, () => {
+  console.log('Agent listening on port 80');
+});
+```
+
+### Multi-Method Agent Pattern
+
+For agents with multiple methods, organize handlers in a dispatch table:
+
+```javascript
+const express = require('express');
+const { decodeFunctionData, encodeFunctionResult, keccak256, toBytes, slice } = require('viem');
+
+const app = express();
+app.use(express.raw({ type: '*/*', limit: '10mb' }));
+
+const abi = [
+  {
+    type: 'function',
+    name: 'fetch',
+    inputs: [
+      { name: 'url', type: 'string' },
+      { name: 'selector', type: 'string' }
+    ],
+    outputs: [{ name: 'result', type: 'string' }]
+  },
+  {
+    type: 'function',
+    name: 'validate',
+    inputs: [{ name: 'input', type: 'string' }],
+    outputs: [{ name: 'valid', type: 'bool' }]
+  }
+];
+
+// Handler functions
+async function handleFetch(url, selector) {
+  const response = await fetch(url);
+  const json = await response.json();
+  // Extract value using selector...
+  return String(json[selector] || '');
+}
+
+function handleValidate(input) {
+  return input.length > 0;
+}
+
+// Build selector map
+const selectors = {};
+for (const fn of abi.filter(x => x.type === 'function')) {
+  const sig = `${fn.name}(${fn.inputs.map(i => i.type).join(',')})`;
+  selectors[slice(keccak256(toBytes(sig)), 0, 4)] = fn;
+}
+
+app.post('/', async (req, res) => {
+  try {
+    const data = '0x' + req.body.toString('hex');
+    const { functionName, args } = decodeFunctionData({ abi, data });
+
+    let result;
+
+    switch (functionName) {
+      case 'fetch':
+        result = await handleFetch(args[0], args[1]);
+        break;
+      case 'validate':
+        result = handleValidate(args[0]);
+        break;
+      default:
+        return res.status(400).send('Unknown method');
+    }
+
+    const encoded = encodeFunctionResult({
+      abi,
+      functionName,
+      result: Array.isArray(result) ? result : [result]
+    });
+
+    res.send(Buffer.from(encoded.slice(2), 'hex'));
+  } catch (error) {
+    console.error('Error:', error);
     res.status(500).send('Error processing request');
   }
 });
@@ -116,26 +271,65 @@ Using **eth-abi**:
 ```python
 from flask import Flask, request, Response
 from eth_abi import decode, encode
+from eth_utils import keccak
 
 app = Flask(__name__)
 
-@app.route('/greet', methods=['POST'])
-def greet():
-    try:
-        # Decode input
-        raw_data = request.get_data()
-        decoded = decode(['string'], raw_data)
-        name = decoded[0]
+# Define ABI
+ABI = {
+    'greet': {
+        'inputs': ['string'],
+        'outputs': ['string']
+    },
+    'add': {
+        'inputs': ['uint256', 'uint256'],
+        'outputs': ['uint256']
+    }
+}
 
-        # Execute logic
-        greeting = f"Hello, {name}!"
+# Compute selectors at startup
+SELECTORS = {}
+for name, spec in ABI.items():
+    sig = f"{name}({','.join(spec['inputs'])})"
+    selector = keccak(text=sig)[:4]
+    SELECTORS[selector] = (name, spec)
+
+@app.route('/', methods=['POST'])
+def handle_request():
+    try:
+        raw_data = request.get_data()
+
+        # Extract selector (first 4 bytes)
+        selector = raw_data[:4]
+        params_data = raw_data[4:]
+
+        if selector not in SELECTORS:
+            return 'Unknown function selector', 400
+
+        name, spec = SELECTORS[selector]
+
+        # Decode parameters
+        args = decode(spec['inputs'], params_data)
+
+        # Route to handler
+        if name == 'greet':
+            result = f"Hello, {args[0]}!"
+        elif name == 'add':
+            result = args[0] + args[1]
+        else:
+            return 'Not implemented', 400
 
         # Encode output
-        encoded = encode(['string'], [greeting])
-
+        encoded = encode(spec['outputs'], [result])
         return Response(encoded, mimetype='application/octet-stream')
+
     except Exception as e:
+        print(f'Error: {e}')
         return str(e), 500
+
+@app.route('/health', methods=['GET'])
+def health():
+    return {'status': 'ok'}
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=80)
@@ -151,84 +345,112 @@ package main
 import (
     "io"
     "net/http"
+
     "github.com/ethereum/go-ethereum/accounts/abi"
-    "github.com/ethereum/go-ethereum/common"
+    "github.com/ethereum/go-ethereum/crypto"
 )
 
-func greetHandler(w http.ResponseWriter, r *http.Request) {
-    // Read raw body
+var (
+    stringType, _ = abi.NewType("string", "", nil)
+    uint256Type, _ = abi.NewType("uint256", "", nil)
+
+    // Function selectors
+    greetSelector = crypto.Keccak256([]byte("greet(string)"))[:4]
+    addSelector   = crypto.Keccak256([]byte("add(uint256,uint256)"))[:4]
+)
+
+func handler(w http.ResponseWriter, r *http.Request) {
     body, err := io.ReadAll(r.Body)
     if err != nil {
         http.Error(w, err.Error(), 500)
         return
     }
 
-    // Define ABI types
-    stringType, _ := abi.NewType("string", "", nil)
-    args := abi.Arguments{{Type: stringType}}
-
-    // Decode input
-    decoded, err := args.Unpack(body)
-    if err != nil {
-        http.Error(w, err.Error(), 400)
+    if len(body) < 4 {
+        http.Error(w, "Invalid request", 400)
         return
     }
-    name := decoded[0].(string)
 
-    // Execute logic
-    greeting := "Hello, " + name + "!"
+    selector := body[:4]
+    params := body[4:]
 
-    // Encode output
-    encoded, _ := args.Pack(greeting)
+    var encoded []byte
+
+    switch {
+    case bytesEqual(selector, greetSelector):
+        args := abi.Arguments{{Type: stringType}}
+        decoded, _ := args.Unpack(params)
+        name := decoded[0].(string)
+        greeting := "Hello, " + name + "!"
+        encoded, _ = args.Pack(greeting)
+
+    case bytesEqual(selector, addSelector):
+        args := abi.Arguments{{Type: uint256Type}, {Type: uint256Type}}
+        decoded, _ := args.Unpack(params)
+        a := decoded[0].(*big.Int)
+        b := decoded[1].(*big.Int)
+        sum := new(big.Int).Add(a, b)
+        outArgs := abi.Arguments{{Type: uint256Type}}
+        encoded, _ = outArgs.Pack(sum)
+
+    default:
+        http.Error(w, "Unknown selector", 400)
+        return
+    }
 
     w.Header().Set("Content-Type", "application/octet-stream")
     w.Write(encoded)
 }
 
+func bytesEqual(a, b []byte) bool {
+    if len(a) != len(b) {
+        return false
+    }
+    for i := range a {
+        if a[i] != b[i] {
+            return false
+        }
+    }
+    return true
+}
+
 func main() {
-    http.HandleFunc("/greet", greetHandler)
+    http.HandleFunc("/", handler)
     http.ListenAndServe(":80", nil)
 }
 ```
+
+---
 
 ## Complex Type Examples
 
 ### Arrays
 
-**Specification:**
+**ABI:**
 ```json
 {
-  "inputs": [
-    { "name": "numbers", "type": "uint256[]" }
-  ],
-  "outputs": [
-    { "name": "sum", "type": "uint256" }
-  ]
+  "type": "function",
+  "name": "sumArray",
+  "inputs": [{ "name": "numbers", "type": "uint256[]" }],
+  "outputs": [{ "name": "total", "type": "uint256" }]
 }
 ```
 
-**Implementation (Node.js):**
+**Handler (Node.js):**
 ```javascript
-app.post('/sum', (req, res) => {
-  const [numbers] = decodeInput(req.body, [
-    { type: 'uint256[]', name: 'numbers' }
-  ]);
-
-  const sum = numbers.reduce((a, b) => a + b, 0n);
-
-  const encoded = encodeOutput([sum], [
-    { type: 'uint256', name: 'sum' }
-  ]);
-
-  res.send(encoded);
-});
+case 'sumArray':
+  const numbers = args[0];
+  result = numbers.reduce((a, b) => a + b, 0n);
+  break;
 ```
 
 ### Tuples (Structs)
 
-**Specification:**
+**ABI:**
 ```json
 {
+  "type": "function",
+  "name": "processUser",
   "inputs": [
     {
       "name": "user",
@@ -239,71 +461,46 @@ app.post('/sum', (req, res) => {
       ]
     }
   ],
-  "outputs": [
-    { "name": "greeting", "type": "string" }
-  ]
+  "outputs": [{ "name": "greeting", "type": "string" }]
 }
 ```
 
-**Implementation (Node.js):**
+**Handler (Node.js):**
 ```javascript
-app.post('/greetUser', (req, res) => {
-  const [user] = decodeInput(req.body, [
-    {
-      type: 'tuple',
-      name: 'user',
-      components: [
-        { type: 'string', name: 'name' },
-        { type: 'uint256', name: 'age' }
-      ]
-    }
-  ]);
-
-  const greeting = `Hello ${user.name}, age ${user.age}!`;
-
-  const encoded = encodeOutput([greeting], [
-    { type: 'string', name: 'greeting' }
-  ]);
-
-  res.send(encoded);
-});
+case 'processUser':
+  const user = args[0];
+  result = `Hello ${user.name}, age ${user.age}!`;
+  break;
 ```
 
-### Multiple Inputs/Outputs
+### Multiple Outputs
 
-**Specification:**
+**ABI:**
 ```json
 {
-  "inputs": [
-    { "name": "a", "type": "uint256" },
-    { "name": "b", "type": "uint256" }
-  ],
+  "type": "function",
+  "name": "analyze",
+  "inputs": [{ "name": "data", "type": "bytes" }],
   "outputs": [
-    { "name": "sum", "type": "uint256" },
-    { "name": "product", "type": "uint256" }
+    { "name": "hash", "type": "bytes32" },
+    { "name": "size", "type": "uint256" },
+    { "name": "valid", "type": "bool" }
   ]
 }
 ```
 
-**Implementation (Node.js):**
+**Handler (Node.js):**
 ```javascript
-app.post('/calculate', (req, res) => {
-  const [a, b] = decodeInput(req.body, [
-    { type: 'uint256', name: 'a' },
-    { type: 'uint256', name: 'b' }
-  ]);
-
-  const sum = a + b;
-  const product = a * b;
-
-  const encoded = encodeOutput([sum, product], [
-    { type: 'uint256', name: 'sum' },
-    { type: 'uint256', name: 'product' }
-  ]);
-
-  res.send(encoded);
-});
+case 'analyze':
+  const data = args[0];
+  const hash = keccak256(data);
+  const size = BigInt(data.length);
+  const valid = data.length > 0;
+  result = [hash, size, valid];  // Multiple return values
+  break;
 ```
+
+---
 
 ## Dockerfile Best Practices
 
@@ -370,6 +567,8 @@ EXPOSE 80
 CMD ["python", "server.py"]
 ```
 
+---
+
 ## Testing Your Container
 
 ### Local Testing
@@ -381,31 +580,66 @@ docker build -t my-agent .
 # Run container
 docker run -p 8080:80 my-agent
 
-# Test with curl (requires ABI encoding)
-# Use agent-builder test command instead:
+# Test with agent-builder
 agent-builder test --method greet --input '{"name": "Alice"}'
+```
+
+### Manual Testing with viem
+
+```javascript
+import { encodeFunctionData, decodeFunctionResult } from 'viem';
+
+const abi = [{
+  type: 'function',
+  name: 'greet',
+  inputs: [{ name: 'name', type: 'string' }],
+  outputs: [{ name: 'greeting', type: 'string' }]
+}];
+
+// Encode request (includes selector)
+const calldata = encodeFunctionData({
+  abi,
+  functionName: 'greet',
+  args: ['Alice']
+});
+
+// Send to agent (note: sending to root path /)
+const response = await fetch('http://localhost:8080/', {
+  method: 'POST',
+  body: Buffer.from(calldata.slice(2), 'hex')
+});
+
+// Decode response
+const responseHex = '0x' + Buffer.from(await response.arrayBuffer()).toString('hex');
+const result = decodeFunctionResult({
+  abi,
+  functionName: 'greet',
+  data: responseHex
+});
+
+console.log(result); // "Hello, Alice!"
 ```
 
 ### Health Check Endpoint
 
-Add a health check endpoint:
+Add a health check endpoint (this is separate from the main request handler):
 
 ```javascript
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     version: '1.0.0',
-    methods: ['greet', 'calculate']
+    methods: abi.filter(x => x.type === 'function').map(x => x.name)
   });
 });
 ```
-
-Then in Dockerfile:
 
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
   CMD wget -q --spider http://localhost/health || exit 1
 ```
+
+---
 
 ## Performance Considerations
 
@@ -422,63 +656,58 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
 - Implement memory-efficient algorithms
 - Clean up resources after each request
 
-### Concurrency
+### Selector Computation
 
-- Agent host may send multiple requests simultaneously
-- Ensure thread/request safety
-- Use connection pooling for databases
-- Implement request queuing if needed
+- **Compute selectors at startup**, not per-request
+- Store in a lookup map for O(1) routing
+- Use efficient byte comparison
+
+```javascript
+// Good: Compute once at startup
+const selectors = {};
+for (const fn of abi.filter(x => x.type === 'function')) {
+  const sig = `${fn.name}(${fn.inputs.map(i => i.type).join(',')})`;
+  selectors[slice(keccak256(toBytes(sig)), 0, 4)] = fn;
+}
+
+// Bad: Compute on every request
+app.post('/', (req, res) => {
+  // Don't do this!
+  const sig = 'greet(string)';
+  const selector = keccak256(toBytes(sig)).slice(0, 4);
+});
+```
+
+---
 
 ## Security Best Practices
 
 ### Input Validation
 
 ```javascript
-app.post('/divide', (req, res) => {
-  const [a, b] = decodeInput(req.body, [
-    { type: 'uint256', name: 'a' },
-    { type: 'uint256', name: 'b' }
-  ]);
-
-  // Validate inputs
-  if (b === 0n) {
-    return res.status(400).send('Division by zero');
-  }
-
-  const result = a / b;
-  const encoded = encodeOutput([result], [
-    { type: 'uint256', name: 'result' }
-  ]);
-
-  res.send(encoded);
-});
-```
-
-### Error Handling
-
-```javascript
-app.post('/fetchUrl', async (req, res) => {
+app.post('/', (req, res) => {
   try {
-    const [url] = decodeInput(req.body, [
-      { type: 'string', name: 'url' }
-    ]);
+    const data = '0x' + req.body.toString('hex');
 
-    // Validate URL
-    if (!url.startsWith('https://')) {
-      return res.status(400).send('Only HTTPS URLs allowed');
+    // Validate minimum length (4 bytes selector)
+    if (req.body.length < 4) {
+      return res.status(400).send('Invalid request: too short');
     }
 
-    const response = await fetch(url);
-    const data = await response.text();
+    const { functionName, args } = decodeFunctionData({ abi, data });
 
-    const encoded = encodeOutput([data], [
-      { type: 'string', name: 'data' }
-    ]);
+    // Validate function-specific inputs
+    if (functionName === 'fetch') {
+      const url = args[0];
+      if (!url.startsWith('https://')) {
+        return res.status(400).send('Only HTTPS URLs allowed');
+      }
+    }
 
-    res.send(encoded);
+    // ... handle request
   } catch (error) {
-    console.error('Fetch error:', error);
-    res.status(500).send('Failed to fetch URL');
+    console.error('Error:', error);
+    res.status(500).send('Error processing request');
   }
 });
 ```
@@ -498,15 +727,18 @@ app.use((req, res, next) => {
 });
 ```
 
+---
+
 ## Debugging
 
 ### Logging
 
 ```javascript
-// Log all requests
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
+// Log all requests with selector info
+app.post('/', (req, res) => {
+  const selector = req.body.slice(0, 4).toString('hex');
+  console.log(`[${new Date().toISOString()}] Request with selector: 0x${selector}`);
+  // ... handle request
 });
 
 // Log errors
@@ -516,51 +748,26 @@ app.use((err, req, res, next) => {
 });
 ```
 
-### Testing Locally
+### Common Issues
 
-```bash
-# Run with logs
-docker run -p 8080:80 my-agent
+**Unknown selector errors:**
+- Verify the function signature matches exactly
+- Check parameter types (e.g., `uint256` vs `uint`)
+- Ensure no spaces in signature
 
-# Exec into container
-docker exec -it <container-id> sh
-
-# View logs
-docker logs <container-id> -f
-```
-
-## Common Issues
-
-### Port Not Accessible
-
-Ensure Docker exposes port 80:
-
-```dockerfile
-EXPOSE 80
-```
-
-And server listens on `0.0.0.0`:
-
-```javascript
-app.listen(80, '0.0.0.0');
-```
-
-### ABI Decoding Errors
-
-- Verify types match specification exactly
-- Check for byte order issues
+**ABI decoding errors:**
+- Verify request includes the 4-byte selector
+- Check that parameter encoding matches ABI
 - Ensure `0x` prefix handling is correct
-- Use `toString('hex')` for buffers
 
-### Container Crashes
+**Port not accessible:**
+- Ensure Docker exposes port 80
+- Server must listen on `0.0.0.0:80`
 
-- Check memory usage
-- Implement graceful error handling
-- Add health checks
-- Monitor resource consumption
+---
 
 ## Next Steps
 
-- [Learn about ABI encoding in detail](./05-abi-encoding.md)
-- [Explore example implementations](./06-examples.md)
-- [Set up an agent host to run agents](./04-running-agents.md)
+- [Learn about ABI encoding](./04-abi-encoding.md)
+- [See implementation examples](./05-examples.md)
+- [Learn about agent definitions](./02-agent-specification.md)
