@@ -183,19 +183,10 @@ async function buildCommand(agentFolderArg, outputTar) {
 
   const imageName = `agent-build-${agentDef.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
 
-  // Pull base image for correct platform (Docker caches wrong arch otherwise)
-  console.log('Pulling base image (linux/amd64)...');
-  try {
-    execSync('docker pull --platform linux/amd64 node:20-alpine', { stdio: 'inherit' });
-  } catch (error) {
-    console.error('Failed to pull base image');
-    process.exit(1);
-  }
-
   // Build image
   console.log('Building Docker image (linux/amd64)...');
   try {
-    execSync(`docker build --platform linux/amd64 --no-cache -t ${imageName} ${agentFolder}`, { stdio: 'inherit' });
+    execSync(`docker build --platform linux/amd64 -t ${imageName} ${agentFolder}`, { stdio: 'inherit' });
   } catch (error) {
     console.error('Failed to build Docker image');
     process.exit(1);
@@ -249,18 +240,9 @@ async function devCommand(agentFolderArg) {
   function buildImage() {
     const imageName = `agent-test-${agentDef.name.toLowerCase().replace(/\s+/g, '-')}`;
 
-    // Pull base image for correct platform (Docker caches wrong arch otherwise)
-    console.log('Pulling base image (linux/amd64)...');
-    try {
-      execSync('docker pull --platform linux/amd64 node:20-alpine', { stdio: 'inherit' });
-    } catch (error) {
-      console.error('Failed to pull base image');
-      return null;
-    }
-
     console.log(`Building Docker image: ${imageName}...`);
     try {
-      execSync(`docker build --platform linux/amd64 --no-cache -t ${imageName} ${agentFolder}`, { stdio: 'inherit' });
+      execSync(`docker build --platform linux/amd64 -t ${imageName} ${agentFolder}`, { stdio: 'inherit' });
       return imageName;
     } catch (error) {
       console.error('Failed to build Docker image');
