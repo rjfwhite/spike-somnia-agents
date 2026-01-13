@@ -411,7 +411,189 @@ app.listen(80);
 
 ---
 
-## Example 5: Python Implementation
+## Example 5: AI Parse Website Agent
+
+A comprehensive agent with multiple related functions for AI-powered web parsing. This demonstrates how to implement an agent with several method variants.
+
+### Metadata
+
+```json
+{
+  "name": "AI Parse Website",
+  "description": "AI-powered web content parsing with multiple output types",
+  "container_image": "ipfs://QmAiParseWebsiteCID",
+  "version": "1.0.0",
+  "abi": [
+    {
+      "type": "function",
+      "name": "aiParseWebsiteString",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "query", "type": "string" }
+      ],
+      "outputs": [{ "name": "result", "type": "string" }]
+    },
+    {
+      "type": "function",
+      "name": "aiParseWebsiteInteger",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "query", "type": "string" },
+        { "name": "min", "type": "int256" },
+        { "name": "max", "type": "int256" }
+      ],
+      "outputs": [{ "name": "result", "type": "int256" }]
+    },
+    {
+      "type": "function",
+      "name": "aiParseWebsiteBool",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "query", "type": "string" }
+      ],
+      "outputs": [{ "name": "result", "type": "bool" }]
+    },
+    {
+      "type": "function",
+      "name": "aiParseWebsiteEnum",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "query", "type": "string" },
+        { "name": "options", "type": "string[]" }
+      ],
+      "outputs": [{ "name": "result", "type": "string" }]
+    }
+  ]
+}
+```
+
+### Implementation (Node.js)
+
+```javascript
+const express = require('express');
+const { decodeFunctionData, encodeFunctionResult } = require('viem');
+
+const app = express();
+app.use(express.raw({ type: '*/*', limit: '10mb' }));
+
+const abi = [
+  {
+    type: 'function',
+    name: 'aiParseWebsiteString',
+    inputs: [
+      { name: 'url', type: 'string' },
+      { name: 'query', type: 'string' }
+    ],
+    outputs: [{ name: 'result', type: 'string' }]
+  },
+  {
+    type: 'function',
+    name: 'aiParseWebsiteInteger',
+    inputs: [
+      { name: 'url', type: 'string' },
+      { name: 'query', type: 'string' },
+      { name: 'min', type: 'int256' },
+      { name: 'max', type: 'int256' }
+    ],
+    outputs: [{ name: 'result', type: 'int256' }]
+  },
+  {
+    type: 'function',
+    name: 'aiParseWebsiteBool',
+    inputs: [
+      { name: 'url', type: 'string' },
+      { name: 'query', type: 'string' }
+    ],
+    outputs: [{ name: 'result', type: 'bool' }]
+  },
+  {
+    type: 'function',
+    name: 'aiParseWebsiteEnum',
+    inputs: [
+      { name: 'url', type: 'string' },
+      { name: 'query', type: 'string' },
+      { name: 'options', type: 'string[]' }
+    ],
+    outputs: [{ name: 'result', type: 'string' }]
+  }
+];
+
+// Helper: fetch and parse webpage with AI
+async function parseWithAI(url, query) {
+  const response = await fetch(url);
+  const html = await response.text();
+  // Call AI model to parse content based on query
+  // (Implementation depends on your AI provider)
+  return await callAIModel(html, query);
+}
+
+app.post('/', async (req, res) => {
+  try {
+    let data = req.body;
+    // Convert Buffer to string if needed
+    if (Buffer.isBuffer(data)) {
+      data = data.toString('utf8');
+    }
+    if (typeof data !== 'string' || !data.startsWith('0x')) {
+      return res.status(400).send('Invalid request body. Expected ABI encoded hex string starting with 0x.');
+    }
+
+    const { functionName, args } = decodeFunctionData({ abi, data });
+    console.log(`Received call for: ${functionName}`, args);
+
+    let result;
+    switch (functionName) {
+      case 'aiParseWebsiteString': {
+        const [url, query] = args;
+        result = await parseWithAI(url, query);
+        break;
+      }
+      case 'aiParseWebsiteInteger': {
+        const [url, query, min, max] = args;
+        const parsed = await parseWithAI(url, query);
+        const num = BigInt(parseInt(parsed));
+        // Clamp to range
+        result = num < min ? min : num > max ? max : num;
+        break;
+      }
+      case 'aiParseWebsiteBool': {
+        const [url, query] = args;
+        const parsed = await parseWithAI(url, query);
+        result = parsed.toLowerCase() === 'true' || parsed === '1';
+        break;
+      }
+      case 'aiParseWebsiteEnum': {
+        const [url, query, options] = args;
+        const parsed = await parseWithAI(url, query);
+        // Return matching option or first option as fallback
+        result = options.find(opt =>
+          opt.toLowerCase() === parsed.toLowerCase()
+        ) || options[0];
+        break;
+      }
+      default:
+        return res.status(400).send('Unknown function');
+    }
+
+    const encoded = encodeFunctionResult({
+      abi,
+      functionName,
+      result: [result]
+    });
+
+    res.send(Buffer.from(encoded.slice(2), 'hex'));
+  } catch (error) {
+    console.error('Error:', error);
+    res.status(500).send('Error processing request');
+  }
+});
+
+app.listen(80);
+```
+
+---
+
+## Example 6: Python Implementation
 
 Example using Python with eth-abi for function selector routing.
 
