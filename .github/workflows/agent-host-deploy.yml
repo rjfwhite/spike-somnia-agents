@@ -50,24 +50,9 @@ jobs:
 
       - name: Deploy to GCE
         run: |
-          if gcloud compute instances describe ${{ env.VM_NAME }} --zone ${{ env.ZONE }} &>/dev/null; then
-            # VM exists, update container
-            gcloud compute instances update-container ${{ env.VM_NAME }} \
-              --zone ${{ env.ZONE }} \
-              --container-image ${{ env.IMAGE_TAG }}
-          else
-            # VM doesn't exist, create it
-            gcloud compute instances create-with-container ${{ env.VM_NAME }} \
-              --zone ${{ env.ZONE }} \
-              --machine-type=e2-small \
-              --image-family=cos-stable \
-              --image-project=cos-cloud \
-              --boot-disk-size=20GB \
-              --container-image ${{ env.IMAGE_TAG }} \
-              --container-mount-host-path=mount-path=/var/run/docker.sock,host-path=/var/run/docker.sock,mode=rw \
-              --container-env=DOCKER_HOST=unix:///var/run/docker.sock \
-              --tags=http-server
-          fi
+          gcloud compute instances update-container ${{ env.VM_NAME }} \
+            --zone ${{ env.ZONE }} \
+            --container-image ${{ env.IMAGE_TAG }}
 
       - name: Get VM External IP
         run: |
