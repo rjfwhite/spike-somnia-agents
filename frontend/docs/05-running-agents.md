@@ -519,7 +519,7 @@ PRIVATE_KEY=key2 npm start
 
 ## Next Steps
 
-- [Learn about ABI encoding](./05-abi-encoding.md)
-- [Explore example agents](./06-examples.md)
-- [Understand container requirements](./03-container-requirements.md)
-- [Build your own agent](./02-building-agents.md)
+- [Learn about ABI encoding](./06-abi-encoding.md)
+- [Explore example agents](./07-examples.md)
+- [Understand container requirements](./04-container-requirements.md)
+- [Build your own agent](./03-building-agents.md)

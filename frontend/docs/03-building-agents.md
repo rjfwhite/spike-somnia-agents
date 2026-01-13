@@ -438,7 +438,7 @@ curl -X GET https://api.pinata.cloud/data/testAuthentication \
 
 ## Next Steps
 
-- [Understand container requirements](./03-container-requirements.md)
-- [Learn about ABI encoding](./05-abi-encoding.md)
-- [Explore example agents](./06-examples.md)
-- [Set up an agent host](./04-running-agents.md)
+- [Understand container requirements](./04-container-requirements.md)
+- [Learn about ABI encoding](./06-abi-encoding.md)
+- [Explore example agents](./07-examples.md)
+- [Set up an agent host](./05-running-agents.md)

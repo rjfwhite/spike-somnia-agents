@@ -670,6 +670,6 @@ try {
 
 ## Next Steps
 
-- [Build your first agent](./02-building-agents.md)
-- [Learn about ABI encoding](./05-abi-encoding.md)
-- [Explore examples](./06-examples.md)
+- [Build your first agent](./03-building-agents.md)
+- [Learn about ABI encoding](./06-abi-encoding.md)
+- [Explore examples](./07-examples.md)

@@ -760,6 +760,6 @@ app.use((req, res, next) => {
 
 ## Next Steps
 
-- [Deploy your agent](./02-building-agents.md)
-- [Set up an agent host](./04-running-agents.md)
-- [Learn more about ABI encoding](./05-abi-encoding.md)
+- [Deploy your agent](./03-building-agents.md)
+- [Set up an agent host](./05-running-agents.md)
+- [Learn more about ABI encoding](./06-abi-encoding.md)
