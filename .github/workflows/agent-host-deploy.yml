@@ -48,15 +48,6 @@ jobs:
           docker push $IMAGE_TAG
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
-      - name: Create Firewall Rule
-        run: |
-          if ! gcloud compute firewall-rules describe allow-http-80 &>/dev/null; then
-            gcloud compute firewall-rules create allow-http-80 \
-              --allow tcp:80 \
-              --target-tags=http-server \
-              --description="Allow HTTP traffic on port 80"
-          fi
-
       - name: Deploy to GCE
         run: |
           if gcloud compute instances describe ${{ env.VM_NAME }} --zone ${{ env.ZONE }} &>/dev/null; then

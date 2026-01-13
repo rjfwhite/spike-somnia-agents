@@ -55,11 +55,6 @@ gcloud projects add-iam-policy-binding $PROJECT_ID \
     --role="roles/iam.serviceAccountUser" \
     --quiet
 
-gcloud projects add-iam-policy-binding $PROJECT_ID \
-    --member="serviceAccount:$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/compute.securityAdmin" \
-    --quiet
-
 # 4. Generate Key for GitHub Secrets
 KEY_FILE="gcp-sa-key.json"
 if [ ! -f "$KEY_FILE" ]; then
