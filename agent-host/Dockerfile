@@ -44,8 +44,8 @@ ENV NODE_ENV=production
 # Optional:
 #   DOCKER_HOST - Remote Docker daemon (e.g., tcp://10.128.0.2:2375)
 
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=80
+EXPOSE 80
 
 # Run the agent host
 CMD ["node", "dist/index.js"]

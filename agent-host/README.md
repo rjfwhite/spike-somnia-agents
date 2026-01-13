@@ -54,25 +54,29 @@ npm start
 
 ```bash
 docker build -t agent-host-http .
-docker run -p 8080:8080 -v /var/run/docker.sock:/var/run/docker.sock agent-host-http
+docker run -p 80:80 -v /var/run/docker.sock:/var/run/docker.sock agent-host-http
 ```
 
 Note: The container needs access to the Docker socket to manage agent containers.
 
 ## Deploying to GCP
 
+The GitHub Actions workflow automatically deploys to GCP on push to main. It will:
+1. Create Artifact Registry repository (if needed)
+2. Build and push Docker image
+3. Create firewall rule for port 80 (if needed)
+4. Create or update the GCE VM
+
+Required GitHub Secrets:
+- `GCP_PROJECT_ID`: Your GCP project ID
+- `GCP_SA_KEY`: Service account key JSON with permissions for Artifact Registry and Compute Engine
+
+To set up the service account manually:
 ```bash
 cd deploy/gcp
 ./setup.sh
 ```
 
-This will:
-1. Enable required GCP APIs
-2. Create Artifact Registry repository
-3. Create service account with deploy permissions
-4. Generate key for GitHub Actions
-5. Create GCE VM with Docker socket mounted
-
 ## Environment Variables
 
-- `PORT`: HTTP server port (default: 8080)
+- `PORT`: HTTP server port (default: 80)

@@ -12,9 +12,9 @@ env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
   REGION: us-central1
   ZONE: us-central1-a
-  REPO_NAME: agent-host-repo
-  IMAGE_NAME: agent-host
-  VM_NAME: somnia-agent-host
+  REPO_NAME: agent-host-http-repo
+  IMAGE_NAME: agent-host-http
+  VM_NAME: somnia-agent-host-http
 
 jobs:
   deploy:
@@ -40,6 +40,15 @@ jobs:
       - name: Configure Docker
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
+      - name: Create Artifact Registry Repository
+        run: |
+          if ! gcloud artifacts repositories describe ${{ env.REPO_NAME }} --location=${{ env.REGION }} &>/dev/null; then
+            gcloud artifacts repositories create ${{ env.REPO_NAME }} \
+              --repository-format=docker \
+              --location=${{ env.REGION }} \
+              --description="Docker repository for Somnia Agent Host"
+          fi
+
       - name: Build and Push Docker Image
         working-directory: ./agent-host
         run: |
@@ -48,8 +57,37 @@ jobs:
           docker push $IMAGE_TAG
           echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
 
+      - name: Create Firewall Rule
+        run: |
+          if ! gcloud compute firewall-rules describe allow-http-80 &>/dev/null; then
+            gcloud compute firewall-rules create allow-http-80 \
+              --allow tcp:80 \
+              --target-tags=http-server \
+              --description="Allow HTTP traffic on port 80"
+          fi
+
       - name: Deploy to GCE
         run: |
-          gcloud compute instances update-container ${{ env.VM_NAME }} \
-            --zone ${{ env.ZONE }} \
-            --container-image ${{ env.IMAGE_TAG }}
+          if gcloud compute instances describe ${{ env.VM_NAME }} --zone ${{ env.ZONE }} &>/dev/null; then
+            # VM exists, update container
+            gcloud compute instances update-container ${{ env.VM_NAME }} \
+              --zone ${{ env.ZONE }} \
+              --container-image ${{ env.IMAGE_TAG }}
+          else
+            # VM doesn't exist, create it
+            gcloud compute instances create-with-container ${{ env.VM_NAME }} \
+              --zone ${{ env.ZONE }} \
+              --machine-type=e2-small \
+              --image-family=cos-stable \
+              --image-project=cos-cloud \
+              --boot-disk-size=20GB \
+              --container-image ${{ env.IMAGE_TAG }} \
+              --container-mount-host-path=mount-path=/var/run/docker.sock,host-path=/var/run/docker.sock,mode=rw \
+              --container-env=DOCKER_HOST=unix:///var/run/docker.sock \
+              --tags=http-server
+          fi
+
+      - name: Get VM External IP
+        run: |
+          EXTERNAL_IP=$(gcloud compute instances describe ${{ env.VM_NAME }} --zone ${{ env.ZONE }} --format="value(networkInterfaces[0].accessConfigs[0].natIP)")
+          echo "Service URL: http://$EXTERNAL_IP"

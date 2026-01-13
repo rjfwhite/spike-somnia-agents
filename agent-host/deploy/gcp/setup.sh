@@ -42,15 +42,23 @@ fi
 echo "Granting permissions..."
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/artifactregistry.writer"
+    --role="roles/artifactregistry.writer" \
+    --quiet
 
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/compute.instanceAdmin.v1"
+    --role="roles/compute.instanceAdmin.v1" \
+    --quiet
 
 gcloud projects add-iam-policy-binding $PROJECT_ID \
     --member="serviceAccount:$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role="roles/iam.serviceAccountUser"
+    --role="roles/iam.serviceAccountUser" \
+    --quiet
+
+gcloud projects add-iam-policy-binding $PROJECT_ID \
+    --member="serviceAccount:$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role="roles/compute.securityAdmin" \
+    --quiet
 
 # 4. Generate Key for GitHub Secrets
 KEY_FILE="gcp-sa-key.json"
@@ -58,15 +66,25 @@ if [ ! -f "$KEY_FILE" ]; then
     echo "Generating Service Account Key..."
     gcloud iam service-accounts keys create $KEY_FILE \
         --iam-account=$SERVICE_ACCOUNT_NAME@$PROJECT_ID.iam.gserviceaccount.com
-    echo "Key saved to $KEY_FILE. Add this to GitHub Secrets as GCP_SA_KEY_HTTP."
+    echo "Key saved to $KEY_FILE. Add this to GitHub Secrets as GCP_SA_KEY."
 else
     echo "Key file $KEY_FILE already exists."
 fi
 
-# 5. Create/Update GCE VM
+# 5. Create firewall rule for HTTP on port 80
+if ! gcloud compute firewall-rules describe allow-http-80 &>/dev/null; then
+    echo "Creating firewall rule for port 80..."
+    gcloud compute firewall-rules create allow-http-80 \
+        --allow tcp:80 \
+        --target-tags=http-server \
+        --description="Allow HTTP traffic on port 80"
+else
+    echo "Firewall rule allow-http-80 already exists."
+fi
+
+# 6. Create GCE VM
 if ! gcloud compute instances describe $VM_NAME --zone=$ZONE &>/dev/null; then
     echo "Creating GCE VM..."
-
     gcloud compute instances create-with-container $VM_NAME \
         --project=$PROJECT_ID \
         --zone=$ZONE \
@@ -78,22 +96,21 @@ if ! gcloud compute instances describe $VM_NAME --zone=$ZONE &>/dev/null; then
         --container-mount-host-path=mount-path=/var/run/docker.sock,host-path=/var/run/docker.sock,mode=rw \
         --container-env=DOCKER_HOST=unix:///var/run/docker.sock \
         --tags=http-server
-
-    # Allow HTTP traffic on port 8080 (may already exist from agent-host)
-    if ! gcloud compute firewall-rules describe allow-http-8080 &>/dev/null; then
-        gcloud compute firewall-rules create allow-http-8080 \
-            --allow tcp:8080 \
-            --target-tags=http-server \
-            --description="Allow port 8080 for agent-host"
-    fi
 else
     echo "VM $VM_NAME already exists."
 fi
 
+# Get external IP
+EXTERNAL_IP=$(gcloud compute instances describe $VM_NAME --zone=$ZONE --format="value(networkInterfaces[0].accessConfigs[0].natIP)")
+
 echo ""
+echo "=============================================="
 echo "Setup Complete!"
-echo "------------------------------------------------"
-echo "1. Add the content of '$KEY_FILE' to your GitHub Repository Secrets with name 'GCP_SA_KEY_HTTP'."
-echo "2. Provide 'GCP_PROJECT_ID' secret with value '$PROJECT_ID'."
+echo "=============================================="
 echo ""
-echo "No private key required - this agent host operates without blockchain."
+echo "VM External IP: $EXTERNAL_IP"
+echo "Service URL: http://$EXTERNAL_IP"
+echo ""
+echo "GitHub Secrets to add:"
+echo "  - GCP_SA_KEY: contents of '$KEY_FILE'"
+echo "  - GCP_PROJECT_ID: $PROJECT_ID"
