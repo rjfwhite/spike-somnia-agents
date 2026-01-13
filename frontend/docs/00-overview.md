@@ -165,5 +165,5 @@ timeline
 
 - [Explore Core Agents](./01-core-agents.md)
 - [Learn about Agent Definitions](./02-agent-specification.md)
-- [Understand ABI encoding](./06-abi-encoding.md)
-- [See implementation examples](./07-examples.md)
+- [Understand ABI encoding](./04-abi-encoding.md)
+- [See implementation examples](./05-examples.md)

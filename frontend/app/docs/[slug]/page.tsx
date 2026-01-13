@@ -62,7 +62,7 @@ export default async function DocPage({ params }: DocsPageProps) {
       <div className="mb-8">
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-3">
           <Book className="w-4 h-4" />
-          <span className="capitalize">{doc.category.replace('-', ' ')}</span>
+          <span>Documentation</span>
         </div>
         <h1 className="text-4xl font-bold text-white mb-3">{doc.title}</h1>
         <p className="text-lg text-gray-400">{doc.description}</p>
