@@ -21,6 +21,7 @@ interface InvocationResult {
 
 export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
     const [metadataUrl, setMetadataUrl] = useState<string>(initialMetadataUrl || "");
+    const [containerImageUrl, setContainerImageUrl] = useState<string>("");
     const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
     const [metadataLoading, setMetadataLoading] = useState(false);
     const [metadataError, setMetadataError] = useState<string | null>(null);
@@ -64,16 +65,6 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
         }
     };
 
-    const getContainerImage = (): string | null => {
-        if (!metadata) return null;
-        // Support multiple field names for container image
-        return metadata.agent_spec?.container_image
-            || (metadata as any).container_image
-            || (metadata as any).image
-            || (metadata as any).container
-            || null;
-    };
-
     const getMethods = (): MethodDefinition[] => {
         if (!metadata) return [];
 
@@ -105,11 +96,10 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
     };
 
     const invokeMethod = async (method: MethodDefinition) => {
-        const containerImage = getContainerImage();
-        if (!containerImage) {
+        if (!containerImageUrl) {
             setInvocationResults(prev => ({
                 ...prev,
-                [method.name]: { status: 'error', error: 'No container image found in metadata' }
+                [method.name]: { status: 'error', error: 'Please enter a container image URL' }
             }));
             return;
         }
@@ -149,7 +139,7 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/octet-stream',
-                    'X-Agent-Url': containerImage,
+                    'X-Agent-Url': containerImageUrl,
                     'X-Request-Id': requestId,
                 },
                 body: requestBody,
@@ -204,6 +194,22 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
             </div>
 
             <div className="space-y-6">
+                {/* Container Image URL Input */}
+                <div>
+                    <label htmlFor="containerImageUrl" className="block text-sm font-semibold text-gray-300 mb-2">
+                        Container Image URL
+                    </label>
+                    <input
+                        id="containerImageUrl"
+                        type="url"
+                        value={containerImageUrl}
+                        onChange={(e) => setContainerImageUrl(e.target.value)}
+                        className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all font-mono text-sm"
+                        placeholder="https://example.com/agent.tar"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">URL to the tarred container image (used in X-Agent-Url header)</p>
+                </div>
+
                 {/* Metadata URL Input */}
                 <div>
                     <label htmlFor="metadataUrl" className="block text-sm font-semibold text-gray-300 mb-2">
@@ -226,6 +232,7 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                             {metadataLoading ? 'Loading...' : 'Load'}
                         </button>
                     </div>
+                    <p className="text-xs text-gray-500 mt-1">URL to the agent metadata JSON (defines methods/ABI)</p>
                 </div>
 
                 {metadataError && (
@@ -253,16 +260,6 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                                 </p>
                             )}
                         </div>
-
-                        {/* Container Image */}
-                        {getContainerImage() && (
-                            <div className="bg-secondary/5 p-4 rounded-xl border border-secondary/20">
-                                <span className="text-xs font-bold text-secondary uppercase tracking-wider block mb-2">Container Image</span>
-                                <span className="font-mono text-xs text-gray-300 bg-black/20 px-3 py-1.5 rounded-md border border-white/5 break-all block">
-                                    {getContainerImage()}
-                                </span>
-                            </div>
-                        )}
 
                         {/* Methods */}
                         {getMethods().length > 0 && (
