@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import type { TokenMetadata, MethodDefinition, AbiParameter } from "@/lib/types";
-import { encodeAbi, decodeAbi, formatDecodedValue, parseInputValue } from "@/lib/abi-utils";
+import { encodeFunctionCall, decodeAbi, parseInputValue } from "@/lib/abi-utils";
+import { hexToBytes, toHex } from "viem";
 import { DecodedData } from "@/components/DecodedData";
 
-const AGENT_HOST_URL = "http://35.226.219.86";
+const INVOKE_API_URL = "/api/invoke";
+const METADATA_API_URL = "/api/metadata";
 
 interface DirectInvokerProps {
     initialMetadataUrl?: string;
@@ -40,9 +42,11 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
         setMetadataError(null);
 
         try {
-            const response = await fetch(metadataUrl);
+            const proxyUrl = `${METADATA_API_URL}?url=${encodeURIComponent(metadataUrl)}`;
+            const response = await fetch(proxyUrl);
             if (!response.ok) {
-                throw new Error(`Failed to fetch metadata: ${response.status}`);
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || `Failed to fetch metadata: ${response.status}`);
             }
             const data = await response.json();
             setMetadata(data);
@@ -116,37 +120,24 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                 return parseInputValue(rawValue, input.type);
             });
 
-            // Encode the function call (method name + ABI-encoded params)
-            const encodedParams = encodeAbi(method.inputs, values);
-
-            // Create the request body: method name (as bytes) + encoded params
-            // For simplicity, we'll encode method name as a string parameter followed by the call data
-            const methodNameBytes = new TextEncoder().encode(method.name);
-            const paramsBytes = hexToBytes(encodedParams);
-
-            // Combine: 4 bytes for method name length + method name + params
-            const methodNameLength = new Uint8Array(4);
-            new DataView(methodNameLength.buffer).setUint32(0, methodNameBytes.length, false);
-
-            const requestBody = new Uint8Array(4 + methodNameBytes.length + paramsBytes.length);
-            requestBody.set(methodNameLength, 0);
-            requestBody.set(methodNameBytes, 4);
-            requestBody.set(paramsBytes, 4 + methodNameBytes.length);
+            // Encode the function call (4-byte selector + ABI-encoded params)
+            const encodedCall = encodeFunctionCall(method, values);
+            const requestBody = hexToBytes(encodedCall);
 
             const requestId = crypto.randomUUID();
 
-            const response = await fetch(AGENT_HOST_URL, {
+            const response = await fetch(INVOKE_API_URL, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/octet-stream',
                     'X-Agent-Url': containerImageUrl,
                     'X-Request-Id': requestId,
                 },
-                body: requestBody,
+                body: new Blob([requestBody as BlobPart]),
             });
 
             const responseBuffer = await response.arrayBuffer();
-            const responseHex = bytesToHex(new Uint8Array(responseBuffer));
+            const responseHex = toHex(new Uint8Array(responseBuffer));
 
             if (!response.ok) {
                 const errorText = new TextDecoder().decode(responseBuffer);
@@ -427,16 +418,3 @@ function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, 
     );
 }
 
-// Helper functions
-function hexToBytes(hex: string): Uint8Array {
-    const cleanHex = hex.startsWith('0x') ? hex.slice(2) : hex;
-    const bytes = new Uint8Array(cleanHex.length / 2);
-    for (let i = 0; i < cleanHex.length; i += 2) {
-        bytes[i / 2] = parseInt(cleanHex.substr(i, 2), 16);
-    }
-    return bytes;
-}
-
-function bytesToHex(bytes: Uint8Array): `0x${string}` {
-    return `0x${Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')}`;
-}
