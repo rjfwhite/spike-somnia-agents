@@ -1,5 +1,6 @@
 import express from 'express';
 import { Storage } from '@google-cloud/storage';
+import crypto from 'crypto';
 const app = express();
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
 const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'agent-receipts';
@@ -9,23 +10,35 @@ const bucket = storage.bucket(BUCKET_NAME);
 // Middleware to parse JSON bodies
 app.use(express.json());
 /**
- * Get the GCS file path for a requestId
+ * Get the folder path for a requestId
  */
-function getFilePath(requestId) {
-    return `receipts/${requestId}.json`;
+function getFolderPath(requestId) {
+    return `receipts/${requestId}/`;
 }
 /**
- * Read receipts from GCS for a given requestId
+ * Generate a unique receipt filename
+ */
+function generateReceiptFilename() {
+    const timestamp = Date.now();
+    const randomSuffix = crypto.randomBytes(8).toString('hex');
+    return `${timestamp}-${randomSuffix}.json`;
+}
+/**
+ * Read all receipts from GCS for a given requestId
  */
 async function readReceipts(requestId) {
-    const file = bucket.file(getFilePath(requestId));
+    const folderPath = getFolderPath(requestId);
     try {
-        const [exists] = await file.exists();
-        if (!exists) {
+        const [files] = await bucket.getFiles({ prefix: folderPath });
+        if (files.length === 0) {
             return [];
         }
-        const [content] = await file.download();
-        return JSON.parse(content.toString());
+        const receipts = await Promise.all(files.map(async (file) => {
+            const [content] = await file.download();
+            return JSON.parse(content.toString());
+        }));
+        // Sort by _storedAt timestamp
+        return receipts.sort((a, b) => new Date(a._storedAt).getTime() - new Date(b._storedAt).getTime());
     }
     catch (error) {
         console.error(`Error reading receipts for ${requestId}:`, error.message);
@@ -33,11 +46,12 @@ async function readReceipts(requestId) {
     }
 }
 /**
- * Write receipts to GCS for a given requestId
+ * Write a single receipt to GCS for a given requestId
  */
-async function writeReceipts(requestId, receipts) {
-    const file = bucket.file(getFilePath(requestId));
-    await file.save(JSON.stringify(receipts, null, 2), {
+async function writeReceipt(requestId, receipt) {
+    const filePath = getFolderPath(requestId) + generateReceiptFilename();
+    const file = bucket.file(filePath);
+    await file.save(JSON.stringify(receipt, null, 2), {
         contentType: 'application/json',
     });
 }
@@ -63,15 +77,12 @@ app.post('/agent-receipts', async (req, res) => {
             ...receipt,
             _storedAt: new Date().toISOString(),
         };
-        // Read existing receipts, append new one, and write back
-        const existingReceipts = await readReceipts(requestId);
-        existingReceipts.push(receiptWithMetadata);
-        await writeReceipts(requestId, existingReceipts);
-        console.log(`Stored receipt for requestId: ${requestId} (total: ${existingReceipts.length})`);
+        // Write receipt as a separate file (no read-modify-write, no race conditions)
+        await writeReceipt(requestId, receiptWithMetadata);
+        console.log(`Stored receipt for requestId: ${requestId}`);
         res.status(201).json({
             success: true,
             requestId,
-            receiptCount: existingReceipts.length,
         });
     }
     catch (error) {
