@@ -47,9 +47,9 @@ function sendError(res: ServerResponse, status: number, message: string): void {
 }
 
 /**
- * Handle POST request - forward to agent container
+ * Handle request - forward to agent container
  */
-async function handlePost(req: IncomingMessage, res: ServerResponse): Promise<void> {
+async function handleRequest_agent(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const agentUrl = req.headers['x-agent-url'] as string | undefined;
   const requestId = req.headers['x-request-id'] as string | undefined;
 
@@ -108,10 +108,10 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   // Root endpoint handles agent requests
   if (req.url === '/' || req.url === '') {
-    if (req.method === 'POST') {
-      await handlePost(req, res);
+    if (req.method === 'POST' || req.method === 'GET') {
+      await handleRequest_agent(req, res);
     } else {
-      sendError(res, 405, 'Method not allowed. Use POST.');
+      sendError(res, 405, 'Method not allowed. Use GET or POST.');
     }
     return;
   }
@@ -133,7 +133,7 @@ server.listen(PORT, () => {
   console.log(`Agent Host HTTP server listening on port ${PORT}`);
   console.log('');
   console.log('Usage:');
-  console.log('  POST / with headers:');
+  console.log('  GET or POST / with headers:');
   console.log('    X-Agent-Url: URL of the tarred container image');
   console.log('    X-Request-Id: Request ID for receipts');
   console.log('  Body: Binary ABI-encoded function call');

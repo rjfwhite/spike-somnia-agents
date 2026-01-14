@@ -321,6 +321,87 @@ export function ResultDisplay({ result, abi, label = "Result" }: { result: strin
     );
 }
 
+export function RequestDisplay({ request, abi, label = "Request" }: { request: string; abi?: any[]; label?: string }) {
+    const [isOpen, setIsOpen] = useState(false);
+
+    // Try to decode the request calldata if ABI is provided
+    const decoded = useMemo(() => {
+        if (!abi || !request || request === '0x' || request.length < 10) return null;
+
+        try {
+            const { decodeFunctionData } = require('viem');
+            const { functionName, args } = decodeFunctionData({ abi, data: request as `0x${string}` });
+
+            // Find the function definition to get input names/types
+            const fn = abi.find((item: any) => item.type === 'function' && item.name === functionName);
+            if (!fn) return { functionName, args, inputs: [] };
+
+            const inputs = (fn.inputs || []).map((input: any, idx: number) => ({
+                name: input.name || `arg_${idx}`,
+                type: input.type,
+                value: args[idx],
+            }));
+
+            return { functionName, args, inputs };
+        } catch {
+            return null;
+        }
+    }, [request, abi]);
+
+    return (
+        <div className="bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg border border-blue-500/20 overflow-hidden">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full px-3 py-2 flex items-center justify-between hover:bg-white/5 transition-colors"
+            >
+                <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-blue-400">{label}</span>
+                    {decoded && (
+                        <>
+                            <span className="text-xs text-purple-400 font-mono">{decoded.functionName}()</span>
+                            <span className="text-[10px] text-blue-600">
+                                {decoded.inputs.length} arg{decoded.inputs.length !== 1 ? 's' : ''}
+                            </span>
+                        </>
+                    )}
+                </div>
+                <span className="text-blue-500">
+                    {isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                </span>
+            </button>
+
+            {isOpen && (
+                <div className="px-3 py-2 border-t border-blue-500/10 space-y-2">
+                    {/* Decoded inputs */}
+                    {decoded && decoded.inputs.length > 0 && (
+                        <div className="space-y-1">
+                            {decoded.inputs.map((input: any, idx: number) => (
+                                <div key={idx} className="flex items-start gap-2 text-xs">
+                                    <span className="text-blue-600 shrink-0">
+                                        {input.name}
+                                        <span className="text-blue-800 ml-1">({input.type})</span>:
+                                    </span>
+                                    <span className="font-mono text-blue-300 break-all">
+                                        {formatValue(input.value)}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Raw hex */}
+                    <div className={decoded && decoded.inputs.length > 0 ? "pt-1 border-t border-blue-500/10" : ""}>
+                        <div className="text-[10px] text-blue-700 mb-1">Raw calldata:</div>
+                        <div className="font-mono text-[10px] text-blue-500/70 break-all bg-black/20 rounded px-2 py-1">
+                            {request}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 function formatValue(value: any): string {
     if (value === null || value === undefined) return 'null';
     if (typeof value === 'bigint') return value.toString();

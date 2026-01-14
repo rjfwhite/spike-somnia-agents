@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import type { TokenMetadata, MethodDefinition, AbiParameter } from "@/lib/types";
 import { encodeFunctionCall, decodeAbi, parseInputValue } from "@/lib/abi-utils";
 import { hexToBytes } from "viem";
-import { ReceiptViewer, ResultDisplay } from "@/components/ReceiptViewer";
+import { ReceiptViewer, ResultDisplay, RequestDisplay } from "@/components/ReceiptViewer";
 
 const INVOKE_API_URL = "/api/invoke";
 const METADATA_API_URL = "/api/metadata";
@@ -41,6 +41,7 @@ interface InvocationResult {
     status: 'pending' | 'success' | 'error';
     invocations: SingleInvocation[];
     receipts?: any[];
+    request?: string; // The encoded calldata
     progress?: number;
     total?: number;
 }
@@ -136,24 +137,23 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
         const total = repeatCount;
         const requestId = crypto.randomUUID(); // Same requestId for all invocations
 
+        // Parse input values and encode once (same for all invocations)
+        const values = method.inputs.map(input => {
+            const rawValue = inputValues[method.name]?.[input.name] || '';
+            return parseInputValue(rawValue, input.type);
+        });
+        const encodedCall = encodeFunctionCall(method, values);
+        const requestBody = hexToBytes(encodedCall);
+
         setInvocationResults(prev => ({
             ...prev,
-            [method.name]: { status: 'pending', invocations: [], progress: 0, total }
+            [method.name]: { status: 'pending', invocations: [], request: encodedCall, progress: 0, total }
         }));
 
         const invocations: SingleInvocation[] = [];
 
         for (let i = 0; i < total; i++) {
             try {
-                // Parse input values
-                const values = method.inputs.map(input => {
-                    const rawValue = inputValues[method.name]?.[input.name] || '';
-                    return parseInputValue(rawValue, input.type);
-                });
-
-                // Encode the function call (4-byte selector + ABI-encoded params)
-                const encodedCall = encodeFunctionCall(method, values);
-                const requestBody = hexToBytes(encodedCall);
 
                 const response = await fetch(INVOKE_API_URL, {
                     method: 'POST',
@@ -211,6 +211,7 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                 status: hasErrors ? 'error' : 'success',
                 invocations,
                 receipts,
+                request: encodedCall,
             }
         }));
     };
@@ -429,6 +430,11 @@ function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, 
                     {/* Results */}
                     {result && result.invocations && result.invocations.length > 0 && (
                         <div className="space-y-3">
+                            {/* Request */}
+                            {result.request && (
+                                <RequestDisplay request={result.request} abi={abi} />
+                            )}
+
                             {/* Consensus Summary */}
                             {(() => {
                                 const responses = result.invocations
