@@ -10,6 +10,10 @@ import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Load and print version
+const pkg = JSON.parse(readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+console.log(`somnia-agent v${pkg.version}\n`);
+
 const CONTAINER_PORT = 80;
 const HOST_PORT = 9000;
 const UI_PORT = 3000;
@@ -268,8 +272,13 @@ async function devCommand(agentFolderArg) {
     containerName = `agent-test-${Date.now()}`;
 
     try {
+      // Clean up any containers using our port
       try {
-        execSync(`docker rm -f ${containerName} 2>/dev/null`, { stdio: 'ignore' });
+        const containersOnPort = execSync(`docker ps -q --filter "publish=${HOST_PORT}"`, { encoding: 'utf-8' }).trim();
+        if (containersOnPort) {
+          console.log('Stopping existing container on port...');
+          execSync(`docker rm -f ${containersOnPort}`, { stdio: 'ignore' });
+        }
       } catch {}
 
       console.log(`Starting container on port ${HOST_PORT}...`);
@@ -280,7 +289,15 @@ async function devCommand(agentFolderArg) {
         '--name', containerName,
         '-p', `${HOST_PORT}:${CONTAINER_PORT}`,
         imageName
-      ], { stdio: 'inherit' });
+      ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+      containerProcess.stdout.on('data', (data) => {
+        process.stdout.write(`[container] ${data}`);
+      });
+
+      containerProcess.stderr.on('data', (data) => {
+        process.stderr.write(`[container] ${data}`);
+      });
 
       containerProcess.on('exit', (code) => {
         if (!isRebuilding) {
@@ -421,9 +438,9 @@ async function devCommand(agentFolderArg) {
           throw new Error(text);
         }
 
-        const { responseHex, receipt } = await response.json();
+        const { responseHex, steps } = await response.json();
         console.log('Response:', responseHex);
-        console.log('Receipt:', receipt);
+        console.log('Steps:', steps);
 
         const result = decodeFunctionResult({
           abi,
@@ -434,9 +451,9 @@ async function devCommand(agentFolderArg) {
         resultDiv.textContent = JSON.stringify(result, (k, v) =>
           typeof v === 'bigint' ? v.toString() : v, 2);
 
-        if (receipt) {
-          receiptDiv.innerHTML = '<div class="receipt-label">Receipt</div>' +
-            JSON.stringify(receipt, null, 2);
+        if (steps) {
+          receiptDiv.innerHTML = '<div class="receipt-label">Steps</div>' +
+            JSON.stringify(steps, null, 2);
         }
 
       } catch (error) {
@@ -648,17 +665,18 @@ async function devCommand(agentFolderArg) {
           }
           const body = JSON.parse(Buffer.concat(chunks).toString());
           const { calldata } = body;
-
-          const binaryData = Buffer.from(calldata.slice(2), 'hex');
           const requestId = body.requestId || crypto.randomUUID();
 
+          // Send JSON request to agent container: { requestId, request: hex }
           const agentResponse = await fetch(`http://localhost:${HOST_PORT}/`, {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/octet-stream',
-              'X-Request-Id': requestId,
+              'Content-Type': 'application/json',
             },
-            body: binaryData
+            body: JSON.stringify({
+              requestId,
+              request: calldata,
+            })
           });
 
           if (!agentResponse.ok) {
@@ -668,20 +686,13 @@ async function devCommand(agentFolderArg) {
             return;
           }
 
-          const responseBuffer = Buffer.from(await agentResponse.arrayBuffer());
-          const responseHex = '0x' + responseBuffer.toString('hex');
-
-          // Extract receipt from X-Receipt header
-          const receiptHeader = agentResponse.headers.get('x-receipt');
-          let receipt = null;
-          if (receiptHeader) {
-            try {
-              receipt = JSON.parse(receiptHeader);
-            } catch {}
-          }
+          // Parse JSON response: { steps: array, result: hex }
+          const jsonResponse = await agentResponse.json();
+          const responseHex = jsonResponse.result || '0x';
+          const steps = jsonResponse.steps || null;
 
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ responseHex, receipt }));
+          res.end(JSON.stringify({ responseHex, steps }));
 
         } catch (error) {
           res.writeHead(500, { 'Content-Type': 'text/plain' });

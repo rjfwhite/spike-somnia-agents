@@ -4,6 +4,21 @@ import { decodeFunctionData, encodeFunctionResult } from 'viem';
 
 const PORT = 80;
 
+// Helper to track execution steps
+function createResponse() {
+  return {
+    steps: [],
+    result: null,
+  };
+}
+
+function addStep(response, name, data = {}) {
+  response.steps.push({
+    name,
+    ...data,
+  });
+}
+
 // Load agent definition from JSON
 const agentDef = JSON.parse(readFileSync('./agent.json', 'utf-8'));
 const abi = agentDef.abi;
@@ -62,32 +77,46 @@ async function handleRequest(req, res) {
     return;
   }
 
+  const response = createResponse();
+
   try {
     const body = await readBody(req);
 
-    if (body.length < 4) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
-      res.end('Invalid request: too short');
+    // Parse JSON request: { requestId: string, request: hex-encoded string }
+    const jsonRequest = JSON.parse(body.toString());
+    const { requestId = 'unknown', request: requestHex } = jsonRequest;
+
+    addStep(response, 'request_received', { requestId });
+
+    // Convert hex request to data format for viem
+    const data = requestHex.startsWith('0x') ? requestHex : '0x' + requestHex;
+
+    if (data.length < 10) { // 0x + 4 bytes minimum
+      addStep(response, 'error', { error: 'Invalid request: too short' });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(response));
       return;
     }
 
-    const data = '0x' + body.toString('hex');
-
     // Decode calldata - viem returns functionName and args
     const { functionName, args } = decodeFunctionData({ abi, data });
+    addStep(response, 'request_decoded', { functionName, argsCount: args.length });
 
-    console.log(`Handling ${functionName}`);
+    console.log(`[${requestId}] Handling ${functionName}`);
 
     // Get handler for this function
     const handler = handlers[functionName];
     if (!handler) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
-      res.end(`No handler for function: ${functionName}`);
+      addStep(response, 'error', { error: `No handler for function: ${functionName}` });
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(response));
       return;
     }
 
     // Call handler with args
+    addStep(response, 'handler_started', { functionName });
     const result = handler(...args);
+    addStep(response, 'handler_completed', { functionName, resultType: typeof result });
 
     // Encode the response
     const encoded = encodeFunctionResult({
@@ -95,16 +124,20 @@ async function handleRequest(req, res) {
       functionName,
       result: Array.isArray(result) ? result : [result]
     });
+    addStep(response, 'response_encoded', { responseLength: encoded.length });
 
-    console.log(`Response: ${encoded}`);
+    console.log(`[${requestId}] Response: ${encoded}`);
 
-    res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
-    res.end(Buffer.from(encoded.slice(2), 'hex'));
+    // Set result and return
+    response.result = encoded;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(response));
 
   } catch (error) {
     console.error('Error processing request:', error);
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end(`Error: ${error.message}`);
+    addStep(response, 'error', { error: error.message });
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(response));
   }
 }
 

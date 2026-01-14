@@ -249,38 +249,67 @@ export async function ensureAgentRunning(agentUrl: string): Promise<{ port: numb
 }
 
 /**
- * Forward a request to an agent container
+ * Forward a request to an agent container using JSON-in-JSON-out protocol.
+ * Request: { requestId: string, request: hex-encoded string }
+ * Response: { steps?: array, result: hex-encoded string }
  */
 export async function forwardToAgent(
   agentUrl: string,
   body: Buffer,
   headers: Record<string, string>
-): Promise<{ status: number; body: Buffer; headers: Record<string, string> }> {
+): Promise<{ status: number; body: Buffer; receipt: object | null }> {
   const { port } = await ensureAgentRunning(agentUrl);
 
   const url = `http://localhost:${port}/`;
 
+  // Convert binary body to hex-encoded string and build JSON request
+  const requestHex = '0x' + body.toString('hex');
+  const requestId = headers['X-Request-Id'] || '';
+
+  const jsonRequest = JSON.stringify({
+    requestId,
+    request: requestHex,
+  });
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/octet-stream',
-      ...headers,
+      'Content-Type': 'application/json',
     },
-    body: new Uint8Array(body),
+    body: jsonRequest,
   });
 
-  const responseBody = Buffer.from(await response.arrayBuffer());
+  // Parse JSON response
+  const responseText = await response.text();
+  let responseBody: Buffer;
+  let receipt: object | null = null;
 
-  // Extract relevant headers from response
-  const responseHeaders: Record<string, string> = {};
-  response.headers.forEach((value, key) => {
-    responseHeaders[key] = value;
-  });
+  try {
+    const jsonResponse = JSON.parse(responseText);
+
+    // Extract result and convert from hex to binary
+    if (jsonResponse.result) {
+      const resultHex = jsonResponse.result.startsWith('0x')
+        ? jsonResponse.result.slice(2)
+        : jsonResponse.result;
+      responseBody = Buffer.from(resultHex, 'hex');
+    } else {
+      responseBody = Buffer.from(responseText);
+    }
+
+    // The full JSON response IS the receipt
+    if (jsonResponse.steps) {
+      receipt = jsonResponse;
+    }
+  } catch {
+    // If response is not JSON, treat as raw text/error
+    responseBody = Buffer.from(responseText);
+  }
 
   return {
     status: response.status,
     body: responseBody,
-    headers: responseHeaders,
+    receipt,
   };
 }
 

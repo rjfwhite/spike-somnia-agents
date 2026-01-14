@@ -77,25 +77,15 @@ async function handlePost(req: IncomingMessage, res: ServerResponse): Promise<vo
 
     console.log(`Request ${requestId}: Agent responded with status ${agentResponse.status}`);
 
-    // Extract and upload receipt if agent provided one
-    const receiptHeader = agentResponse.headers['x-receipt'];
-    if (receiptHeader) {
-      try {
-        const receipt = JSON.parse(receiptHeader);
-        // Upload asynchronously - don't block the response
-        uploadReceipt(requestId, receipt);
-      } catch (e) {
-        console.error(`Request ${requestId}: Failed to parse X-Receipt header as JSON`);
-      }
+    // Upload receipt if agent provided one
+    if (agentResponse.receipt) {
+      uploadReceipt(requestId, agentResponse.receipt);
     }
 
-    // Build response headers
-    const responseHeaders: Record<string, string> = {
+    // Send the binary response back to requester
+    res.writeHead(agentResponse.status, {
       'Content-Type': 'application/octet-stream',
-    };
-
-    // Send the response back to requester
-    res.writeHead(agentResponse.status, responseHeaders);
+    });
     res.end(agentResponse.body);
   } catch (error: any) {
     console.error(`Request ${requestId}: Error - ${error.message}`);
