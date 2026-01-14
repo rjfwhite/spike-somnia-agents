@@ -6,6 +6,7 @@ import { readFileSync, existsSync, watch, mkdirSync, writeFileSync, readdirSync 
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createInterface } from 'readline';
+import crypto from 'crypto';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -380,8 +381,10 @@ async function devCommand(agentFolderArg) {
       if (!fn) return;
 
       const resultDiv = document.getElementById('result-' + fnName);
+      const receiptDiv = document.getElementById('receipt-' + fnName);
       const errorDiv = document.getElementById('error-' + fnName);
       resultDiv.textContent = '';
+      receiptDiv.textContent = '';
       errorDiv.textContent = '';
 
       try {
@@ -418,8 +421,9 @@ async function devCommand(agentFolderArg) {
           throw new Error(text);
         }
 
-        const { responseHex } = await response.json();
+        const { responseHex, receipt } = await response.json();
         console.log('Response:', responseHex);
+        console.log('Receipt:', receipt);
 
         const result = decodeFunctionResult({
           abi,
@@ -430,6 +434,11 @@ async function devCommand(agentFolderArg) {
         resultDiv.textContent = JSON.stringify(result, (k, v) =>
           typeof v === 'bigint' ? v.toString() : v, 2);
 
+        if (receipt) {
+          receiptDiv.innerHTML = '<div class="receipt-label">Receipt</div>' +
+            JSON.stringify(receipt, null, 2);
+        }
+
       } catch (error) {
         console.error(error);
         errorDiv.textContent = error.message;
@@ -439,86 +448,145 @@ async function devCommand(agentFolderArg) {
   <style>
     * { box-sizing: border-box; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
       max-width: 900px;
       margin: 0 auto;
-      padding: 20px;
-      background: #f5f5f5;
+      padding: 40px 20px;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      min-height: 100vh;
     }
-    h1 { color: #333; margin-bottom: 5px; }
-    .description { color: #666; margin-bottom: 30px; }
-    .version { color: #999; font-size: 14px; }
+    h1 {
+      color: #fff;
+      margin-bottom: 5px;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+    .description { color: #a3a3a3; margin-bottom: 30px; font-size: 14px; }
+    .version {
+      color: #10b981;
+      font-size: 12px;
+      background: rgba(16, 185, 129, 0.1);
+      padding: 4px 8px;
+      border-radius: 4px;
+      display: inline-block;
+      margin-bottom: 8px;
+    }
     .function-card {
-      background: white;
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      background: #141414;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 16px;
+      border: 1px solid #262626;
+      transition: border-color 0.2s;
     }
+    .function-card:hover { border-color: #404040; }
     .function-name {
-      font-size: 18px;
+      font-size: 16px;
       font-weight: 600;
-      color: #2563eb;
-      margin-bottom: 15px;
+      color: #a78bfa;
+      margin-bottom: 12px;
     }
     .signature {
-      font-family: monospace;
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 15px;
-      padding: 8px;
-      background: #f8f8f8;
-      border-radius: 4px;
+      font-family: inherit;
+      font-size: 11px;
+      color: #a3a3a3;
+      margin-bottom: 16px;
+      padding: 10px 12px;
+      background: #0a0a0a;
+      border-radius: 6px;
+      border: 1px solid #262626;
     }
-    .input-group { margin-bottom: 12px; }
+    .input-group { margin-bottom: 14px; }
     label {
       display: block;
-      font-size: 14px;
+      font-size: 12px;
       font-weight: 500;
-      margin-bottom: 4px;
-      color: #444;
+      margin-bottom: 6px;
+      color: #d4d4d4;
     }
-    .type-hint { font-size: 12px; color: #888; font-weight: normal; }
+    .type-hint { font-size: 11px; color: #737373; font-weight: normal; }
     input, textarea {
       width: 100%;
-      padding: 10px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      font-size: 14px;
-      font-family: monospace;
+      padding: 12px;
+      border: 1px solid #262626;
+      border-radius: 8px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #0a0a0a;
+      color: #e5e5e5;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    input:focus, textarea:focus { outline: none; border-color: #2563eb; }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: #a78bfa;
+      box-shadow: 0 0 0 3px rgba(167, 139, 250, 0.1);
+    }
+    input::placeholder { color: #525252; }
     button {
-      background: #2563eb;
+      background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
       color: white;
       border: none;
-      padding: 10px 20px;
-      border-radius: 4px;
-      font-size: 14px;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
       cursor: pointer;
-      margin-top: 10px;
+      margin-top: 12px;
+      font-family: inherit;
+      transition: transform 0.1s, box-shadow 0.2s;
     }
-    button:hover { background: #1d4ed8; }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    }
+    button:active { transform: translateY(0); }
     .result {
-      margin-top: 15px;
-      padding: 12px;
-      background: #ecfdf5;
-      border-radius: 4px;
-      font-family: monospace;
-      font-size: 14px;
+      margin-top: 16px;
+      padding: 14px;
+      background: rgba(16, 185, 129, 0.1);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 13px;
       white-space: pre-wrap;
       word-break: break-all;
       display: none;
+      color: #10b981;
+      border: 1px solid rgba(16, 185, 129, 0.2);
     }
     .result:not(:empty) { display: block; }
-    .error {
-      margin-top: 15px;
-      padding: 12px;
-      background: #fef2f2;
-      border-radius: 4px;
-      color: #dc2626;
-      font-size: 14px;
+    .receipt {
+      margin-top: 12px;
+      padding: 14px;
+      background: rgba(59, 130, 246, 0.05);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 11px;
+      white-space: pre-wrap;
+      word-break: break-all;
       display: none;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      color: #93c5fd;
+    }
+    .receipt:not(:empty) { display: block; }
+    .receipt-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #3b82f6;
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .error {
+      margin-top: 16px;
+      padding: 14px;
+      background: rgba(239, 68, 68, 0.1);
+      border-radius: 8px;
+      color: #f87171;
+      font-size: 13px;
+      display: none;
+      border: 1px solid rgba(239, 68, 68, 0.2);
     }
     .error:not(:empty) { display: block; }
   </style>
@@ -547,6 +615,7 @@ async function devCommand(agentFolderArg) {
     <button onclick="callFunction('${fn.name}')">Call ${fn.name}</button>
 
     <div class="result" id="result-${fn.name}"></div>
+    <div class="receipt" id="receipt-${fn.name}"></div>
     <div class="error" id="error-${fn.name}"></div>
   </div>
     `;
@@ -581,10 +650,14 @@ async function devCommand(agentFolderArg) {
           const { calldata } = body;
 
           const binaryData = Buffer.from(calldata.slice(2), 'hex');
+          const requestId = body.requestId || crypto.randomUUID();
 
           const agentResponse = await fetch(`http://localhost:${HOST_PORT}/`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/octet-stream' },
+            headers: {
+              'Content-Type': 'application/octet-stream',
+              'X-Request-Id': requestId,
+            },
             body: binaryData
           });
 
@@ -598,8 +671,17 @@ async function devCommand(agentFolderArg) {
           const responseBuffer = Buffer.from(await agentResponse.arrayBuffer());
           const responseHex = '0x' + responseBuffer.toString('hex');
 
+          // Extract receipt from X-Receipt header
+          const receiptHeader = agentResponse.headers.get('x-receipt');
+          let receipt = null;
+          if (receiptHeader) {
+            try {
+              receipt = JSON.parse(receiptHeader);
+            } catch {}
+          }
+
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ responseHex }));
+          res.end(JSON.stringify({ responseHex, receipt }));
 
         } catch (error) {
           res.writeHead(500, { 'Content-Type': 'text/plain' });

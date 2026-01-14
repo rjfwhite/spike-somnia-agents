@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const AGENT_HOST_URL = process.env.AGENT_HOST_URL || 'http://35.226.219.86';
+const AGENT_HOST_URL = process.env.AGENT_HOST_URL || 'http://136.119.40.64';
 const RECEIPTS_SERVICE_URL = process.env.RECEIPTS_SERVICE_URL || 'https://agent-receipts-937722299914.us-central1.run.app';
 
 function toHex(bytes: Uint8Array): string {
