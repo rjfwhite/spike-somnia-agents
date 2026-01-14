@@ -1,4 +1,5 @@
 import express, { Request, Response } from 'express';
+import cors from 'cors';
 import { Storage } from '@google-cloud/storage';
 import crypto from 'crypto';
 
@@ -9,6 +10,9 @@ const BUCKET_NAME = process.env.GCS_BUCKET_NAME || 'agent-receipts';
 // Initialize GCS client (uses ADC in Cloud Run)
 const storage = new Storage();
 const bucket = storage.bucket(BUCKET_NAME);
+
+// Enable CORS for all origins
+app.use(cors());
 
 // Middleware to parse JSON bodies
 app.use(express.json());

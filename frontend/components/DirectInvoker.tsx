@@ -5,49 +5,27 @@ import type { TokenMetadata, MethodDefinition, AbiParameter } from "@/lib/types"
 import { encodeFunctionCall, decodeAbi, parseInputValue } from "@/lib/abi-utils";
 import { hexToBytes } from "viem";
 import { DecodedData } from "@/components/DecodedData";
+import { ReceiptViewer } from "@/components/ReceiptViewer";
 
 const INVOKE_API_URL = "/api/invoke";
 const METADATA_API_URL = "/api/metadata";
+const RECEIPTS_SERVICE_URL = "https://agent-receipts-937722299914.us-central1.run.app";
 
-// Helper to check if all receipts across invocations are identical
-function checkReceiptsDeterminism(invocations: SingleInvocation[]): { deterministic: boolean; differences?: string[] } {
-    const successfulInvocations = invocations.filter(inv => !inv.error && inv.receipts);
-    if (successfulInvocations.length < 2) {
-        return { deterministic: true };
-    }
-
-    const firstReceipts = JSON.stringify(successfulInvocations[0].receipts);
-    const differences: string[] = [];
-
-    for (let i = 1; i < successfulInvocations.length; i++) {
-        const currentReceipts = JSON.stringify(successfulInvocations[i].receipts);
-        if (currentReceipts !== firstReceipts) {
-            differences.push(`Run 1 vs Run ${i + 1}`);
-        }
-    }
-
-    return {
-        deterministic: differences.length === 0,
-        differences: differences.length > 0 ? differences : undefined,
-    };
-}
-
-function ReceiptDeterminismBadge({ invocations }: { invocations: SingleInvocation[] }) {
-    const { deterministic, differences } = checkReceiptsDeterminism(invocations);
-
-    if (deterministic) {
-        return (
-            <span className="bg-green-500/20 text-green-400 text-xs font-bold px-2 py-0.5 rounded-full">
-                Deterministic
-            </span>
+async function fetchReceipts(requestId: string): Promise<any[]> {
+    try {
+        const response = await fetch(
+            `${RECEIPTS_SERVICE_URL}/agent-receipts?requestId=${encodeURIComponent(requestId)}`
         );
+        if (!response.ok) {
+            console.error(`Failed to fetch receipts: ${response.status}`);
+            return [];
+        }
+        const data = await response.json();
+        return data.receipts || [];
+    } catch (error: any) {
+        console.error(`Failed to fetch receipts: ${error.message}`);
+        return [];
     }
-
-    return (
-        <span className="bg-red-500/20 text-red-400 text-xs font-bold px-2 py-0.5 rounded-full" title={differences?.join(', ')}>
-            Non-deterministic ({differences?.length} diff{differences && differences.length > 1 ? 's' : ''})
-        </span>
-    );
 }
 
 interface DirectInvokerProps {
@@ -57,13 +35,13 @@ interface DirectInvokerProps {
 interface SingleInvocation {
     response?: string;
     decodedResponse?: any[];
-    receipts?: any[];
     error?: string;
 }
 
 interface InvocationResult {
     status: 'pending' | 'success' | 'error';
     invocations: SingleInvocation[];
+    receipts?: any[];
     progress?: number;
     total?: number;
 }
@@ -210,7 +188,6 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                     invocations.push({
                         response: responseHex,
                         decodedResponse,
-                        receipts: data.receipts,
                     });
                 }
             } catch (err: any) {
@@ -224,12 +201,16 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
             }));
         }
 
+        // Fetch all receipts once at the end
+        const receipts = await fetchReceipts(requestId);
+
         const hasErrors = invocations.some(inv => inv.error);
         setInvocationResults(prev => ({
             ...prev,
             [method.name]: {
                 status: hasErrors ? 'error' : 'success',
                 invocations,
+                receipts,
             }
         }));
     };
@@ -465,9 +446,6 @@ function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, 
                                         {result.invocations.length} invocation{result.invocations.length > 1 ? 's' : ''}
                                         {result.status === 'pending' && ` (${result.progress}/${result.total})`}
                                     </span>
-                                    {result.invocations.length > 1 && result.status !== 'pending' && (
-                                        <ReceiptDeterminismBadge invocations={result.invocations} />
-                                    )}
                                 </div>
                             </div>
 
@@ -493,18 +471,13 @@ function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, 
                                         </div>
                                     )}
 
-                                    {inv.receipts && inv.receipts.length > 0 && (
-                                        <div className="mt-2">
-                                            <span className="text-xs text-gray-500 block mb-1">
-                                                Receipts ({inv.receipts.length})
-                                            </span>
-                                            <pre className="bg-black/40 rounded-lg p-2 text-xs text-gray-300 overflow-auto max-h-48 font-mono">
-                                                {JSON.stringify(inv.receipts, null, 2)}
-                                            </pre>
-                                        </div>
-                                    )}
                                 </div>
                             ))}
+
+                            {/* Receipts (fetched once for all invocations) */}
+                            {result.receipts && result.receipts.length > 0 && result.status !== 'pending' && (
+                                <ReceiptViewer receipts={result.receipts} />
+                            )}
                         </div>
                     )}
                 </div>
