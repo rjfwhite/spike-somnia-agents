@@ -1,4 +1,5 @@
 import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { URL } from 'url';
 import { forwardToAgent, cleanupContainers } from './docker.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
@@ -50,25 +51,36 @@ function sendError(res: ServerResponse, status: number, message: string): void {
  * Handle request - forward to agent container
  */
 async function handleRequest_agent(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const agentUrl = req.headers['x-agent-url'] as string | undefined;
-  const requestId = req.headers['x-request-id'] as string | undefined;
+  // Parse URL and query parameters
+  const parsedUrl = new URL(req.url || '/', `http://localhost:${PORT}`);
+  const queryParams = parsedUrl.searchParams;
+
+  // Headers can override query params
+  const agentUrl = (req.headers['x-agent-url'] as string | undefined) || queryParams.get('agentUrl') || undefined;
+  const requestId = (req.headers['x-request-id'] as string | undefined) || queryParams.get('requestId') || undefined;
+  const dataParam = queryParams.get('data');
 
   if (!agentUrl) {
-    sendError(res, 400, 'Missing X-Agent-Url header');
+    sendError(res, 400, 'Missing X-Agent-Url header or agentUrl query param');
     return;
   }
 
   if (!requestId) {
-    sendError(res, 400, 'Missing X-Request-Id header');
+    sendError(res, 400, 'Missing X-Request-Id header or requestId query param');
     return;
   }
 
   try {
-    // Read the binary ABI-encoded request body
-    const body = await readBody(req);
+    // Get body from query param (base64) or request body
+    let body: Buffer;
+    if (dataParam) {
+      body = Buffer.from(dataParam, 'base64');
+    } else {
+      body = await readBody(req);
+    }
 
     console.log(`Request ${requestId}: Forwarding to agent at ${agentUrl}`);
-    console.log(`  Body size: ${body.length} bytes`);
+    console.log(`  Body size: ${body.length} bytes (from ${dataParam ? 'query param' : 'request body'})`);
 
     // Forward to agent container, passing through headers
     const agentResponse = await forwardToAgent(agentUrl, body, {
@@ -106,8 +118,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  // Root endpoint handles agent requests
-  if (req.url === '/' || req.url === '') {
+  // Root endpoint handles agent requests (check pathname, ignoring query string)
+  const pathname = req.url?.split('?')[0];
+  if (pathname === '/' || pathname === '') {
     if (req.method === 'POST' || req.method === 'GET') {
       await handleRequest_agent(req, res);
     } else {
@@ -133,10 +146,13 @@ server.listen(PORT, () => {
   console.log(`Agent Host HTTP server listening on port ${PORT}`);
   console.log('');
   console.log('Usage:');
-  console.log('  GET or POST / with headers:');
-  console.log('    X-Agent-Url: URL of the tarred container image');
-  console.log('    X-Request-Id: Request ID for receipts');
-  console.log('  Body: Binary ABI-encoded function call');
+  console.log('  GET or POST / with headers or query params:');
+  console.log('    X-Agent-Url header or agentUrl query param: URL of the tarred container image');
+  console.log('    X-Request-Id header or requestId query param: Request ID for receipts');
+  console.log('  Body: Binary ABI-encoded function call (or base64-encoded in "data" query param)');
+  console.log('');
+  console.log('  Example GET with query params:');
+  console.log('    GET /?agentUrl=<url>&requestId=<id>&data=<base64-encoded-body>');
   console.log('');
   console.log('Response:');
   console.log('  Body: Binary ABI-encoded result');
