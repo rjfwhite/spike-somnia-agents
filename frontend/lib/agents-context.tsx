@@ -69,13 +69,15 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
 
                         // Fetch Metadata
                         let metadata = null;
-                        try {
-                            const res = await fetch(uriString);
-                            if (res.ok) {
-                                metadata = await res.json();
+                        if (uriString && (uriString.startsWith('http://') || uriString.startsWith('https://'))) {
+                            try {
+                                const res = await fetch(uriString);
+                                if (res.ok) {
+                                    metadata = await res.json();
+                                }
+                            } catch (e) {
+                                console.error(`Failed to fetch metadata for ${id}`, e);
                             }
-                        } catch (e) {
-                            console.error(`Failed to fetch metadata for ${id}`, e);
                         }
 
                         return {

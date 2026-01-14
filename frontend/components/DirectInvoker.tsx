@@ -4,8 +4,7 @@ import { useState, useEffect } from "react";
 import type { TokenMetadata, MethodDefinition, AbiParameter } from "@/lib/types";
 import { encodeFunctionCall, decodeAbi, parseInputValue } from "@/lib/abi-utils";
 import { hexToBytes } from "viem";
-import { DecodedData } from "@/components/DecodedData";
-import { ReceiptViewer } from "@/components/ReceiptViewer";
+import { ReceiptViewer, ResultDisplay } from "@/components/ReceiptViewer";
 
 const INVOKE_API_URL = "/api/invoke";
 const METADATA_API_URL = "/api/metadata";
@@ -201,7 +200,8 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
             }));
         }
 
-        // Fetch all receipts once at the end
+        // Wait a moment for receipts to be uploaded, then fetch
+        await new Promise(resolve => setTimeout(resolve, 1000));
         const receipts = await fetchReceipts(requestId);
 
         const hasErrors = invocations.some(inv => inv.error);
@@ -339,6 +339,7 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                                             }}
                                             onInvoke={() => invokeMethod(method)}
                                             result={invocationResults[method.name]}
+                                            abi={(metadata as any)?.abi}
                                         />
                                     ))}
                                 </div>
@@ -359,9 +360,10 @@ interface MethodCardProps {
     onInputChange: (name: string, value: string) => void;
     onInvoke: () => void;
     result?: InvocationResult;
+    abi?: any[];
 }
 
-function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, onInvoke, result }: MethodCardProps) {
+function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, onInvoke, result, abi }: MethodCardProps) {
     return (
         <div className="bg-black/20 rounded-xl border border-white/5 overflow-hidden">
             <button
@@ -427,56 +429,109 @@ function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, 
                     {/* Results */}
                     {result && result.invocations && result.invocations.length > 0 && (
                         <div className="space-y-3">
-                            {/* Summary */}
-                            <div className={`p-3 rounded-lg border ${
-                                result.status === 'success'
-                                    ? 'bg-green-500/10 border-green-500/20'
-                                    : result.status === 'pending'
-                                    ? 'bg-yellow-500/10 border-yellow-500/20'
-                                    : 'bg-red-500/10 border-red-500/20'
-                            }`}>
-                                <div className="flex items-center gap-2">
-                                    {result.status === 'success' && <span className="text-green-400">✓</span>}
-                                    {result.status === 'pending' && <span className="text-yellow-400">⏳</span>}
-                                    {result.status === 'error' && <span className="text-red-400">✕</span>}
-                                    <span className={`text-sm font-bold ${
-                                        result.status === 'success' ? 'text-green-300' :
-                                        result.status === 'pending' ? 'text-yellow-300' : 'text-red-300'
-                                    }`}>
-                                        {result.invocations.length} invocation{result.invocations.length > 1 ? 's' : ''}
-                                        {result.status === 'pending' && ` (${result.progress}/${result.total})`}
-                                    </span>
-                                </div>
-                            </div>
+                            {/* Consensus Summary */}
+                            {(() => {
+                                const responses = result.invocations
+                                    .filter(inv => !inv.error && inv.response)
+                                    .map(inv => inv.response);
+                                const errors = result.invocations.filter(inv => inv.error);
+                                const total = result.invocations.length;
 
-                            {/* Individual Results */}
-                            {result.invocations.map((inv, idx) => (
-                                <div key={idx} className="bg-black/20 rounded-lg p-3 border border-white/5">
-                                    <div className="flex items-center gap-2 mb-2">
-                                        <span className="text-xs text-gray-500">Run {idx + 1}</span>
-                                        {inv.error ? (
-                                            <span className="text-red-400 text-xs">Error: {inv.error}</span>
-                                        ) : (
-                                            <span className="text-green-400 text-xs">Success</span>
+                                // Count occurrences of each response
+                                const counts = responses.reduce((acc, r) => {
+                                    acc[r!] = (acc[r!] || 0) + 1;
+                                    return acc;
+                                }, {} as Record<string, number>);
+
+                                // Find the most common response
+                                const entries = Object.entries(counts);
+                                const [topResponse, topCount] = entries.length > 0
+                                    ? entries.reduce((a, b) => b[1] > a[1] ? b : a)
+                                    : ['', 0];
+
+                                const consensusThreshold = Math.ceil(total * 2 / 3);
+                                const hasConsensus = topCount >= consensusThreshold;
+
+                                if (result.status === 'pending') {
+                                    return (
+                                        <div className="p-3 rounded-lg border bg-yellow-500/10 border-yellow-500/20">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-yellow-400">⏳</span>
+                                                <span className="text-sm font-bold text-yellow-300">
+                                                    Running... ({result.progress}/{result.total})
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                if (errors.length === total) {
+                                    return (
+                                        <div className="p-3 rounded-lg border bg-red-500/10 border-red-500/20">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-red-400">✕</span>
+                                                <span className="text-sm font-bold text-red-300">
+                                                    All {total} invocation{total > 1 ? 's' : ''} failed
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 text-xs text-red-400">
+                                                {errors[0]?.error}
+                                            </div>
+                                        </div>
+                                    );
+                                }
+
+                                return (
+                                    <div className={`p-3 rounded-lg border ${
+                                        hasConsensus
+                                            ? 'bg-green-500/10 border-green-500/20'
+                                            : 'bg-red-500/10 border-red-500/20'
+                                    }`}>
+                                        <div className="flex items-center gap-2">
+                                            {hasConsensus ? (
+                                                <>
+                                                    <span className="text-green-400">✓</span>
+                                                    <span className="text-sm font-bold text-green-300">
+                                                        Consensus ({topCount}/{total})
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="text-red-400">✕</span>
+                                                    <span className="text-sm font-bold text-red-300">
+                                                        Consensus Failed
+                                                    </span>
+                                                    <span className="text-xs text-red-400">
+                                                        ({topCount}/{total} agree, need {consensusThreshold})
+                                                    </span>
+                                                </>
+                                            )}
+                                        </div>
+                                        {hasConsensus && topResponse && (
+                                            <ResultDisplay
+                                                result={topResponse}
+                                                abi={abi}
+                                                label="Consensus Result"
+                                            />
+                                        )}
+                                        {errors.length > 0 && (
+                                            <div className="mt-2 text-xs text-gray-500">
+                                                {errors.length} error{errors.length > 1 ? 's' : ''} ignored
+                                            </div>
                                         )}
                                     </div>
-
-                                    {inv.response && (
-                                        <div className="mt-2">
-                                            <DecodedData
-                                                data={inv.response}
-                                                label="Response"
-                                                method={method}
-                                            />
-                                        </div>
-                                    )}
-
-                                </div>
-                            ))}
+                                );
+                            })()}
 
                             {/* Receipts (fetched once for all invocations) */}
-                            {result.receipts && result.receipts.length > 0 && result.status !== 'pending' && (
-                                <ReceiptViewer receipts={result.receipts} />
+                            {result.status !== 'pending' && (
+                                result.receipts && result.receipts.length > 0 ? (
+                                    <ReceiptViewer receipts={result.receipts} abi={abi} />
+                                ) : (
+                                    <div className="bg-black/30 rounded-xl border border-white/10 px-4 py-3">
+                                        <span className="text-sm text-gray-500">No receipts available</span>
+                                    </div>
+                                )
                             )}
                         </div>
                     )}
