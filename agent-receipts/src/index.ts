@@ -92,14 +92,8 @@ app.post('/agent-receipts', async (req: Request, res: Response) => {
     }
 
     try {
-        // Add timestamp metadata
-        const receiptWithMetadata = {
-            ...receipt,
-            _storedAt: new Date().toISOString(),
-        };
-
         // Write receipt as a separate file (no read-modify-write, no race conditions)
-        await writeReceipt(requestId, receiptWithMetadata);
+        await writeReceipt(requestId, receipt);
 
         console.log(`Stored receipt for requestId: ${requestId}`);
 

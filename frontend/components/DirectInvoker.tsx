@@ -3,22 +3,69 @@
 import { useState, useEffect } from "react";
 import type { TokenMetadata, MethodDefinition, AbiParameter } from "@/lib/types";
 import { encodeFunctionCall, decodeAbi, parseInputValue } from "@/lib/abi-utils";
-import { hexToBytes, toHex } from "viem";
+import { hexToBytes } from "viem";
 import { DecodedData } from "@/components/DecodedData";
 
 const INVOKE_API_URL = "/api/invoke";
 const METADATA_API_URL = "/api/metadata";
 
+// Helper to check if all receipts across invocations are identical
+function checkReceiptsDeterminism(invocations: SingleInvocation[]): { deterministic: boolean; differences?: string[] } {
+    const successfulInvocations = invocations.filter(inv => !inv.error && inv.receipts);
+    if (successfulInvocations.length < 2) {
+        return { deterministic: true };
+    }
+
+    const firstReceipts = JSON.stringify(successfulInvocations[0].receipts);
+    const differences: string[] = [];
+
+    for (let i = 1; i < successfulInvocations.length; i++) {
+        const currentReceipts = JSON.stringify(successfulInvocations[i].receipts);
+        if (currentReceipts !== firstReceipts) {
+            differences.push(`Run 1 vs Run ${i + 1}`);
+        }
+    }
+
+    return {
+        deterministic: differences.length === 0,
+        differences: differences.length > 0 ? differences : undefined,
+    };
+}
+
+function ReceiptDeterminismBadge({ invocations }: { invocations: SingleInvocation[] }) {
+    const { deterministic, differences } = checkReceiptsDeterminism(invocations);
+
+    if (deterministic) {
+        return (
+            <span className="bg-green-500/20 text-green-400 text-xs font-bold px-2 py-0.5 rounded-full">
+                Deterministic
+            </span>
+        );
+    }
+
+    return (
+        <span className="bg-red-500/20 text-red-400 text-xs font-bold px-2 py-0.5 rounded-full" title={differences?.join(', ')}>
+            Non-deterministic ({differences?.length} diff{differences && differences.length > 1 ? 's' : ''})
+        </span>
+    );
+}
+
 interface DirectInvokerProps {
     initialMetadataUrl?: string;
 }
 
-interface InvocationResult {
-    status: 'pending' | 'success' | 'error';
+interface SingleInvocation {
     response?: string;
     decodedResponse?: any[];
+    receipts?: any[];
     error?: string;
-    receiptUrl?: string;
+}
+
+interface InvocationResult {
+    status: 'pending' | 'success' | 'error';
+    invocations: SingleInvocation[];
+    progress?: number;
+    total?: number;
 }
 
 export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
@@ -30,6 +77,7 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
     const [expandedMethod, setExpandedMethod] = useState<string | null>(null);
     const [inputValues, setInputValues] = useState<Record<string, Record<string, string>>>({});
     const [invocationResults, setInvocationResults] = useState<Record<string, InvocationResult>>({});
+    const [repeatCount, setRepeatCount] = useState<number>(1);
 
     // Fetch metadata when URL changes
     const fetchMetadata = async () => {
@@ -103,74 +151,87 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
         if (!containerImageUrl) {
             setInvocationResults(prev => ({
                 ...prev,
-                [method.name]: { status: 'error', error: 'Please enter a container image URL' }
+                [method.name]: { status: 'error', invocations: [{ error: 'Please enter a container image URL' }] }
             }));
             return;
         }
 
+        const total = repeatCount;
+        const requestId = crypto.randomUUID(); // Same requestId for all invocations
+
         setInvocationResults(prev => ({
             ...prev,
-            [method.name]: { status: 'pending' }
+            [method.name]: { status: 'pending', invocations: [], progress: 0, total }
         }));
 
-        try {
-            // Parse input values
-            const values = method.inputs.map(input => {
-                const rawValue = inputValues[method.name]?.[input.name] || '';
-                return parseInputValue(rawValue, input.type);
-            });
+        const invocations: SingleInvocation[] = [];
 
-            // Encode the function call (4-byte selector + ABI-encoded params)
-            const encodedCall = encodeFunctionCall(method, values);
-            const requestBody = hexToBytes(encodedCall);
+        for (let i = 0; i < total; i++) {
+            try {
+                // Parse input values
+                const values = method.inputs.map(input => {
+                    const rawValue = inputValues[method.name]?.[input.name] || '';
+                    return parseInputValue(rawValue, input.type);
+                });
 
-            const requestId = crypto.randomUUID();
+                // Encode the function call (4-byte selector + ABI-encoded params)
+                const encodedCall = encodeFunctionCall(method, values);
+                const requestBody = hexToBytes(encodedCall);
 
-            const response = await fetch(INVOKE_API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/octet-stream',
-                    'X-Agent-Url': containerImageUrl,
-                    'X-Request-Id': requestId,
-                },
-                body: new Blob([requestBody as BlobPart]),
-            });
+                const response = await fetch(INVOKE_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        'X-Agent-Url': containerImageUrl,
+                        'X-Request-Id': requestId,
+                    },
+                    body: new Blob([requestBody as BlobPart]),
+                });
 
-            const responseBuffer = await response.arrayBuffer();
-            const responseHex = toHex(new Uint8Array(responseBuffer));
+                const data = await response.json();
 
-            if (!response.ok) {
-                const errorText = new TextDecoder().decode(responseBuffer);
-                throw new Error(`Agent returned ${response.status}: ${errorText}`);
+                if (data.error) {
+                    invocations.push({ error: data.error });
+                } else if (data.agentStatus && data.agentStatus >= 400) {
+                    invocations.push({ error: `Agent returned status ${data.agentStatus}` });
+                } else {
+                    const responseHex = data.response as string;
+
+                    // Try to decode the response
+                    let decodedResponse: any[] | undefined;
+                    if (method.outputs.length > 0 && responseHex && responseHex !== '0x') {
+                        try {
+                            decodedResponse = decodeAbi(method.outputs, responseHex as `0x${string}`);
+                        } catch (e) {
+                            console.warn('Failed to decode response:', e);
+                        }
+                    }
+
+                    invocations.push({
+                        response: responseHex,
+                        decodedResponse,
+                        receipts: data.receipts,
+                    });
+                }
+            } catch (err: any) {
+                invocations.push({ error: err.message });
             }
 
-            // Try to decode the response
-            let decodedResponse: any[] | undefined;
-            if (method.outputs.length > 0 && responseHex !== '0x') {
-                try {
-                    decodedResponse = decodeAbi(method.outputs, responseHex as `0x${string}`);
-                } catch (e) {
-                    console.warn('Failed to decode response:', e);
-                }
-            }
-
-            const receiptUrl = response.headers.get('X-Receipt-Url') || undefined;
-
+            // Update progress
             setInvocationResults(prev => ({
                 ...prev,
-                [method.name]: {
-                    status: 'success',
-                    response: responseHex,
-                    decodedResponse,
-                    receiptUrl,
-                }
-            }));
-        } catch (err: any) {
-            setInvocationResults(prev => ({
-                ...prev,
-                [method.name]: { status: 'error', error: err.message }
+                [method.name]: { status: 'pending', invocations: [...invocations], progress: i + 1, total }
             }));
         }
+
+        const hasErrors = invocations.some(inv => inv.error);
+        setInvocationResults(prev => ({
+            ...prev,
+            [method.name]: {
+                status: hasErrors ? 'error' : 'success',
+                invocations,
+            }
+        }));
     };
 
     return (
@@ -224,6 +285,23 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
                         </button>
                     </div>
                     <p className="text-xs text-gray-500 mt-1">URL to the agent metadata JSON (defines methods/ABI)</p>
+                </div>
+
+                {/* Repeat Count */}
+                <div>
+                    <label htmlFor="repeatCount" className="block text-sm font-semibold text-gray-300 mb-2">
+                        Repeat Invocations
+                    </label>
+                    <input
+                        id="repeatCount"
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={repeatCount}
+                        onChange={(e) => setRepeatCount(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+                        className="w-32 px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all font-mono text-sm"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Run each invocation multiple times to detect nondeterminism</p>
                 </div>
 
                 {metadataError && (
@@ -360,56 +438,73 @@ function MethodCard({ method, isExpanded, onToggle, inputValues, onInputChange, 
                         disabled={result?.status === 'pending'}
                         className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold py-3 px-4 rounded-lg transition-all shadow-lg shadow-green-600/20"
                     >
-                        {result?.status === 'pending' ? 'Invoking...' : 'Invoke via HTTP'}
+                        {result?.status === 'pending'
+                            ? `Invoking... ${result.progress || 0}/${result.total || 1}`
+                            : 'Invoke via HTTP'}
                     </button>
 
-                    {/* Result */}
-                    {result && result.status !== 'pending' && (
-                        <div className={`p-4 rounded-lg border ${
-                            result.status === 'success'
-                                ? 'bg-green-500/10 border-green-500/20'
-                                : 'bg-red-500/10 border-red-500/20'
-                        }`}>
-                            <div className="flex items-center gap-2 mb-2">
-                                {result.status === 'success' ? (
-                                    <span className="text-green-400">✓</span>
-                                ) : (
-                                    <span className="text-red-400">✕</span>
-                                )}
-                                <span className={`text-sm font-bold ${
-                                    result.status === 'success' ? 'text-green-300' : 'text-red-300'
-                                }`}>
-                                    {result.status === 'success' ? 'Success' : 'Error'}
-                                </span>
+                    {/* Results */}
+                    {result && result.invocations && result.invocations.length > 0 && (
+                        <div className="space-y-3">
+                            {/* Summary */}
+                            <div className={`p-3 rounded-lg border ${
+                                result.status === 'success'
+                                    ? 'bg-green-500/10 border-green-500/20'
+                                    : result.status === 'pending'
+                                    ? 'bg-yellow-500/10 border-yellow-500/20'
+                                    : 'bg-red-500/10 border-red-500/20'
+                            }`}>
+                                <div className="flex items-center gap-2">
+                                    {result.status === 'success' && <span className="text-green-400">✓</span>}
+                                    {result.status === 'pending' && <span className="text-yellow-400">⏳</span>}
+                                    {result.status === 'error' && <span className="text-red-400">✕</span>}
+                                    <span className={`text-sm font-bold ${
+                                        result.status === 'success' ? 'text-green-300' :
+                                        result.status === 'pending' ? 'text-yellow-300' : 'text-red-300'
+                                    }`}>
+                                        {result.invocations.length} invocation{result.invocations.length > 1 ? 's' : ''}
+                                        {result.status === 'pending' && ` (${result.progress}/${result.total})`}
+                                    </span>
+                                    {result.invocations.length > 1 && result.status !== 'pending' && (
+                                        <ReceiptDeterminismBadge invocations={result.invocations} />
+                                    )}
+                                </div>
                             </div>
 
-                            {result.error && (
-                                <p className="text-red-400 text-sm break-words">{result.error}</p>
-                            )}
+                            {/* Individual Results */}
+                            {result.invocations.map((inv, idx) => (
+                                <div key={idx} className="bg-black/20 rounded-lg p-3 border border-white/5">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <span className="text-xs text-gray-500">Run {idx + 1}</span>
+                                        {inv.error ? (
+                                            <span className="text-red-400 text-xs">Error: {inv.error}</span>
+                                        ) : (
+                                            <span className="text-green-400 text-xs">Success</span>
+                                        )}
+                                    </div>
 
-                            {result.response && (
-                                <div className="mt-3">
-                                    <DecodedData
-                                        data={result.response}
-                                        label="Response"
-                                        method={method}
-                                    />
-                                </div>
-                            )}
+                                    {inv.response && (
+                                        <div className="mt-2">
+                                            <DecodedData
+                                                data={inv.response}
+                                                label="Response"
+                                                method={method}
+                                            />
+                                        </div>
+                                    )}
 
-                            {result.receiptUrl && (
-                                <div className="mt-3">
-                                    <span className="text-xs text-gray-500 block mb-1">Receipt URL</span>
-                                    <a
-                                        href={result.receiptUrl}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-secondary text-sm underline break-all"
-                                    >
-                                        {result.receiptUrl}
-                                    </a>
+                                    {inv.receipts && inv.receipts.length > 0 && (
+                                        <div className="mt-2">
+                                            <span className="text-xs text-gray-500 block mb-1">
+                                                Receipts ({inv.receipts.length})
+                                            </span>
+                                            <pre className="bg-black/40 rounded-lg p-2 text-xs text-gray-300 overflow-auto max-h-48 font-mono">
+                                                {JSON.stringify(inv.receipts, null, 2)}
+                                            </pre>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            ))}
                         </div>
                     )}
                 </div>

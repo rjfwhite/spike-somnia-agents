@@ -2,6 +2,30 @@ import { createServer, IncomingMessage, ServerResponse } from 'http';
 import { forwardToAgent, cleanupContainers } from './docker.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
+const RECEIPTS_SERVICE_URL = process.env.RECEIPTS_SERVICE_URL || 'https://agent-receipts-937722299914.us-central1.run.app';
+
+/**
+ * Upload a receipt to the receipts service
+ */
+async function uploadReceipt(requestId: string, receipt: any): Promise<void> {
+  try {
+    const response = await fetch(`${RECEIPTS_SERVICE_URL}/agent-receipts?requestId=${encodeURIComponent(requestId)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(receipt),
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to upload receipt for ${requestId}: ${response.status}`);
+    } else {
+      console.log(`Request ${requestId}: Receipt uploaded to receipts service`);
+    }
+  } catch (error: any) {
+    console.error(`Failed to upload receipt for ${requestId}: ${error.message}`);
+  }
+}
 
 /**
  * Read the entire request body as a Buffer
@@ -53,15 +77,22 @@ async function handlePost(req: IncomingMessage, res: ServerResponse): Promise<vo
 
     console.log(`Request ${requestId}: Agent responded with status ${agentResponse.status}`);
 
+    // Extract and upload receipt if agent provided one
+    const receiptHeader = agentResponse.headers['x-receipt'];
+    if (receiptHeader) {
+      try {
+        const receipt = JSON.parse(receiptHeader);
+        // Upload asynchronously - don't block the response
+        uploadReceipt(requestId, receipt);
+      } catch (e) {
+        console.error(`Request ${requestId}: Failed to parse X-Receipt header as JSON`);
+      }
+    }
+
     // Build response headers
     const responseHeaders: Record<string, string> = {
       'Content-Type': 'application/octet-stream',
     };
-
-    // Pass through X-Receipt-Url if agent provided it
-    if (agentResponse.headers['x-receipt-url']) {
-      responseHeaders['X-Receipt-Url'] = agentResponse.headers['x-receipt-url'];
-    }
 
     // Send the response back to requester
     res.writeHead(agentResponse.status, responseHeaders);

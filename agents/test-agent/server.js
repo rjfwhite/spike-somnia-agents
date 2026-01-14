@@ -4,6 +4,20 @@ import { decodeFunctionData, encodeFunctionResult } from 'viem';
 
 const PORT = 80;
 
+// Helper to create a receipt with stages
+function createReceipt() {
+  return {
+    stages: [],
+  };
+}
+
+function addStage(receipt, name, data = {}) {
+  receipt.stages.push({
+    name,
+    ...data,
+  });
+}
+
 // Load agent definition from JSON
 const agentDef = JSON.parse(readFileSync('./agent.json', 'utf-8'));
 const abi = agentDef.abi;
@@ -74,11 +88,20 @@ async function handleRequest(req, res) {
     return;
   }
 
+  const receipt = createReceipt();
+  const requestId = req.headers['x-request-id'] || 'unknown';
+
   try {
+    addStage(receipt, 'request_received', { requestId });
+
     const body = await readBody(req);
 
     if (body.length < 4) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      addStage(receipt, 'error', { error: 'Invalid request: too short' });
+      res.writeHead(400, {
+        'Content-Type': 'text/plain',
+        'X-Receipt': JSON.stringify(receipt),
+      });
       res.end('Invalid request: too short');
       return;
     }
@@ -87,19 +110,26 @@ async function handleRequest(req, res) {
 
     // Decode calldata - viem returns functionName and args
     const { functionName, args } = decodeFunctionData({ abi, data });
+    addStage(receipt, 'request_decoded', { functionName, argsCount: args.length });
 
     console.log(`Handling ${functionName}`);
 
     // Get handler for this function
     const handler = handlers[functionName];
     if (!handler) {
-      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      addStage(receipt, 'error', { error: `No handler for function: ${functionName}` });
+      res.writeHead(400, {
+        'Content-Type': 'text/plain',
+        'X-Receipt': JSON.stringify(receipt),
+      });
       res.end(`No handler for function: ${functionName}`);
       return;
     }
 
     // Call handler with args
+    addStage(receipt, 'handler_started', { functionName });
     const result = handler(...args);
+    addStage(receipt, 'handler_completed', { functionName, resultType: typeof result });
 
     // Encode the response
     const encoded = encodeFunctionResult({
@@ -107,15 +137,23 @@ async function handleRequest(req, res) {
       functionName,
       result: Array.isArray(result) ? result : [result]
     });
+    addStage(receipt, 'response_encoded', { responseLength: encoded.length });
 
     console.log(`Response: ${encoded}`);
 
-    res.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'X-Receipt': JSON.stringify(receipt),
+    });
     res.end(Buffer.from(encoded.slice(2), 'hex'));
 
   } catch (error) {
     console.error('Error processing request:', error);
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    addStage(receipt, 'error', { error: error.message });
+    res.writeHead(500, {
+      'Content-Type': 'text/plain',
+      'X-Receipt': JSON.stringify(receipt),
+    });
     res.end(`Error: ${error.message}`);
   }
 }
