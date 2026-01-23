@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const AGENT_HOST_URL = process.env.AGENT_HOST_URL || 'http://35.226.148.164';
+const AGENT_HOST_URL = process.env.AGENT_HOST_URL || 'http://34.170.54.156';
 
 function toHex(bytes: Uint8Array): string {
     return '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
