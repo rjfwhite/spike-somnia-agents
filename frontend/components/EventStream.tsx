@@ -233,8 +233,8 @@ export function EventStream() {
                 ? "bg-green-500/5 border-green-500/20 hover:border-green-500/40"
                 : "bg-red-500/5 border-red-500/20 hover:border-red-500/40";
 
-            // Find the method definition from metadata
-            const methods = event.metadata?.agent_spec?.methods || event.metadata?.methods;
+            // Find the method definition from metadata abi
+            const methods = event.metadata?.abi?.filter(item => item.type === 'function');
             const methodDef = methods?.find(m => m.name === event.method);
 
             return (
