@@ -1,28 +1,59 @@
-# Go Agent Host
+# Agent Runner
 
-A Go re-implementation of the Agent Host HTTP server for running containerized agents. This version removes all blockchain dependencies and exposes functionality via a simple HTTP server.
+HTTP server that runs containerized agents on demand. It downloads container images from URLs, manages their lifecycle, and forwards requests to them.
+
+## Building
+
+```bash
+make build
+```
+
+This produces `bin/agent-runner`.
+
+## Running
+
+```bash
+./bin/agent-runner [flags]
+```
+
+### Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--port` | 8080 | HTTP server port |
+| `--cache-dir` | ./image-cache | Directory to cache downloaded container images |
+| `--start-port` | 10000 | Starting port for container allocation |
+| `--runtime` | (empty) | Container runtime (e.g., `runsc` for gVisor) |
+| `--api-key` | (empty) | API key for authentication (disabled if empty) |
+| `--receipts-url` | (GCP URL) | URL for receipt uploads (empty to disable) |
+
+### Example
+
+```bash
+./bin/agent-runner --port 8080 --api-key my-secret-key
+```
 
 ## API
 
-### Execute Agent Function
+### Execute Agent
 
 ```
 POST /
-Headers:
-  X-Agent-Url: <URL of the tarred container image>
-  X-Request-Id: <unique request ID for receipts>
-Body: Binary ABI-encoded function call
 ```
 
-Or via GET with query params:
+**Headers:**
+- `X-Agent-Url`: URL of the tarred container image (required)
+- `X-Request-Id`: Unique request ID (required)
+- `X-API-Key`: API key (if authentication enabled)
+
+**Body:** Binary ABI-encoded function call
+
+**Alternative:** Use query parameters instead:
 ```
-GET /?agentUrl=<url>&requestId=<id>&data=<base64-encoded-body>
+GET /?agentUrl=<url>&requestId=<id>&data=<base64-encoded-body>&apiKey=<key>
 ```
 
-Returns:
-- Body: Binary ABI-encoded result from the agent
-- Headers:
-  - `X-Receipt-Url`: URL of the execution receipt (if provided by agent)
+**Response:** Binary ABI-encoded result from the agent
 
 ### Health Check
 
@@ -30,36 +61,34 @@ Returns:
 GET /health
 ```
 
-Returns JSON: `{ "status": "healthy" }`
+Returns: `{"status": "healthy", "version": "..."}`
 
-## How It Works
+### Version
 
-1. When a request arrives, the host makes a HEAD request to `X-Agent-Url` to get version info
-2. The version hash is computed from ETag, Last-Modified, or Content-Length headers
-3. If a container is running with the same version hash, it's reused
-4. If no container or outdated version, the image is downloaded and a new container started
-5. The request is forwarded to the container with the binary ABI body
-6. The container's response (status, body, receipt) is proxied back to the requester
-
-## Building
-
-```bash
-go build -o go-agent-host .
+```
+GET /version
 ```
 
-## Running
+Returns: `{"version": "...", "gitCommit": "...", "buildTime": "..."}`
+
+## Authentication
+
+When `--api-key` is set, requests to `/` require authentication via one of:
+- `X-API-Key` header
+- `Authorization: Bearer <key>` header
+- `apiKey` query parameter
+
+The `/health` and `/version` endpoints are always public.
+
+## Testing
 
 ```bash
-./go-agent-host
+make test       # Unit tests
+make test-e2e   # End-to-end tests (requires Docker)
 ```
 
-Or with environment variables:
+## Docker
+
 ```bash
-PORT=8080 ./go-agent-host
+make docker-build
 ```
-
-## Environment Variables
-
-- `PORT`: HTTP server port (default: 8080)
-- `RECEIPTS_SERVICE_URL`: URL for receipt uploads (default: GCP Cloud Run service)
-- `DOCKER_HOST`: Remote Docker daemon URL (optional, e.g., `tcp://host:2375`)
