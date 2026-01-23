@@ -1,8 +1,8 @@
-import { MethodDefinition, AbiParameter } from "./types";
+import { AbiFunction } from "./types";
 import { CONTRACT_ADDRESS } from "./contract";
 import { formatEther } from "viem";
 
-export function generateSolidityExample(method: MethodDefinition, agentId?: string, price?: bigint): string {
+export function generateSolidityExample(method: AbiFunction, agentId?: string, price?: bigint): string {
   const inputs = method.inputs.map(p => `${p.type} ${p.name}`).join(", ");
   const inputTypes = method.inputs.map(p => p.type).join(",");
   const argNames = method.inputs.map(p => p.name).join(", ");
@@ -24,7 +24,7 @@ ISomniaAgents platform = ISomniaAgents(${CONTRACT_ADDRESS});
 platform.createRequest{value: ${priceValue}}(${Math.floor(Math.random() * 100000)}, ${agentIdValue}, "${method.name}", callData);`;
 }
 
-export function generateViemExample(method: MethodDefinition, agentId?: string, price?: bigint): string {
+export function generateViemExample(method: AbiFunction, agentId?: string, price?: bigint): string {
   // We need the ABI for parameters only to encode them
   const paramsAbi = method.inputs.map(p => ({ type: p.type, name: p.name }));
   const agentIdValue = agentId ? `${agentId}n` : "1n";
@@ -64,7 +64,7 @@ const hash = await client.writeContract(request);
 console.log("Tx Hash:", hash);`;
 }
 
-export function generateExpressExample(method: MethodDefinition, agentId?: string, price?: bigint): string {
+export function generateExpressExample(method: AbiFunction, agentId?: string, price?: bigint): string {
   const paramsAbi = method.inputs.map(p => ({ type: p.type, name: p.name }));
   const agentIdValue = agentId ? `BigInt(${agentId})` : "BigInt(req.params.id)";
 

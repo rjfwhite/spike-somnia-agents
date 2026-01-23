@@ -4,13 +4,13 @@ import { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
 import { formatEther, decodeEventLog } from "viem";
-import type { MethodDefinition } from "@/lib/types";
+import type { AbiFunction } from "@/lib/types";
 import { encodeAbi, parseInputValue } from "@/lib/abi-utils";
 import { DecodedData } from "@/components/DecodedData";
 
 interface MethodInvokerProps {
     agentId: string;
-    method: MethodDefinition;
+    method: AbiFunction;
     price?: bigint;
 }
 

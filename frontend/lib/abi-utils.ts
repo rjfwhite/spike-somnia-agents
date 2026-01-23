@@ -1,10 +1,10 @@
 import { encodeAbiParameters, decodeAbiParameters, encodeFunctionData, type Hex } from 'viem';
-import type { AbiParameter, MethodDefinition } from './types';
+import type { AbiParameter, AbiFunction } from './types';
 
 /**
  * Encode a full function call (selector + ABI-encoded parameters) using viem
  */
-export function encodeFunctionCall(method: MethodDefinition, values: any[]): Hex {
+export function encodeFunctionCall(method: AbiFunction, values: any[]): Hex {
     const abi = [{
         type: 'function' as const,
         name: method.name,

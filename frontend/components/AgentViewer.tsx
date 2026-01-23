@@ -3,7 +3,8 @@
 import { useState, useEffect } from "react";
 import { useReadContract } from "wagmi";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
-import type { TokenMetadata, MethodDefinition } from "@/lib/types";
+import type { TokenMetadata, AbiFunction } from "@/lib/types";
+import { getAbiFunctions } from "@/lib/types";
 import { MethodViewer } from "./MethodViewer";
 
 export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
@@ -146,43 +147,33 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
                       </div>
                     )}
 
-                    {/* Container Image - support both flat and nested */}
-                    {(metadata.agent_spec?.container_image || (metadata as any).container_image) && (
-                      <div className="bg-secondary/5 p-4 rounded-xl border border-secondary/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 overflow-x-auto">
-                        <span className="text-xs font-bold text-secondary uppercase tracking-wider whitespace-nowrap">Container Image</span>
-                        <span className="font-mono text-xs text-gray-300 bg-black/20 px-3 py-1.5 rounded-md border border-white/5 break-all">
-                          {metadata.agent_spec?.container_image || (metadata as any).container_image}
-                        </span>
-                      </div>
-                    )}
-
-                    {/* Agent Details - support both flat and nested */}
-                    {(metadata.agent_spec?.version || metadata.version) && (
+                    {/* Agent Details */}
+                    {metadata.version && (
                       <div className="grid grid-cols-2 gap-4">
                         <div className="bg-white/5 p-3 rounded-lg border border-white/5">
                           <span className="block text-xs text-gray-500 uppercase mb-1">Version</span>
-                          <span className="text-white font-mono text-sm">{metadata.agent_spec?.version || metadata.version}</span>
+                          <span className="text-white font-mono text-sm">{metadata.version}</span>
                         </div>
-                        {(metadata.agent_spec?.author || metadata.author) && (
+                        {metadata.author && (
                           <div className="bg-white/5 p-3 rounded-lg border border-white/5">
                             <span className="block text-xs text-gray-500 uppercase mb-1">Author</span>
-                            <span className="text-white font-medium text-sm">{metadata.agent_spec?.author || metadata.author}</span>
+                            <span className="text-white font-medium text-sm">{metadata.author}</span>
                           </div>
                         )}
                       </div>
                     )}
 
-                    {/* Methods - support both flat and nested */}
-                    {((metadata.agent_spec?.methods || metadata.methods)?.length ?? 0) > 0 && (
+                    {/* Methods from ABI */}
+                    {getAbiFunctions(metadata).length > 0 && (
                       <div className="space-y-4 pt-4 border-t border-white/5">
                         <h4 className="text-sm font-bold text-gray-400 uppercase tracking-wider flex items-center gap-2">
                           Methods
                           <span className="bg-white/10 text-white text-[10px] px-2 py-0.5 rounded-full">
-                            {(metadata.agent_spec?.methods || metadata.methods)?.length}
+                            {getAbiFunctions(metadata).length}
                           </span>
                         </h4>
                         <div className="space-y-3">
-                          {(metadata.agent_spec?.methods || metadata.methods)?.map((method: MethodDefinition) => (
+                          {getAbiFunctions(metadata).map((method: AbiFunction) => (
                             <MethodViewer
                               key={method.name}
                               method={method}

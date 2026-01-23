@@ -10,50 +10,44 @@ export interface AbiParameter {
 }
 
 /**
- * Method definition for agent - includes ABI for inputs/outputs
+ * ABI function definition (matches agent.json abi format)
  */
-export interface MethodDefinition {
+export interface AbiFunction {
+    type: "function";
     name: string;
-    description?: string;
     inputs: AbiParameter[];
     outputs: AbiParameter[];
 }
 
 /**
- * Agent specification metadata
+ * Agent metadata format (matches agent.json from somnia-agent CLI)
  */
-export interface AgentSpec {
+export interface AgentMetadata {
     name: string;
-    version: string;
     description: string;
+    version: string;
     author?: string;
-    container_image: string; // Container image URI (required)
-    methods: MethodDefinition[];
+    abi: AbiFunction[];
     tags?: string[];
-    homepage?: string;
-    repository?: string;
 }
 
 /**
  * Token metadata format (for NFT tokenURI)
- * Supports both nested (agent_spec) and flat (ERC721-style) structures
+ * Wraps AgentMetadata with optional NFT-specific fields
  */
-export interface TokenMetadata {
-    name: string;
-    description: string;
-    image?: string; // Display image (optional)
+export interface TokenMetadata extends AgentMetadata {
+    image?: string;
     external_url?: string;
     attributes?: Array<{
         trait_type: string;
         value: string | number;
     }>;
-    // Nested structure (optional) - full agent-builder format
-    agent_spec?: AgentSpec;
-    // Flat structure fields (optional) - ERC721 style with added fields
-    version?: string;
-    author?: string;
-    methods?: MethodDefinition[];
-    tags?: string[];
-    homepage?: string;
-    repository?: string;
+}
+
+/**
+ * Helper function to get functions from ABI
+ */
+export function getAbiFunctions(metadata: AgentMetadata | TokenMetadata | null): AbiFunction[] {
+    if (!metadata) return [];
+    return metadata.abi?.filter(item => item.type === 'function') || [];
 }

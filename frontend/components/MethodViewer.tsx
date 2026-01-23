@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MethodDefinition, AbiParameter } from "@/lib/types";
+import { AbiFunction } from "@/lib/types";
 import { generateSolidityExample, generateViemExample, generateExpressExample } from "@/lib/code-generators";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -9,7 +9,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { MethodInvoker } from "./MethodInvoker";
 
 interface MethodViewerProps {
-    method: MethodDefinition;
+    method: AbiFunction;
     isExpanded: boolean;
     onToggle: () => void;
     agentId?: string;

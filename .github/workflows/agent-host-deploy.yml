@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - 'agent-host/**'
+      - 'go-agent-host/**'
   workflow_dispatch:
 
 env:
@@ -13,7 +13,7 @@ env:
   REGION: us-central1
   ZONE: us-central1-a
   REPO_NAME: agent-host-http-repo
-  IMAGE_NAME: agent-host-http
+  IMAGE_NAME: go-agent-host
   VM_NAME: somnia-agent-host-http
 
 jobs:
@@ -41,7 +41,7 @@ jobs:
         run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
       - name: Build and Push Docker Image
-        working-directory: ./agent-host
+        working-directory: ./go-agent-host
         run: |
           IMAGE_TAG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           docker build -t $IMAGE_TAG .

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { MethodDefinition } from "@/lib/types";
+import type { AbiFunction } from "@/lib/types";
 import { decodeAbi, formatDecodedValue } from "@/lib/abi-utils";
 import { type Hex } from "viem";
 
@@ -12,7 +12,7 @@ export function DecodedData({
 }: {
     data: string;
     label: string;
-    method?: MethodDefinition;
+    method?: AbiFunction;
 }) {
     const [copied, setCopied] = useState(false);
     const [showRaw, setShowRaw] = useState(false);
