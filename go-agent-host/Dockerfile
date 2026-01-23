@@ -13,7 +13,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy source
-COPY *.go ./
+COPY cmd/ cmd/
+COPY internal/ internal/
 
 # Build args for version info
 ARG VERSION=dev
@@ -22,8 +23,11 @@ ARG BUILD_TIME=unknown
 
 # Build static binary with version info
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildTime=${BUILD_TIME}" \
-    -o go-agent-host .
+    -ldflags="-s -w \
+        -X github.com/somnia-chain/agent-runner/internal/config.Version=${VERSION} \
+        -X github.com/somnia-chain/agent-runner/internal/config.GitCommit=${GIT_COMMIT} \
+        -X github.com/somnia-chain/agent-runner/internal/config.BuildTime=${BUILD_TIME}" \
+    -o agent-runner ./cmd/agent-runner
 
 # Production stage
 FROM alpine:3.19
@@ -34,7 +38,7 @@ WORKDIR /app
 RUN apk add --no-cache docker-cli ca-certificates
 
 # Copy binary from builder
-COPY --from=builder /app/go-agent-host .
+COPY --from=builder /app/agent-runner .
 
 # Create image-cache directory
 RUN mkdir -p image-cache
@@ -42,4 +46,4 @@ RUN mkdir -p image-cache
 ENV PORT=80
 EXPOSE 80
 
-CMD ["./go-agent-host", "--port=80"]
+CMD ["./agent-runner", "--port=80"]

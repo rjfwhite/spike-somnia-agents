@@ -1,4 +1,4 @@
-module github.com/rjfwhite/go-agent-host
+module github.com/somnia-chain/agent-runner
 
 go 1.24.0
 
