@@ -34,16 +34,16 @@ export function AgentCard({ agent }: { agent: AgentData }) {
 
                         {/* Methods */}
                         <div className="md:col-span-4">
-                            {(metadata?.agent_spec?.methods || metadata?.methods) && (
+                            {metadata?.abi && metadata.abi.filter(item => item.type === 'function').length > 0 && (
                                 <div className="flex flex-wrap gap-2">
-                                    {(metadata?.agent_spec?.methods || metadata?.methods)?.slice(0, 3).map((m: any) => (
+                                    {metadata.abi.filter(item => item.type === 'function').slice(0, 3).map((m) => (
                                         <span key={m.name} className="text-[10px] px-2 py-1 rounded bg-secondary/10 text-secondary border border-secondary/20 whitespace-nowrap font-mono">
                                             {m.name}
                                         </span>
                                     ))}
-                                    {((metadata?.agent_spec?.methods || metadata?.methods)?.length ?? 0) > 3 && (
+                                    {metadata.abi.filter(item => item.type === 'function').length > 3 && (
                                         <span className="text-[10px] px-2 py-1 rounded bg-white/5 text-gray-500 font-mono">
-                                            +{(metadata?.agent_spec?.methods || metadata?.methods)?.length ? (metadata?.agent_spec?.methods || metadata?.methods)!.length - 3 : 0}
+                                            +{metadata.abi.filter(item => item.type === 'function').length - 3}
                                         </span>
                                     )}
                                 </div>

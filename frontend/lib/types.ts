@@ -15,6 +15,7 @@ export interface AbiParameter {
 export interface AbiFunction {
     type: "function";
     name: string;
+    description?: string;
     inputs: AbiParameter[];
     outputs: AbiParameter[];
 }
@@ -43,6 +44,9 @@ export interface TokenMetadata extends AgentMetadata {
         value: string | number;
     }>;
 }
+
+// Alias for backwards compatibility
+export type MethodDefinition = AbiFunction;
 
 /**
  * Helper function to get functions from ABI

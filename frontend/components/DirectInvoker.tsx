@@ -77,8 +77,8 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
             const data = await response.json();
             setMetadata(data);
 
-            // Initialize input values for all methods
-            const methods = data.agent_spec?.methods || data.methods || [];
+            // Initialize input values for all methods from abi
+            const methods = (data.abi || []).filter((item: any) => item.type === 'function');
             const initialInputs: Record<string, Record<string, string>> = {};
             methods.forEach((method: MethodDefinition) => {
                 initialInputs[method.name] = {};
@@ -96,33 +96,8 @@ export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
     };
 
     const getMethods = (): MethodDefinition[] => {
-        if (!metadata) return [];
-
-        // Support multiple formats:
-        // 1. agent_spec.methods (nested format)
-        // 2. methods (flat format)
-        // 3. abi array with type: "function" entries
-        if (metadata.agent_spec?.methods) {
-            return metadata.agent_spec.methods;
-        }
-        if (metadata.methods) {
-            return metadata.methods;
-        }
-
-        // Handle ABI format - filter for functions and convert to MethodDefinition
-        const abi = (metadata as any).abi;
-        if (Array.isArray(abi)) {
-            return abi
-                .filter((item: any) => item.type === 'function')
-                .map((item: any) => ({
-                    name: item.name,
-                    description: item.description,
-                    inputs: item.inputs || [],
-                    outputs: item.outputs || [],
-                }));
-        }
-
-        return [];
+        if (!metadata?.abi) return [];
+        return metadata.abi.filter(item => item.type === 'function');
     };
 
     const invokeMethod = async (method: MethodDefinition) => {
