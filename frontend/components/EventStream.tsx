@@ -1,22 +1,104 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createPublicClient, webSocket, type Hex } from "viem";
+import { createPublicClient, http, webSocket, decodeFunctionData, type Hex } from "viem";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL } from "@/lib/contract";
-import type { TokenMetadata, MethodDefinition } from "@/lib/types";
-import { DecodedData } from "@/components/DecodedData";
+import type { TokenMetadata, AbiFunction } from "@/lib/types";
+import { decodeAbi, formatDecodedValue } from "@/lib/abi-utils";
 
 interface RequestEvent {
   requestId: bigint;
   agentId: bigint;
-  method: string;
-  callData: string;
   blockNumber: bigint;
   timestamp: number;
-  resolved: boolean;
-  responseData?: string;
+  request?: string;
+  responded: boolean;
+  response?: string;
   success?: boolean;
   metadata?: TokenMetadata;
+  decodedMethod?: string;
+  decodedInputs?: { name: string; type: string; value: string }[];
+  decodedOutputs?: { name: string; type: string; value: string }[];
+}
+
+// Helper to decode function call data using agent's ABI
+function decodeRequestData(requestData: string, metadata: TokenMetadata | null): {
+  method?: string;
+  inputs?: { name: string; type: string; value: string }[];
+} {
+  if (!requestData || requestData === '0x' || !metadata?.abi) {
+    return {};
+  }
+
+  try {
+    // Get the function selector (first 4 bytes)
+    const selector = requestData.slice(0, 10);
+
+    // Find matching function in ABI
+    const functions = metadata.abi.filter(item => item.type === 'function') as AbiFunction[];
+
+    for (const fn of functions) {
+      // Build viem-compatible ABI for this function
+      const viemAbi = [{
+        type: 'function' as const,
+        name: fn.name,
+        inputs: fn.inputs.map(p => ({ type: p.type, name: p.name })),
+        outputs: fn.outputs.map(p => ({ type: p.type, name: p.name })),
+      }];
+
+      try {
+        const decoded = decodeFunctionData({
+          abi: viemAbi,
+          data: requestData as Hex,
+        });
+
+        if (decoded.functionName === fn.name) {
+          const inputs = fn.inputs.map((input, i) => ({
+            name: input.name,
+            type: input.type,
+            value: formatDecodedValue(decoded.args?.[i], input.type),
+          }));
+
+          return { method: fn.name, inputs };
+        }
+      } catch {
+        // Try next function
+      }
+    }
+  } catch (err) {
+    console.error('Failed to decode request data:', err);
+  }
+
+  return {};
+}
+
+// Helper to decode response data using agent's ABI
+function decodeResponseData(responseData: string, methodName: string | undefined, metadata: TokenMetadata | null): {
+  outputs?: { name: string; type: string; value: string }[];
+} {
+  if (!responseData || responseData === '0x' || !metadata?.abi || !methodName) {
+    return {};
+  }
+
+  try {
+    const functions = metadata.abi.filter(item => item.type === 'function') as AbiFunction[];
+    const fn = functions.find(f => f.name === methodName);
+
+    if (fn && fn.outputs.length > 0) {
+      const decoded = decodeAbi(fn.outputs, responseData as Hex);
+      const outputs = fn.outputs.map((output, i) => ({
+        name: output.name || `output${i}`,
+        type: output.type,
+        value: formatDecodedValue(decoded[i], output.type),
+      }));
+
+      return { outputs };
+    }
+  } catch (err) {
+    console.error('Failed to decode response data:', err);
+  }
+
+  return {};
 }
 
 export function EventStream() {
@@ -24,7 +106,7 @@ export function EventStream() {
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
   const [metadataCache, setMetadataCache] = useState<Map<string, TokenMetadata>>(new Map());
 
-  // Fetch metadata for an agent
+  // Fetch metadata for an agent using the new contract's getAgentUri function
   const fetchMetadata = async (agentId: bigint): Promise<TokenMetadata | null> => {
     const cacheKey = agentId.toString();
 
@@ -34,35 +116,21 @@ export function EventStream() {
     }
 
     try {
-      // Fetch tokenURI from contract
-      const response = await fetch(SOMNIA_RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_call',
-          params: [{
-            to: CONTRACT_ADDRESS,
-            data: `0xc87b56dd${agentId.toString(16).padStart(64, '0')}` // tokenURI(uint256)
-          }, 'latest']
-        })
+      // Create a client for reading contract data
+      const client = createPublicClient({
+        transport: http(SOMNIA_RPC_URL),
       });
 
-      const result = await response.json();
-      if (result.error) {
-        throw new Error(result.error.message);
-      }
+      // Get agent URI from contract
+      const uri = await client.readContract({
+        address: CONTRACT_ADDRESS,
+        abi: SOMNIA_AGENTS_ABI,
+        functionName: 'getAgentUri',
+        args: [agentId],
+      }) as string;
 
-      // Decode the result (it's a string)
-      const hex = result.result;
-      // Skip first 64 bytes (offset) and next 64 bytes (length), then decode
-      const uriHex = hex.slice(130); // Skip 0x + 64 + 64
-      let uri = '';
-      for (let i = 0; i < uriHex.length; i += 2) {
-        const byte = parseInt(uriHex.substr(i, 2), 16);
-        if (byte === 0) break;
-        uri += String.fromCharCode(byte);
+      if (!uri) {
+        return null;
       }
 
       // Fetch metadata JSON
@@ -84,33 +152,32 @@ export function EventStream() {
   };
 
   useEffect(() => {
-    // Create WebSocket URL from HTTP URL
-    const wsUrl = SOMNIA_RPC_URL.replace("https://", "wss://").replace("http://", "ws://") + "/ws";
-
+    // Use WebSocket for real-time event streaming
+    const wsUrl = SOMNIA_RPC_URL.replace('https://', 'wss://').replace('http://', 'ws://') + 'ws';
     const client = createPublicClient({
-      transport: webSocket(wsUrl, {
-        reconnect: true,
-      }),
+      transport: webSocket(wsUrl),
     });
 
     setConnectionStatus("connected");
 
-    // Watch for RequestCreated events
-    const unwatchRequestCreated = client.watchContractEvent({
+    // Watch for AgentRequested events (new contract)
+    const unwatchAgentRequested = client.watchContractEvent({
       address: CONTRACT_ADDRESS,
       abi: SOMNIA_AGENTS_ABI,
-      eventName: "RequestCreated",
+      eventName: "AgentRequested",
       onLogs: (logs) => {
         logs.forEach(async (log) => {
-          const { requestId, agentId, method, callData } = log.args as {
+          const { requestId, agentId, request } = log.args as {
             requestId: bigint;
             agentId: bigint;
-            method: string;
-            callData: string;
+            request: string;
           };
 
           // Fetch metadata for this agent
           const metadata = await fetchMetadata(agentId);
+
+          // Decode the request data
+          const { method, inputs } = decodeRequestData(request, metadata);
 
           setEvents((prev) => {
             const newEvents = new Map(prev);
@@ -118,33 +185,35 @@ export function EventStream() {
             newEvents.set(key, {
               requestId,
               agentId,
-              method,
-              callData,
               blockNumber: log.blockNumber,
               timestamp: Date.now(),
-              resolved: false,
+              request,
+              responded: false,
               metadata: metadata || undefined,
+              decodedMethod: method,
+              decodedInputs: inputs,
             });
             return newEvents;
           });
         });
       },
       onError: (error) => {
-        console.error("Error watching RequestCreated:", error);
+        console.error("Error watching AgentRequested:", error);
         setConnectionStatus("error");
       },
     });
 
-    // Watch for RequestResolved events
-    const unwatchRequestResolved = client.watchContractEvent({
+    // Watch for AgentResponded events (new contract)
+    const unwatchAgentResponded = client.watchContractEvent({
       address: CONTRACT_ADDRESS,
       abi: SOMNIA_AGENTS_ABI,
-      eventName: "RequestResolved",
-      onLogs: (logs) => {
-        logs.forEach((log) => {
-          const { requestId, responseData, success } = log.args as {
+      eventName: "AgentResponded",
+      onLogs: async (logs) => {
+        for (const log of logs) {
+          const { requestId, agentId, response, success } = log.args as {
             requestId: bigint;
-            responseData: string;
+            agentId: bigint;
+            response: string;
             success: boolean;
           };
 
@@ -153,41 +222,48 @@ export function EventStream() {
             const key = requestId.toString();
             const existing = newEvents.get(key);
 
+            // Decode response using existing metadata and method
+            const { outputs } = decodeResponseData(
+              response,
+              existing?.decodedMethod,
+              existing?.metadata || null
+            );
+
             if (existing) {
               newEvents.set(key, {
                 ...existing,
-                resolved: true,
-                responseData,
+                responded: true,
+                response,
                 success,
+                decodedOutputs: outputs,
               });
             } else {
               // If we don't have the request event, create a minimal entry
               newEvents.set(key, {
                 requestId,
-                agentId: BigInt(0),
-                method: "Unknown",
-                callData: "0x",
+                agentId,
                 blockNumber: log.blockNumber,
                 timestamp: Date.now(),
-                resolved: true,
-                responseData,
+                responded: true,
+                response,
                 success,
+                decodedOutputs: outputs,
               });
             }
             return newEvents;
           });
-        });
+        }
       },
       onError: (error) => {
-        console.error("Error watching RequestResolved:", error);
+        console.error("Error watching AgentResponded:", error);
         setConnectionStatus("error");
       },
     });
 
     // Cleanup on unmount
     return () => {
-      unwatchRequestCreated();
-      unwatchRequestResolved();
+      unwatchAgentRequested();
+      unwatchAgentResponded();
     };
   }, []);
 
@@ -227,15 +303,11 @@ export function EventStream() {
       ) : (
         <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
           {eventList.map((event) => {
-            const statusStyle = !event.resolved
+            const statusStyle = !event.responded
               ? "bg-blue-500/5 border-blue-500/20 hover:border-blue-500/40"
               : event.success
                 ? "bg-green-500/5 border-green-500/20 hover:border-green-500/40"
                 : "bg-red-500/5 border-red-500/20 hover:border-red-500/40";
-
-            // Find the method definition from metadata abi
-            const methods = event.metadata?.abi?.filter(item => item.type === 'function');
-            const methodDef = methods?.find(m => m.name === event.method);
 
             return (
               <div
@@ -244,7 +316,7 @@ export function EventStream() {
               >
                 <div className="flex items-start gap-4">
                   <div className="flex-shrink-0 mt-1">
-                    {!event.resolved ? (
+                    {!event.responded ? (
                       <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400 animate-pulse">
                         ⏳
                       </div>
@@ -259,6 +331,7 @@ export function EventStream() {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
+                    {/* Header */}
                     <div className="flex items-center gap-2 flex-wrap mb-2">
                       <div className="flex items-center gap-2 text-[10px] uppercase font-bold tracking-wider text-gray-500">
                         Request #{event.requestId.toString()}
@@ -271,16 +344,69 @@ export function EventStream() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 mb-3">
-                      <span className="text-gray-400 text-sm">Method:</span>
-                      <span className="font-mono text-white font-bold bg-white/5 px-2 py-0.5 rounded text-sm">{event.method}</span>
+                    {/* Agent name and method */}
+                    <div className="flex items-center gap-3 mb-3">
+                      {event.metadata && (
+                        <span className="font-bold text-white text-sm">{event.metadata.name || `Agent #${event.agentId.toString()}`}</span>
+                      )}
+                      {event.decodedMethod && (
+                        <span className="font-mono text-sm px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                          {event.decodedMethod}()
+                        </span>
+                      )}
+                      <span className={`text-xs px-2 py-1 rounded-full ${!event.responded
+                        ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20 animate-pulse'
+                        : event.success
+                          ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                        }`}>
+                        {!event.responded ? 'In Flight...' : event.success ? 'Success' : 'Failed'}
+                      </span>
                     </div>
 
-                    <DecodedData data={event.callData} label="Call Data" method={methodDef} />
-
-                    {event.resolved && event.responseData && (
-                      <DecodedData data={event.responseData} label="Response" method={methodDef} />
+                    {/* Decoded Inputs */}
+                    {event.decodedInputs && event.decodedInputs.length > 0 && (
+                      <div className="mt-2 bg-black/20 p-3 rounded-lg border border-white/5">
+                        <span className="text-gray-500 text-[10px] uppercase tracking-wider block mb-2">Request Parameters</span>
+                        <div className="space-y-1">
+                          {event.decodedInputs.map((input, i) => (
+                            <div key={i} className="flex items-start gap-2 text-xs">
+                              <span className="text-gray-500 shrink-0">{input.name}:</span>
+                              <span className="font-mono text-cyan-400 break-all">{input.value}</span>
+                              <span className="text-gray-600 shrink-0">({input.type})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     )}
+
+                    {/* Decoded Outputs */}
+                    {event.responded && event.decodedOutputs && event.decodedOutputs.length > 0 && (
+                      <div className="mt-2 bg-black/20 p-3 rounded-lg border border-green-500/10">
+                        <span className="text-green-500 text-[10px] uppercase tracking-wider block mb-2">Response</span>
+                        <div className="space-y-1">
+                          {event.decodedOutputs.map((output, i) => (
+                            <div key={i} className="flex items-start gap-2 text-xs">
+                              <span className="text-gray-500 shrink-0">{output.name}:</span>
+                              <span className="font-mono text-green-400 break-all">{output.value}</span>
+                              <span className="text-gray-600 shrink-0">({output.type})</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Raw response if no decoded outputs */}
+                    {event.responded && event.response && (!event.decodedOutputs || event.decodedOutputs.length === 0) && (
+                      <div className="mt-2 bg-black/20 p-3 rounded-lg border border-white/5">
+                        <span className="text-gray-500 text-[10px] uppercase tracking-wider block mb-2">Raw Response</span>
+                        <span className="font-mono text-xs text-secondary break-all">{event.response}</span>
+                      </div>
+                    )}
+
+                    <div className="text-[10px] text-gray-600 mt-2">
+                      Block {event.blockNumber.toString()}
+                    </div>
                   </div>
                 </div>
               </div>

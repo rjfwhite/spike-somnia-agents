@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useWriteContract, useWaitForTransactionReceipt, usePublicClient } from "wagmi";
+import { useWriteContract, useWaitForTransactionReceipt, usePublicClient, useAccount } from "wagmi";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
 import { formatEther, decodeEventLog } from "viem";
 import type { AbiFunction } from "@/lib/types";
-import { encodeAbi, parseInputValue } from "@/lib/abi-utils";
+import { encodeFunctionCall, parseInputValue } from "@/lib/abi-utils";
 import { DecodedData } from "@/components/DecodedData";
 
 interface MethodInvokerProps {
@@ -16,16 +16,21 @@ interface MethodInvokerProps {
 
 interface TrackedRequest {
     id: bigint;
-    status: 'pending' | 'resolved' | 'failed';
+    status: 'pending' | 'responded' | 'failed';
     response?: string;
     success?: boolean;
 }
+
+// Zero address for callback (oracle-based invocation - responses go through oracle)
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+const ZERO_SELECTOR = "0x00000000" as const;
 
 export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
     const [inputValues, setInputValues] = useState<Record<string, string>>({});
     const [trackedRequest, setTrackedRequest] = useState<TrackedRequest | null>(null);
 
     const publicClient = usePublicClient();
+    const { address: userAddress } = useAccount();
     const { data: hash, writeContract, isPending, error } = useWriteContract();
 
     const { isLoading: isConfirming, isSuccess, data: receipt } = useWaitForTransactionReceipt({
@@ -41,7 +46,7 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
         setInputValues(initialValues);
     }, [method]);
 
-    // Watch for receipt to extract requestId
+    // Watch for receipt to extract requestId from AgentRequested event
     useEffect(() => {
         if (receipt && isSuccess && !trackedRequest) {
             const logs = receipt.logs;
@@ -53,7 +58,7 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                         topics: log.topics,
                     });
 
-                    if (decoded.eventName === 'RequestCreated') {
+                    if (decoded.eventName === 'AgentRequested') {
                         const { requestId } = decoded.args as { requestId: bigint };
                         setTrackedRequest({
                             id: requestId,
@@ -68,27 +73,27 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
         }
     }, [receipt, isSuccess]);
 
-    // Watch for resolution of specific request
+    // Watch for AgentResponded event
     useEffect(() => {
         if (!trackedRequest || trackedRequest.status !== 'pending' || !publicClient) return;
 
         const unwatch = publicClient.watchContractEvent({
             address: CONTRACT_ADDRESS,
             abi: SOMNIA_AGENTS_ABI,
-            eventName: 'RequestResolved',
+            eventName: 'AgentResponded',
             onLogs: (logs) => {
                 for (const log of logs) {
-                    const { requestId, responseData, success } = log.args as {
+                    const { requestId, response, success } = log.args as {
                         requestId: bigint;
-                        responseData: string;
+                        response: string;
                         success: boolean;
                     };
 
                     if (requestId === trackedRequest.id) {
                         setTrackedRequest(prev => ({
                             ...prev!,
-                            status: 'resolved',
-                            response: responseData,
+                            status: 'responded',
+                            response,
                             success
                         }));
                         break;
@@ -104,21 +109,28 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
         e.preventDefault();
         setTrackedRequest(null);
 
-        const requestId = BigInt(Math.floor(Math.random() * 1000000000));
-
         try {
             const values = method.inputs.map(input => {
                 const rawValue = inputValues[input.name] || '';
                 return parseInputValue(rawValue, input.type);
             });
 
-            const encodedCallData = encodeAbi(method.inputs, values);
+            // Encode the full function call (selector + parameters)
+            const encodedRequest = encodeFunctionCall(method, values);
+
+            // Build the AgentRequestData struct
+            const requestData = {
+                agentId: BigInt(agentId),
+                request: encodedRequest,
+                callbackAddress: ZERO_ADDRESS,
+                callbackSelector: ZERO_SELECTOR,
+            };
 
             writeContract({
                 address: CONTRACT_ADDRESS,
                 abi: SOMNIA_AGENTS_ABI,
-                functionName: "createRequest",
-                args: [requestId, BigInt(agentId), method.name, encodedCallData],
+                functionName: "requestAgent",
+                args: [requestData],
                 value: price || BigInt(0),
             });
         } catch (err: unknown) {
@@ -202,11 +214,13 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                     )}
 
                     {trackedRequest && (
-                        <div className={`mt-2 p-3 rounded-lg border ${trackedRequest.status === 'resolved'
+                        <div className={`mt-2 p-3 rounded-lg border ${trackedRequest.status === 'responded'
                             ? trackedRequest.success
                                 ? 'bg-green-500/10 border-green-500/20'
                                 : 'bg-red-500/10 border-red-500/20'
-                            : 'bg-blue-500/10 border-blue-500/20'
+                            : trackedRequest.status === 'failed'
+                                ? 'bg-red-500/10 border-red-500/20'
+                                : 'bg-blue-500/10 border-blue-500/20'
                             }`}>
 
                             <div className="flex items-center gap-2 mb-2">
@@ -220,9 +234,13 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                                 <span className={`text-sm font-bold ${trackedRequest.status === 'pending' ? 'text-blue-300' :
                                     trackedRequest.success ? 'text-green-300' : 'text-red-300'
                                     }`}>
-                                    {trackedRequest.status === 'pending' ? 'Waiting for Response...' :
+                                    {trackedRequest.status === 'pending' ? 'Waiting for Oracle Response...' :
                                         trackedRequest.success ? 'Execution Successful' : 'Execution Failed'}
                                 </span>
+                            </div>
+
+                            <div className="mt-2 text-xs text-gray-500">
+                                <p>Request ID: {trackedRequest.id.toString()}</p>
                             </div>
 
                             {trackedRequest.response && (

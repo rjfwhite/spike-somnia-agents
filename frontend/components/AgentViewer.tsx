@@ -14,17 +14,24 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [expandedMethods, setExpandedMethods] = useState<Set<string>>(new Set());
 
-  // Read agent metadata URI
-  const { data: tokenURI, error, isLoading } = useReadContract({
+  // Read agent details from new contract
+  // Returns: (metadataUri, containerImageUri, cost, exists)
+  const { data: agentDetails, error, isLoading } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: SOMNIA_AGENTS_ABI,
-    functionName: "tokenURI",
+    functionName: "agentDetails",
     args: agentId ? [BigInt(agentId)] : undefined,
   });
 
+  // Extract values from agent details
+  const tokenURI = agentDetails ? (agentDetails as [string, string, bigint, boolean])[0] : undefined;
+  const containerImageUri = agentDetails ? (agentDetails as [string, string, bigint, boolean])[1] : undefined;
+  const price = agentDetails ? (agentDetails as [string, string, bigint, boolean])[2] : undefined;
+  const agentExists = agentDetails ? (agentDetails as [string, string, bigint, boolean])[3] : false;
+
   // Fetch metadata JSON when tokenURI changes
   useEffect(() => {
-    if (!tokenURI) {
+    if (!tokenURI || !agentExists) {
       setMetadata(null);
       return;
     }
@@ -52,7 +59,7 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
     };
 
     fetchMetadata();
-  }, [tokenURI]);
+  }, [tokenURI, agentExists]);
 
   const toggleMethod = (methodName: string) => {
     const newExpanded = new Set(expandedMethods);
@@ -63,14 +70,6 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
     }
     setExpandedMethods(newExpanded);
   };
-
-  // Read agent price
-  const { data: price } = useReadContract({
-    address: CONTRACT_ADDRESS,
-    abi: SOMNIA_AGENTS_ABI,
-    functionName: "agentPrice",
-    args: agentId ? [BigInt(agentId)] : undefined,
-  });
 
   return (
     <div className="glass-panel rounded-2xl shadow-xl p-4 sm:p-8 space-y-6">
@@ -94,26 +93,40 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
 
         {agentId && (
           <div className="space-y-6">
-            {/* Token URI */}
+            {/* Agent Details */}
             <div className="bg-black/20 p-4 rounded-xl border border-white/5">
               {error ? (
                 <p className="text-red-400 font-semibold text-sm flex items-center gap-2">
-                  Agent not found
+                  Error loading agent
                 </p>
               ) : isLoading ? (
-                <p className="text-gray-400 font-medium text-sm animate-pulse">Loading URI...</p>
+                <p className="text-gray-400 font-medium text-sm animate-pulse">Loading agent details...</p>
+              ) : !agentExists ? (
+                <p className="text-yellow-400 font-semibold text-sm flex items-center gap-2">
+                  Agent not found (ID: {agentId})
+                </p>
               ) : (
-                <div className="flex flex-col">
-                  <span className="text-gray-500 font-medium mb-2 text-xs uppercase tracking-wider">Token URI</span>
-                  <span className="font-mono text-xs sm:text-sm break-all text-secondary/80 bg-secondary/5 p-2 rounded-lg border border-secondary/10">
-                    {tokenURI?.toString() || "No URI set"}
-                  </span>
+                <div className="space-y-3">
+                  <div className="flex flex-col">
+                    <span className="text-gray-500 font-medium mb-2 text-xs uppercase tracking-wider">Metadata URI</span>
+                    <span className="font-mono text-xs sm:text-sm break-all text-secondary/80 bg-secondary/5 p-2 rounded-lg border border-secondary/10">
+                      {tokenURI?.toString() || "No URI set"}
+                    </span>
+                  </div>
+                  {containerImageUri && (
+                    <div className="flex flex-col">
+                      <span className="text-gray-500 font-medium mb-2 text-xs uppercase tracking-wider">Container Image URI</span>
+                      <span className="font-mono text-xs sm:text-sm break-all text-green-400/80 bg-green-500/5 p-2 rounded-lg border border-green-500/10">
+                        {containerImageUri}
+                      </span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
             {/* Metadata Display */}
-            {tokenURI && (
+            {tokenURI && agentExists && (
               <div className="glass-panel rounded-xl p-6 space-y-6 relative overflow-hidden">
                 {/* Decorative background blob */}
                 <div className="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full blur-3xl -z-10 -translate-y-1/2 translate-x-1/2"></div>

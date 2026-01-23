@@ -1,16 +1,20 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { usePublicClient, useReadContract } from "wagmi";
+import { usePublicClient } from "wagmi";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "./contract";
 import { TokenMetadata } from "./types";
+
+// Maximum agent ID to scan (since there's no getMaxAgentId in the new contract)
+const MAX_AGENT_ID_TO_SCAN = 100;
 
 export interface AgentData {
     id: string;
     tokenURI: string;
+    containerImageUri: string;
     metadata: TokenMetadata | null;
     price: bigint;
-    owner: string;
+    exists: boolean;
 }
 
 interface AgentsContextType {
@@ -29,66 +33,60 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
 
     const publicClient = usePublicClient();
 
-    // 1. Get Max Agent ID
-    const { data: maxIdData } = useReadContract({
-        address: CONTRACT_ADDRESS,
-        abi: SOMNIA_AGENTS_ABI,
-        functionName: "getMaxAgentId",
-    });
-
     const fetchAllAgents = async () => {
-        if (!publicClient || maxIdData === undefined) return;
+        if (!publicClient) return;
 
         try {
             setLoading(true);
             setError(null);
 
-            const maxId = Number(maxIdData);
             const newAgents: Record<string, AgentData> = {};
 
-            // If no agents, just return
-            if (maxId === 0) {
-                setAgents({});
-                setLoading(false);
-                return;
-            }
-
-            // 2. Fetch data parallelly without Multicall
+            // Scan agent IDs from 0 to MAX_AGENT_ID_TO_SCAN
+            // The new contract uses agentDetails(uint256) which returns (metadataUri, containerImageUri, cost, exists)
             const agentPromises = [];
-            for (let i = 1; i <= maxId; i++) {
+            for (let i = 0; i <= MAX_AGENT_ID_TO_SCAN; i++) {
                 const id = BigInt(i);
                 agentPromises.push((async () => {
                     try {
-                        const [uri, price, owner] = await Promise.all([
-                            publicClient.readContract({ address: CONTRACT_ADDRESS, abi: SOMNIA_AGENTS_ABI, functionName: 'tokenURI', args: [id] }),
-                            publicClient.readContract({ address: CONTRACT_ADDRESS, abi: SOMNIA_AGENTS_ABI, functionName: 'agentPrice', args: [id] }),
-                            publicClient.readContract({ address: CONTRACT_ADDRESS, abi: SOMNIA_AGENTS_ABI, functionName: 'ownerOf', args: [id] })
-                        ]);
+                        // Read agent details from contract
+                        const details = await publicClient.readContract({
+                            address: CONTRACT_ADDRESS,
+                            abi: SOMNIA_AGENTS_ABI,
+                            functionName: 'agentDetails',
+                            args: [id]
+                        }) as [string, string, bigint, boolean];
 
-                        const uriString = uri as string;
+                        const [metadataUri, containerImageUri, cost, exists] = details;
+
+                        // Skip if agent doesn't exist
+                        if (!exists) {
+                            return null;
+                        }
 
                         // Fetch Metadata
                         let metadata = null;
-                        if (uriString && (uriString.startsWith('http://') || uriString.startsWith('https://'))) {
+                        if (metadataUri && (metadataUri.startsWith('http://') || metadataUri.startsWith('https://'))) {
                             try {
-                                const res = await fetch(uriString);
+                                const res = await fetch(metadataUri);
                                 if (res.ok) {
                                     metadata = await res.json();
                                 }
                             } catch (e) {
-                                console.error(`Failed to fetch metadata for ${id}`, e);
+                                console.error(`Failed to fetch metadata for agent ${id}`, e);
                             }
                         }
 
                         return {
                             id: id.toString(),
-                            tokenURI: uriString,
-                            price: price as bigint,
-                            owner: owner as string,
+                            tokenURI: metadataUri,
+                            containerImageUri,
+                            price: cost,
+                            exists,
                             metadata
                         };
                     } catch (err) {
-                        console.error(`Failed to fetch chain data for agent ${id}`, err);
+                        // Agent doesn't exist or contract call failed
                         return null;
                     }
                 })());
@@ -97,7 +95,7 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
             const agentsData = await Promise.all(agentPromises);
 
             agentsData.forEach(agent => {
-                if (agent) {
+                if (agent && agent.exists) {
                     newAgents[agent.id] = agent;
                 }
             });
@@ -113,12 +111,10 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
         }
     };
 
-    // Initial fetch when maxId is available
+    // Initial fetch on mount
     useEffect(() => {
-        if (maxIdData !== undefined) {
-            fetchAllAgents();
-        }
-    }, [maxIdData]);
+        fetchAllAgents();
+    }, [publicClient]);
 
     return (
         <AgentsContext.Provider value={{ agents, loading, error, refresh: fetchAllAgents }}>
