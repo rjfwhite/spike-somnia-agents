@@ -15,6 +15,13 @@ import (
 	"syscall"
 )
 
+// Build-time variables (set via -ldflags)
+var (
+	version   = "dev"
+	gitCommit = "unknown"
+	buildTime = "unknown"
+)
+
 var (
 	port               int
 	receiptsServiceURL string
@@ -137,7 +144,21 @@ func handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 func handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"healthy"}`))
+	json.NewEncoder(w).Encode(map[string]string{
+		"status":  "healthy",
+		"version": version,
+	})
+}
+
+// handleVersion handles the version endpoint
+func handleVersion(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{
+		"version":   version,
+		"gitCommit": gitCommit,
+		"buildTime": buildTime,
+	})
 }
 
 // handleRequest is the main request handler
@@ -147,6 +168,12 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Health check endpoint
 	if r.URL.Path == "/health" {
 		handleHealth(w, r)
+		return
+	}
+
+	// Version endpoint
+	if r.URL.Path == "/version" {
+		handleVersion(w, r)
 		return
 	}
 
@@ -193,7 +220,8 @@ func main() {
 	}()
 
 	// Print startup message
-	log.Printf("Agent Host HTTP server listening on port %d", port)
+	log.Printf("go-agent-host %s (commit: %s, built: %s)", version, gitCommit, buildTime)
+	log.Printf("Listening on port %d", port)
 	log.Println("")
 	log.Println("Config:")
 	log.Printf("  --port=%d", port)

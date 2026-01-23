@@ -15,8 +15,15 @@ RUN go mod download
 # Copy source
 COPY *.go ./
 
-# Build static binary
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags='-s -w' -o go-agent-host .
+# Build args for version info
+ARG VERSION=dev
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
+
+# Build static binary with version info
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X main.version=${VERSION} -X main.gitCommit=${GIT_COMMIT} -X main.buildTime=${BUILD_TIME}" \
+    -o go-agent-host .
 
 # Production stage
 FROM alpine:3.19

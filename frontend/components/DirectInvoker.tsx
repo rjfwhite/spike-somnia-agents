@@ -47,8 +47,8 @@ interface InvocationResult {
 }
 
 export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
-    const [metadataUrl, setMetadataUrl] = useState<string>(initialMetadataUrl || "");
-    const [containerImageUrl, setContainerImageUrl] = useState<string>("");
+    const [metadataUrl, setMetadataUrl] = useState<string>(initialMetadataUrl || "https://agents.src.host/new-test-agent.json");
+    const [containerImageUrl, setContainerImageUrl] = useState<string>("https://storage.googleapis.com/my-public-stuff/my-container-9000.tar");
     const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
     const [metadataLoading, setMetadataLoading] = useState(false);
     const [metadataError, setMetadataError] = useState<string | null>(null);
