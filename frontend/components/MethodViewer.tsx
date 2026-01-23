@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { AbiFunction } from "@/lib/types";
-import { generateSolidityExample, generateViemExample, generateExpressExample } from "@/lib/code-generators";
+import { generateSolidityExample, generateViemExample } from "@/lib/code-generators";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
@@ -17,23 +17,21 @@ interface MethodViewerProps {
 }
 
 export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: MethodViewerProps) {
-    const [activeTab, setActiveTab] = useState<"solidity" | "viem" | "express" | "run">("run");
+    const [activeTab, setActiveTab] = useState<"solidity" | "viem" | "run">("run");
     const [copied, setCopied] = useState(false);
 
     const getCode = () => {
         switch (activeTab) {
             case 'solidity': return generateSolidityExample(method, agentId, price);
             case 'viem': return generateViemExample(method, agentId, price);
-            case 'express': return generateExpressExample(method, agentId, price);
             default: return '';
         }
     };
 
     const getLanguage = () => {
         switch (activeTab) {
-            case 'solidity': return 'solidity'; // react-syntax-highlighter typically supports this or we fall back
-            case 'viem':
-            case 'express': return 'javascript';
+            case 'solidity': return 'solidity';
+            case 'viem': return 'typescript';
             default: return 'text';
         }
     };
@@ -114,7 +112,7 @@ export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: M
                                     <span>▶</span> Run
                                 </button>
                                 <div className="w-[1px] bg-white/10 mx-1"></div>
-                                {(['solidity', 'viem', 'express'] as const).map((tab) => (
+                                {(['solidity', 'viem'] as const).map((tab) => (
                                     <button
                                         key={tab}
                                         onClick={() => setActiveTab(tab)}
@@ -123,7 +121,7 @@ export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: M
                                             : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
                                             }`}
                                     >
-                                        {tab === 'viem' ? 'JS' : tab.charAt(0).toUpperCase() + tab.slice(1)}
+                                        {tab === 'viem' ? 'TypeScript' : 'Solidity'}
                                     </button>
                                 ))}
                             </div>
