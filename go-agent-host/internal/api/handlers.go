@@ -10,9 +10,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/somnia-chain/agent-runner/internal/config"
 	"github.com/somnia-chain/agent-runner/internal/docker"
+	"github.com/somnia-chain/agent-runner/internal/metrics"
 )
 
 // Server handles HTTP requests for the agent runner.
@@ -87,6 +91,17 @@ func (s *Server) uploadReceipt(requestID string, receipt map[string]interface{})
 	} else {
 		slog.Info("Receipt uploaded", "request_id", requestID)
 	}
+}
+
+// responseWriter wraps http.ResponseWriter to capture the status code.
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }
 
 // sendError sends an error response.
@@ -188,7 +203,36 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 
 // HandleRequest is the main request handler.
 func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	path := r.URL.Path
+	if path == "" {
+		path = "/"
+	}
+
+	// Wrap response writer to capture status code
+	wrapped := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+	// Handle the request
+	s.handleRequestInternal(wrapped, r)
+
+	// Record metrics (skip for /metrics endpoint to avoid recursion)
+	if path != "/metrics" {
+		duration := time.Since(start).Seconds()
+		status := strconv.Itoa(wrapped.statusCode)
+		metrics.HTTPRequestsTotal.WithLabelValues(r.Method, path, status).Inc()
+		metrics.HTTPRequestDuration.WithLabelValues(r.Method, path).Observe(duration)
+	}
+}
+
+// handleRequestInternal handles the actual request routing.
+func (s *Server) handleRequestInternal(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("Request received", "method", r.Method, "url", r.URL.String())
+
+	// Metrics endpoint - no authentication required
+	if r.URL.Path == "/metrics" {
+		promhttp.Handler().ServeHTTP(w, r)
+		return
+	}
 
 	// Health and version endpoints don't require authentication
 	if r.URL.Path == "/health" {

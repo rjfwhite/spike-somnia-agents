@@ -22,6 +22,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
+	"github.com/somnia-chain/agent-runner/internal/metrics"
 )
 
 // ContainerInfo holds information about a running container.
@@ -120,41 +121,52 @@ func (m *Manager) getVersionHash(url string) (string, error) {
 }
 
 // downloadImage downloads a container image from a URL.
-func (m *Manager) downloadImage(url, versionHash string) (string, error) {
+func (m *Manager) downloadImage(agentURL, versionHash string) (string, error) {
+	start := time.Now()
+
 	if err := os.MkdirAll(m.imageCacheDir, 0755); err != nil {
+		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
 		return "", fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
 	filePath := filepath.Join(m.imageCacheDir, versionHash+".tar")
 
-	slog.Info("Downloading image", "url", url)
+	slog.Info("Downloading image", "url", agentURL)
 
-	req, err := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", agentURL, nil)
 	if err != nil {
+		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
 		return "", fmt.Errorf("failed to create GET request: %w", err)
 	}
 	req.Header.Set("Accept", "application/x-tar, application/octet-stream, */*")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
 		return "", fmt.Errorf("failed to download image: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
 		return "", fmt.Errorf("failed to download image: %d %s", resp.StatusCode, resp.Status)
 	}
 
 	file, err := os.Create(filePath)
 	if err != nil {
+		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
 		return "", fmt.Errorf("failed to create cache file: %w", err)
 	}
 	defer file.Close()
 
 	_, err = io.Copy(file, resp.Body)
 	if err != nil {
+		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
 		return "", fmt.Errorf("failed to write cache file: %w", err)
 	}
+
+	metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "success").Inc()
+	metrics.ImageDownloadDuration.WithLabelValues(agentURL).Observe(time.Since(start).Seconds())
 
 	slog.Debug("Downloaded image", "path", filePath)
 	return filePath, nil
@@ -237,7 +249,9 @@ func (m *Manager) stopContainer(versionHash string) error {
 		m.containersMutex.Unlock()
 		return nil
 	}
+	agentURL := info.URL
 	delete(m.runningContainers, versionHash)
+	metrics.ContainersActive.WithLabelValues(agentURL).Dec()
 	m.containersMutex.Unlock()
 
 	ctx := context.Background()
@@ -250,15 +264,19 @@ func (m *Manager) stopContainer(versionHash string) error {
 
 	if err := m.client.ContainerRemove(ctx, info.ContainerID, container.RemoveOptions{Force: true}); err != nil {
 		slog.Error("Failed to remove container", "version", versionHash, "error", err)
+		metrics.ContainerOperationsTotal.WithLabelValues(agentURL, "stop", "error").Inc()
 		return err
 	}
 
+	metrics.ContainerOperationsTotal.WithLabelValues(agentURL, "stop", "success").Inc()
 	slog.Info("Removed container", "version", versionHash)
 	return nil
 }
 
 // EnsureAgentRunning ensures a container is running for the given agent URL and version.
 func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
+	start := time.Now()
+
 	versionHash, err := m.getVersionHash(agentURL)
 	if err != nil {
 		return 0, false, err
@@ -278,6 +296,7 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 		}
 		m.containersMutex.Lock()
 		delete(m.runningContainers, versionHash)
+		metrics.ContainersActive.WithLabelValues(agentURL).Dec()
 		m.containersMutex.Unlock()
 	}
 
@@ -361,13 +380,18 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 		Port:        hostPort,
 		URL:         agentURL,
 	}
+	metrics.ContainersActive.WithLabelValues(agentURL).Inc()
 	m.containersMutex.Unlock()
 
 	slog.Info("Container started", "url", fmt.Sprintf("http://localhost:%d", hostPort))
 
 	if err := m.waitForContainerReady(hostPort, 30, 1000); err != nil {
+		metrics.ContainerOperationsTotal.WithLabelValues(agentURL, "start", "error").Inc()
 		return 0, false, err
 	}
+
+	metrics.ContainerOperationsTotal.WithLabelValues(agentURL, "start", "success").Inc()
+	metrics.ContainerStartDuration.WithLabelValues(agentURL).Observe(time.Since(start).Seconds())
 
 	return hostPort, true, nil
 }
@@ -376,9 +400,11 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 func (m *Manager) ForwardToAgent(agentURL string, body []byte, headers map[string]string) (*AgentResponse, error) {
 	port, _, err := m.EnsureAgentRunning(agentURL)
 	if err != nil {
+		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
 		return nil, err
 	}
 
+	start := time.Now()
 	url := fmt.Sprintf("http://localhost:%d/", port)
 
 	requestHex := "0x" + hex.EncodeToString(body)
@@ -391,23 +417,27 @@ func (m *Manager) ForwardToAgent(agentURL string, body []byte, headers map[strin
 
 	jsonBody, err := json.Marshal(jsonRequest)
 	if err != nil {
+		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
+		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
 		return nil, fmt.Errorf("failed to forward request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	responseText, err := io.ReadAll(resp.Body)
 	if err != nil {
+		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
@@ -429,6 +459,10 @@ func (m *Manager) ForwardToAgent(agentURL string, body []byte, headers map[strin
 	} else {
 		responseBody = responseText
 	}
+
+	statusCode := fmt.Sprintf("%d", resp.StatusCode)
+	metrics.AgentRequestsTotal.WithLabelValues(agentURL, statusCode).Inc()
+	metrics.AgentRequestDuration.WithLabelValues(agentURL).Observe(time.Since(start).Seconds())
 
 	return &AgentResponse{
 		Status:  resp.StatusCode,
@@ -452,9 +486,12 @@ func (m *Manager) Cleanup() {
 		}
 		if err := m.client.ContainerRemove(ctx, info.ContainerID, container.RemoveOptions{Force: true}); err != nil {
 			slog.Error("Failed to remove container", "version", versionHash, "error", err)
+			metrics.ContainerOperationsTotal.WithLabelValues(info.URL, "stop", "error").Inc()
 		} else {
 			slog.Info("Removed container", "version", versionHash)
+			metrics.ContainerOperationsTotal.WithLabelValues(info.URL, "stop", "success").Inc()
 		}
+		metrics.ContainersActive.WithLabelValues(info.URL).Dec()
 	}
 
 	m.runningContainers = make(map[string]*ContainerInfo)
