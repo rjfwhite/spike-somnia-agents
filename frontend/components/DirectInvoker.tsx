@@ -29,6 +29,7 @@ async function fetchReceipts(requestId: string): Promise<any[]> {
 
 interface DirectInvokerProps {
     initialMetadataUrl?: string;
+    initialContainerUrl?: string;
 }
 
 interface SingleInvocation {
@@ -46,9 +47,9 @@ interface InvocationResult {
     total?: number;
 }
 
-export function DirectInvoker({ initialMetadataUrl }: DirectInvokerProps) {
+export function DirectInvoker({ initialMetadataUrl, initialContainerUrl }: DirectInvokerProps) {
     const [metadataUrl, setMetadataUrl] = useState<string>(initialMetadataUrl || "https://agents.src.host/new-test-agent.json");
-    const [containerImageUrl, setContainerImageUrl] = useState<string>("https://storage.googleapis.com/my-public-stuff/my-container-9000.tar");
+    const [containerImageUrl, setContainerImageUrl] = useState<string>(initialContainerUrl || "https://storage.googleapis.com/my-public-stuff/my-container-9000.tar");
     const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
     const [metadataLoading, setMetadataLoading] = useState(false);
     const [metadataError, setMetadataError] = useState<string | null>(null);
