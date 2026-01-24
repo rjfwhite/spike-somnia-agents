@@ -20,6 +20,8 @@ type Config struct {
 	StartPort          int
 	Runtime            string
 	APIKey             string
+	LogFile        string
+	MaxLogFileSize int
 }
 
 // Parse parses command-line flags and returns a Config.
@@ -32,6 +34,8 @@ func Parse() *Config {
 	flag.IntVar(&cfg.StartPort, "start-port", 10000, "Starting port for container allocation")
 	flag.StringVar(&cfg.Runtime, "runtime", "", "Container runtime (e.g., runsc for gVisor)")
 	flag.StringVar(&cfg.APIKey, "api-key", "", "API key for request authentication (optional, no auth if empty)")
+	flag.StringVar(&cfg.LogFile, "log-file", "", "Path to log file (default: stdout)")
+	flag.IntVar(&cfg.MaxLogFileSize, "max-log-file-size", 10*1024*1024, "Max log file size in bytes before rotation (default: 10MB)")
 	flag.Parse()
 
 	return cfg

@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -113,7 +113,7 @@ func (m *Manager) getVersionHash(url string) (string, error) {
 		versionString = "url:" + url
 	}
 
-	log.Printf("Version identifier for %s: %s", url, versionString)
+	slog.Debug("Version identifier resolved", "url", url, "version", versionString)
 
 	hash := sha256.Sum256([]byte(versionString))
 	return hex.EncodeToString(hash[:8]), nil
@@ -127,7 +127,7 @@ func (m *Manager) downloadImage(url, versionHash string) (string, error) {
 
 	filePath := filepath.Join(m.imageCacheDir, versionHash+".tar")
 
-	log.Printf("Downloading image from: %s", url)
+	slog.Info("Downloading image", "url", url)
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -156,13 +156,13 @@ func (m *Manager) downloadImage(url, versionHash string) (string, error) {
 		return "", fmt.Errorf("failed to write cache file: %w", err)
 	}
 
-	log.Printf("Downloaded to %s", filePath)
+	slog.Debug("Downloaded image", "path", filePath)
 	return filePath, nil
 }
 
 // loadImage loads a Docker image from a tar file.
 func (m *Manager) loadImage(tarPath string) (string, error) {
-	log.Printf("Loading Docker image from %s...", tarPath)
+	slog.Debug("Loading Docker image", "path", tarPath)
 
 	file, err := os.Open(tarPath)
 	if err != nil {
@@ -204,7 +204,7 @@ func (m *Manager) loadImage(tarPath string) (string, error) {
 
 // waitForContainerReady waits for a container to be ready to accept requests.
 func (m *Manager) waitForContainerReady(port int, maxAttempts int, delayMs int) error {
-	log.Printf("Waiting for container to be ready on port %d...", port)
+	slog.Debug("Waiting for container", "port", port)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
@@ -215,7 +215,7 @@ func (m *Manager) waitForContainerReady(port int, maxAttempts int, delayMs int) 
 		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
-			log.Printf("Container ready after %d attempt(s)", attempt)
+			slog.Debug("Container ready", "port", port, "attempts", attempt)
 			return nil
 		}
 
@@ -241,19 +241,19 @@ func (m *Manager) stopContainer(versionHash string) error {
 	m.containersMutex.Unlock()
 
 	ctx := context.Background()
-	log.Printf("Stopping container for version %s...", versionHash)
+	slog.Info("Stopping container", "version", versionHash)
 
 	timeout := 10
 	if err := m.client.ContainerStop(ctx, info.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
-		log.Printf("Failed to stop container %s: %v", versionHash, err)
+		slog.Warn("Failed to stop container", "version", versionHash, "error", err)
 	}
 
 	if err := m.client.ContainerRemove(ctx, info.ContainerID, container.RemoveOptions{Force: true}); err != nil {
-		log.Printf("Failed to remove container %s: %v", versionHash, err)
+		slog.Error("Failed to remove container", "version", versionHash, "error", err)
 		return err
 	}
 
-	log.Printf("Removed container %s", versionHash)
+	slog.Info("Removed container", "version", versionHash)
 	return nil
 }
 
@@ -273,7 +273,7 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 		ctx := context.Background()
 		containerJSON, err := m.client.ContainerInspect(ctx, info.ContainerID)
 		if err == nil && containerJSON.State.Running {
-			log.Printf("Container for version %s already running on port %d", versionHash, info.Port)
+			slog.Debug("Container already running", "version", versionHash, "port", info.Port)
 			return info.Port, false, nil
 		}
 		m.containersMutex.Lock()
@@ -292,7 +292,7 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 	m.containersMutex.RUnlock()
 
 	for _, hash := range hashesToStop {
-		log.Printf("Found outdated container for %s, stopping...", agentURL)
+		slog.Info("Stopping outdated container", "agent_url", agentURL, "version", hash)
 		m.stopContainer(hash)
 	}
 
@@ -306,7 +306,7 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 	if err != nil {
 		return 0, false, err
 	}
-	log.Printf("Loaded image: %s", imageName)
+	slog.Info("Loaded image", "name", imageName)
 
 	// Allocate port
 	m.portMutex.Lock()
@@ -319,11 +319,11 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 
 	// Cleanup orphaned container if exists
 	if existingContainer, err := m.client.ContainerInspect(ctx, containerName); err == nil {
-		log.Printf("Found orphaned container %s, removing...", containerName)
+		slog.Info("Removing orphaned container", "name", containerName)
 		m.client.ContainerRemove(ctx, existingContainer.ID, container.RemoveOptions{Force: true})
 	}
 
-	log.Printf("Starting container for %s (version %s) on port %d...", agentURL, versionHash, hostPort)
+	slog.Info("Starting container", "agent_url", agentURL, "version", versionHash, "port", hostPort)
 
 	hostPortStr := fmt.Sprintf("%d", hostPort)
 	containerConfig := &container.Config{
@@ -363,7 +363,7 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 	}
 	m.containersMutex.Unlock()
 
-	log.Printf("Container started at http://localhost:%d", hostPort)
+	slog.Info("Container started", "url", fmt.Sprintf("http://localhost:%d", hostPort))
 
 	if err := m.waitForContainerReady(hostPort, 30, 1000); err != nil {
 		return 0, false, err
@@ -439,7 +439,7 @@ func (m *Manager) ForwardToAgent(agentURL string, body []byte, headers map[strin
 
 // Cleanup removes all running containers.
 func (m *Manager) Cleanup() {
-	log.Println("Cleaning up containers...")
+	slog.Info("Cleaning up containers")
 
 	m.containersMutex.Lock()
 	defer m.containersMutex.Unlock()
@@ -448,12 +448,12 @@ func (m *Manager) Cleanup() {
 	for versionHash, info := range m.runningContainers {
 		timeout := 10
 		if err := m.client.ContainerStop(ctx, info.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
-			log.Printf("Failed to stop container %s: %v", versionHash, err)
+			slog.Warn("Failed to stop container", "version", versionHash, "error", err)
 		}
 		if err := m.client.ContainerRemove(ctx, info.ContainerID, container.RemoveOptions{Force: true}); err != nil {
-			log.Printf("Failed to remove container %s: %v", versionHash, err)
+			slog.Error("Failed to remove container", "version", versionHash, "error", err)
 		} else {
-			log.Printf("Removed container %s", versionHash)
+			slog.Info("Removed container", "version", versionHash)
 		}
 	}
 

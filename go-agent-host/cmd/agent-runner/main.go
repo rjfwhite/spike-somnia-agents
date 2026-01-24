@@ -3,7 +3,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
@@ -12,14 +12,23 @@ import (
 	"github.com/somnia-chain/agent-runner/internal/api"
 	"github.com/somnia-chain/agent-runner/internal/config"
 	"github.com/somnia-chain/agent-runner/internal/docker"
+	"github.com/somnia-chain/agent-runner/internal/logging"
 )
 
 func main() {
 	cfg := config.Parse()
 
+	// Initialize logging
+	cleanupLog := logging.Setup(logging.Config{
+		LogFile:        cfg.LogFile,
+		MaxLogFileSize: cfg.MaxLogFileSize,
+	})
+	defer cleanupLog()
+
 	dockerManager, err := docker.NewManager(cfg.CacheDir, cfg.StartPort, cfg.Runtime)
 	if err != nil {
-		log.Fatalf("Failed to initialize Docker: %v", err)
+		slog.Error("Failed to initialize Docker", "error", err)
+		os.Exit(1)
 	}
 
 	server := api.NewServer(dockerManager, cfg.ReceiptsServiceURL, cfg.APIKey)
@@ -31,41 +40,47 @@ func main() {
 
 	go func() {
 		<-sigChan
-		log.Println("\nShutting down...")
+		slog.Info("Shutting down...")
 		dockerManager.Cleanup()
 		os.Exit(0)
 	}()
 
 	// Print startup message
-	log.Printf("agent-runner %s (commit: %s, built: %s)", config.Version, config.GitCommit, config.BuildTime)
-	log.Printf("Listening on port %d", cfg.Port)
-	log.Println("")
-	log.Println("Config:")
-	log.Printf("  --port=%d", cfg.Port)
-	log.Printf("  --cache-dir=%s", cfg.CacheDir)
-	log.Printf("  --start-port=%d", cfg.StartPort)
-	log.Printf("  --runtime=%s", cfg.Runtime)
-	log.Printf("  --receipts-url=%s", cfg.ReceiptsServiceURL)
+	apiKeyStatus := "<not set, authentication disabled>"
 	if cfg.APIKey != "" {
-		log.Printf("  --api-key=<configured>")
-	} else {
-		log.Printf("  --api-key=<not set, authentication disabled>")
+		apiKeyStatus = "<configured>"
 	}
-	log.Println("")
-	log.Println("Usage:")
-	log.Println("  GET or POST / with headers or query params:")
-	log.Println("    X-Agent-Url header or agentUrl query param: URL of the tarred container image")
-	log.Println("    X-Request-Id header or requestId query param: Request ID for receipts")
-	log.Println("  Body: Binary ABI-encoded function call (or base64-encoded in \"data\" query param)")
-	log.Println("")
-	log.Println("  Example GET with query params:")
-	log.Println("    GET /?agentUrl=<url>&requestId=<id>&data=<base64-encoded-body>")
-	log.Println("")
-	log.Println("Response:")
-	log.Println("  Body: Binary ABI-encoded result")
+
+	slog.Info("agent-runner starting",
+		"version", config.Version,
+		"commit", config.GitCommit,
+		"built", config.BuildTime,
+		"port", cfg.Port,
+		"cache_dir", cfg.CacheDir,
+		"start_port", cfg.StartPort,
+		"runtime", cfg.Runtime,
+		"receipts_url", cfg.ReceiptsServiceURL,
+		"api_key", apiKeyStatus,
+		"log_file", cfg.LogFile,
+	)
+
+	// Print usage to stdout (not to log file)
+	fmt.Println("")
+	fmt.Println("Usage:")
+	fmt.Println("  GET or POST / with headers or query params:")
+	fmt.Println("    X-Agent-Url header or agentUrl query param: URL of the tarred container image")
+	fmt.Println("    X-Request-Id header or requestId query param: Request ID for receipts")
+	fmt.Println("  Body: Binary ABI-encoded function call (or base64-encoded in \"data\" query param)")
+	fmt.Println("")
+	fmt.Println("  Example GET with query params:")
+	fmt.Println("    GET /?agentUrl=<url>&requestId=<id>&data=<base64-encoded-body>")
+	fmt.Println("")
+	fmt.Println("Response:")
+	fmt.Println("  Body: Binary ABI-encoded result")
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatalf("Server failed: %v", err)
+		slog.Error("Server failed", "error", err)
+		os.Exit(1)
 	}
 }

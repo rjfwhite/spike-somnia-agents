@@ -7,7 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 
@@ -70,22 +70,22 @@ func (s *Server) uploadReceipt(requestID string, receipt map[string]interface{})
 
 	receiptJSON, err := json.Marshal(receipt)
 	if err != nil {
-		log.Printf("Failed to marshal receipt for %s: %v", requestID, err)
+		slog.Error("Failed to marshal receipt", "request_id", requestID, "error", err)
 		return
 	}
 
 	receiptURL := fmt.Sprintf("%s/agent-receipts?requestId=%s", s.receiptsServiceURL, url.QueryEscape(requestID))
 	resp, err := http.Post(receiptURL, "application/json", bytes.NewReader(receiptJSON))
 	if err != nil {
-		log.Printf("Failed to upload receipt for %s: %v", requestID, err)
+		slog.Error("Failed to upload receipt", "request_id", requestID, "error", err)
 		return
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		log.Printf("Failed to upload receipt for %s: %d", requestID, resp.StatusCode)
+		slog.Error("Failed to upload receipt", "request_id", requestID, "status", resp.StatusCode)
 	} else {
-		log.Printf("Request %s: Receipt uploaded to receipts service", requestID)
+		slog.Info("Receipt uploaded", "request_id", requestID)
 	}
 }
 
@@ -143,19 +143,18 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 	if dataParam != "" {
 		source = "query param"
 	}
-	log.Printf("Request %s: Forwarding to agent at %s", requestID, agentURL)
-	log.Printf("  Body size: %d bytes (from %s)", len(body), source)
+	slog.Info("Forwarding to agent", "request_id", requestID, "agent_url", agentURL, "body_size", len(body), "body_source", source)
 
 	agentResponse, err := s.dockerManager.ForwardToAgent(agentURL, body, map[string]string{
 		"X-Request-Id": requestID,
 	})
 	if err != nil {
-		log.Printf("Request %s: Error - %v", requestID, err)
+		slog.Error("Agent execution failed", "request_id", requestID, "error", err)
 		sendError(w, http.StatusInternalServerError, fmt.Sprintf("Agent execution failed: %v", err))
 		return
 	}
 
-	log.Printf("Request %s: Agent responded with status %d", requestID, agentResponse.Status)
+	slog.Info("Agent responded", "request_id", requestID, "status", agentResponse.Status)
 
 	if agentResponse.Receipt != nil {
 		go s.uploadReceipt(requestID, agentResponse.Receipt)
@@ -189,7 +188,7 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 
 // HandleRequest is the main request handler.
 func (s *Server) HandleRequest(w http.ResponseWriter, r *http.Request) {
-	log.Printf("%s %s", r.Method, r.URL.String())
+	slog.Debug("Request received", "method", r.Method, "url", r.URL.String())
 
 	// Health and version endpoints don't require authentication
 	if r.URL.Path == "/health" {
