@@ -209,7 +209,14 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                     {hash && (
                         <div className="space-y-1">
                             <span className="text-xs text-gray-500 block">Transaction Hash</span>
-                            <span className="font-mono text-xs text-secondary break-all bg-black/30 px-2 py-1 rounded block">{hash}</span>
+                            <a
+                                href={`https://shannon-explorer.somnia.network/tx/${hash}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-mono text-xs text-secondary break-all bg-black/30 px-2 py-1 rounded block hover:text-primary hover:underline transition-colors"
+                            >
+                                {hash}
+                            </a>
                         </div>
                     )}
 

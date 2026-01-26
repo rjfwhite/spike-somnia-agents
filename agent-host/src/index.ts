@@ -144,19 +144,6 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Agent Host HTTP server listening on port ${PORT}`);
-  console.log('');
-  console.log('Usage:');
-  console.log('  GET or POST / with headers or query params:');
-  console.log('    X-Agent-Url header or agentUrl query param: URL of the tarred container image');
-  console.log('    X-Request-Id header or requestId query param: Request ID for receipts');
-  console.log('  Body: Binary ABI-encoded function call (or base64-encoded in "data" query param)');
-  console.log('');
-  console.log('  Example GET with query params:');
-  console.log('    GET /?agentUrl=<url>&requestId=<id>&data=<base64-encoded-body>');
-  console.log('');
-  console.log('Response:');
-  console.log('  Body: Binary ABI-encoded result');
-  console.log('  X-Receipt-Url: URL of execution receipt (if provided by agent)');
 });
 
 // Graceful shutdown

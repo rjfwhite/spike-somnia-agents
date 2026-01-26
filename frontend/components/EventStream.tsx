@@ -12,8 +12,10 @@ interface RequestEvent {
   blockNumber: bigint;
   timestamp: number;
   request?: string;
+  requestTxHash?: string;
   responded: boolean;
   response?: string;
+  responseTxHash?: string;
   success?: boolean;
   metadata?: TokenMetadata;
   decodedMethod?: string;
@@ -188,6 +190,7 @@ export function EventStream() {
               blockNumber: log.blockNumber,
               timestamp: Date.now(),
               request,
+              requestTxHash: log.transactionHash,
               responded: false,
               metadata: metadata || undefined,
               decodedMethod: method,
@@ -234,6 +237,7 @@ export function EventStream() {
                 ...existing,
                 responded: true,
                 response,
+                responseTxHash: log.transactionHash,
                 success,
                 decodedOutputs: outputs,
               });
@@ -246,6 +250,7 @@ export function EventStream() {
                 timestamp: Date.now(),
                 responded: true,
                 response,
+                responseTxHash: log.transactionHash,
                 success,
                 decodedOutputs: outputs,
               });
@@ -404,8 +409,34 @@ export function EventStream() {
                       </div>
                     )}
 
-                    <div className="text-[10px] text-gray-600 mt-2">
-                      Block {event.blockNumber.toString()}
+                    <div className="text-[10px] text-gray-600 mt-2 space-y-1">
+                      <div>Block {event.blockNumber.toString()}</div>
+                      {event.requestTxHash && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-500">Request TX:</span>
+                          <a
+                            href={`https://shannon-explorer.somnia.network/tx/${event.requestTxHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-mono text-secondary hover:text-primary hover:underline transition-colors"
+                          >
+                            {event.requestTxHash.slice(0, 10)}...{event.requestTxHash.slice(-8)}
+                          </a>
+                        </div>
+                      )}
+                      {event.responseTxHash && (
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-500">Response TX:</span>
+                          <a
+                            href={`https://shannon-explorer.somnia.network/tx/${event.responseTxHash}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-mono text-secondary hover:text-primary hover:underline transition-colors"
+                          >
+                            {event.responseTxHash.slice(0, 10)}...{event.responseTxHash.slice(-8)}
+                          </a>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

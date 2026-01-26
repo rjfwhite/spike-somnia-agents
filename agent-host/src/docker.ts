@@ -91,34 +91,25 @@ async function loadImage(tarPath: string): Promise<string> {
   const loadStream = await docker.loadImage(stream);
 
   return new Promise((resolve, reject) => {
-    let output = '';
-    loadStream.on('data', (chunk: Buffer) => {
-      output += chunk.toString();
-    });
-    loadStream.on('end', () => {
-      // Parse the output to get the image name
-      const match = output.match(/Loaded image[: ]+([^\s"\\]+)/i);
-      if (match) {
-        resolve(match[1]);
-      } else {
-        // Try to parse as JSON
-        try {
-          const lines = output.trim().split('\n');
-          for (const line of lines) {
-            const json = JSON.parse(line);
-            if (json.stream) {
-              const streamMatch = json.stream.match(/Loaded image[: ]+([^\s\n]+)/i);
-              if (streamMatch) {
-                resolve(streamMatch[1]);
-                return;
-              }
-            }
-          }
-        } catch {}
-        reject(new Error(`Could not parse image name from: ${output}`));
+    docker.modem.followProgress(loadStream, (err: Error | null, output: any[]) => {
+      if (err) {
+        reject(err);
+        return;
       }
+
+      // output is an array of all streamed JSON objects
+      for (const item of output) {
+        if (item.stream) {
+          const match = item.stream.match(/Loaded image[: ]+([^\s\n]+)/i);
+          if (match) {
+            resolve(match[1]);
+            return;
+          }
+        }
+      }
+
+      reject(new Error(`Could not parse image name from output: ${JSON.stringify(output)}`));
     });
-    loadStream.on('error', reject);
   });
 }
 
