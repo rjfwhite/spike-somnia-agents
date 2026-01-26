@@ -19,6 +19,7 @@ interface TrackedRequest {
     status: 'pending' | 'responded' | 'failed';
     response?: string;
     success?: boolean;
+    responseTxHash?: string;
 }
 
 // Zero address for callback (oracle-based invocation - responses go through oracle)
@@ -94,7 +95,8 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                             ...prev!,
                             status: 'responded',
                             response,
-                            success
+                            success,
+                            responseTxHash: log.transactionHash,
                         }));
                         break;
                     }
@@ -246,8 +248,21 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                                 </span>
                             </div>
 
-                            <div className="mt-2 text-xs text-gray-500">
+                            <div className="mt-2 text-xs text-gray-500 space-y-1">
                                 <p>Request ID: {trackedRequest.id.toString()}</p>
+                                {trackedRequest.responseTxHash && (
+                                    <p>
+                                        Response TX:{' '}
+                                        <a
+                                            href={`https://shannon-explorer.somnia.network/tx/${trackedRequest.responseTxHash}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-secondary hover:text-primary hover:underline transition-colors"
+                                        >
+                                            {trackedRequest.responseTxHash.slice(0, 10)}...{trackedRequest.responseTxHash.slice(-8)}
+                                        </a>
+                                    </p>
+                                )}
                             </div>
 
                             {trackedRequest.response && (

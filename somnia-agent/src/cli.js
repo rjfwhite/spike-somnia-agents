@@ -25,17 +25,23 @@ somnia-agent - Test and build Somnia agents locally
 Usage:
   somnia-agent create [folder]                     Create a new agent from template
   somnia-agent dev <agent-folder>                  Run agent with web UI and file watching
-  somnia-agent build <agent-folder> <output.tar>  Build agent to tar file
+  somnia-agent build <agent-folder> <output.tar>   Build agent to tar file
+  somnia-agent publish <agent-folder> [options]    Build and upload agent to hosting service
 
 Commands:
-  create  Create a new agent project from template
-  dev     Start development server with hot reload
-  build   Build Docker image and export as tar
+  create   Create a new agent project from template
+  dev      Start development server with hot reload
+  build    Build Docker image and export as tar
+  publish  Build container, upload tar and metadata to hosting service
+
+Publish Options:
+  --frontend <url>      Frontend URL for file uploads (default: https://spike-somnia-agents.vercel.app)
 
 Examples:
   somnia-agent create my-agent
   somnia-agent dev ./my-agent
   somnia-agent build ./my-agent ./my-agent.tar
+  somnia-agent publish ./my-agent
 `);
   process.exit(1);
 }
@@ -214,6 +220,190 @@ async function buildCommand(agentFolderArg, outputTar) {
   } catch {}
 
   console.log(`\nDone! Image saved to ${outputPath}`);
+}
+
+// ============================================================================
+// PUBLISH COMMAND
+// ============================================================================
+
+function parsePublishArgs(args) {
+  const options = {
+    frontend: 'https://spike-somnia-agents.vercel.app',
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--frontend' && args[i + 1]) {
+      options.frontend = args[i + 1];
+      i++;
+    }
+  }
+
+  return options;
+}
+
+async function uploadFile(frontendUrl, filePath, pathname, contentType) {
+  const fileContent = readFileSync(filePath);
+  const url = `${frontendUrl}/api/files/put?pathname=${encodeURIComponent(pathname)}`;
+
+  console.log(`  Uploading to ${pathname}...`);
+
+  const response = await fetch(url, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': contentType,
+    },
+    body: fileContent,
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Upload failed: ${response.status} - ${text}`);
+  }
+
+  const result = await response.json();
+  return result.url;
+}
+
+async function publishCommand(agentFolderArg, restArgs) {
+  if (!agentFolderArg) {
+    console.error('Usage: somnia-agent publish <agent-folder> [options]');
+    process.exit(1);
+  }
+
+  const options = parsePublishArgs(restArgs);
+  const { agentFolder, agentJsonPath } = validateFolder(agentFolderArg);
+  const agentDef = JSON.parse(readFileSync(agentJsonPath, 'utf-8'));
+
+  console.log(`\nPublishing ${agentDef.name} v${agentDef.version}`);
+  console.log(`${agentDef.description}`);
+  console.log(`Frontend: ${options.frontend}\n`);
+
+  // Generate unique prefix for this publish
+  const timestamp = Date.now();
+  const slug = agentDef.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+
+  // Step 1: Build Docker image
+  console.log('Step 1: Building Docker image...');
+  const imageName = `agent-publish-${slug}-${timestamp}`;
+
+  try {
+    execSync(`docker build --platform linux/amd64 -t ${imageName} ${agentFolder}`, { stdio: 'inherit' });
+  } catch (error) {
+    console.error('Failed to build Docker image');
+    process.exit(1);
+  }
+
+  // Step 2: Export to temporary tar file
+  console.log('\nStep 2: Exporting container image...');
+  const tempTarPath = path.join(agentFolder, `.agent-${timestamp}.tar`);
+
+  try {
+    execSync(`docker save ${imageName} -o ${tempTarPath}`, { stdio: 'inherit' });
+  } catch (error) {
+    console.error('Failed to export image');
+    process.exit(1);
+  }
+
+  // Cleanup local docker image
+  try {
+    execSync(`docker rmi ${imageName}`, { stdio: 'ignore' });
+  } catch {}
+
+  let containerUrl = null;
+  let metadataUrl = null;
+  let imageUrl = null;
+
+  try {
+    // Step 3: Upload container tar
+    console.log('\nStep 3: Uploading container...');
+    const containerPathname = `agents/containers/${slug}-${timestamp}.tar`;
+    containerUrl = await uploadFile(options.frontend, tempTarPath, containerPathname, 'application/x-tar');
+    console.log(`  Container URL: ${containerUrl}`);
+
+    // Step 4: Check if image is a local file and upload it
+    const metadata = { ...agentDef };
+    if (metadata.image && !metadata.image.startsWith('http://') && !metadata.image.startsWith('https://')) {
+      const imagePath = path.resolve(agentFolder, metadata.image);
+      if (existsSync(imagePath)) {
+        console.log('\nStep 4: Uploading local image...');
+        const imageExt = path.extname(imagePath);
+        const imagePathname = `agents/images/${slug}-${timestamp}${imageExt}`;
+        const imageMimeType = {
+          '.png': 'image/png',
+          '.jpg': 'image/jpeg',
+          '.jpeg': 'image/jpeg',
+          '.gif': 'image/gif',
+          '.webp': 'image/webp',
+          '.svg': 'image/svg+xml',
+        }[imageExt.toLowerCase()] || 'image/png';
+
+        imageUrl = await uploadFile(options.frontend, imagePath, imagePathname, imageMimeType);
+        metadata.image = imageUrl;
+        console.log(`  Image URL: ${imageUrl}`);
+      } else {
+        console.log(`\nStep 4: Skipping image (file not found: ${imagePath})`);
+      }
+    } else {
+      console.log('\nStep 4: Skipping image upload (already a URL or not specified)');
+    }
+
+    // Step 5: Upload metadata JSON (with updated image URL if applicable)
+    console.log('\nStep 5: Uploading metadata...');
+    const tempMetadataPath = path.join(agentFolder, `.agent-metadata-${timestamp}.json`);
+    writeFileSync(tempMetadataPath, JSON.stringify(metadata, null, 2));
+
+    const metadataPathname = `agents/metadata/${slug}-${timestamp}.json`;
+    metadataUrl = await uploadFile(options.frontend, tempMetadataPath, metadataPathname, 'application/json');
+    console.log(`  Metadata URL: ${metadataUrl}`);
+
+    // Cleanup temp metadata file
+    try {
+      execSync(`rm "${tempMetadataPath}"`, { stdio: 'ignore' });
+    } catch {}
+
+  } finally {
+    // Cleanup temp tar file
+    try {
+      execSync(`rm ${tempTarPath}`, { stdio: 'ignore' });
+    } catch {}
+  }
+
+  // Output summary
+  console.log('\n' + '='.repeat(60));
+  console.log('PUBLISH COMPLETE');
+  console.log('='.repeat(60));
+  console.log(`\nAgent: ${agentDef.name} v${agentDef.version}`);
+  console.log(`\nURLs:`);
+  console.log(`  Metadata URI:   ${metadataUrl}`);
+  console.log(`  Container URI:  ${containerUrl}`);
+  if (imageUrl) {
+    console.log(`  Image URI:      ${imageUrl}`);
+  }
+
+  // Build admin URL with query params
+  const adminParams = new URLSearchParams({
+    metadataUri: metadataUrl,
+    containerImageUri: containerUrl,
+  });
+  const adminUrl = `${options.frontend}/admin?${adminParams.toString()}`;
+
+  console.log('\nOpening Admin Panel in browser...');
+  console.log('='.repeat(60) + '\n');
+
+  // Open browser
+  const platform = process.platform;
+  try {
+    if (platform === 'darwin') {
+      execSync(`open "${adminUrl}"`, { stdio: 'ignore' });
+    } else if (platform === 'win32') {
+      execSync(`start "" "${adminUrl}"`, { stdio: 'ignore' });
+    } else {
+      execSync(`xdg-open "${adminUrl}"`, { stdio: 'ignore' });
+    }
+  } catch (err) {
+    console.log(`Could not open browser. Visit this URL to complete registration:`);
+    console.log(`  ${adminUrl}\n`);
+  }
 }
 
 // ============================================================================
@@ -786,6 +976,9 @@ switch (command) {
     break;
   case 'build':
     buildCommand(args[1], args[2]);
+    break;
+  case 'publish':
+    publishCommand(args[1], args.slice(2));
     break;
   default:
     console.error(`Unknown command: ${command}`);
