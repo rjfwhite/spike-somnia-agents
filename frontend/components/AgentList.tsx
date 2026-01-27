@@ -35,7 +35,10 @@ export function AgentList() {
                 {agentList.map((agent) => (
                     <AgentCard
                         key={agent.id}
-                        agent={agent}
+                        id={agent.id}
+                        metadata={agent.metadata}
+                        owner={agent.owner}
+                        cost={agent.price}
                     />
                 ))}
             </div>

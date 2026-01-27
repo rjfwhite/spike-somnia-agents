@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPublicClient, http, webSocket, decodeFunctionData, type Hex } from "viem";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL } from "@/lib/contract";
+import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL, Agent } from "@/lib/contract";
 import type { TokenMetadata, AbiFunction } from "@/lib/types";
 import { decodeAbi, formatDecodedValue } from "@/lib/abi-utils";
 
@@ -108,7 +108,7 @@ export function EventStream() {
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
   const [metadataCache, setMetadataCache] = useState<Map<string, TokenMetadata>>(new Map());
 
-  // Fetch metadata for an agent using the new contract's getAgentUri function
+  // Fetch metadata for an agent using the new contract's getAgent function
   const fetchMetadata = async (agentId: bigint): Promise<TokenMetadata | null> => {
     const cacheKey = agentId.toString();
 
@@ -123,20 +123,20 @@ export function EventStream() {
         transport: http(SOMNIA_RPC_URL),
       });
 
-      // Get agent URI from contract
-      const uri = await client.readContract({
+      // Get agent data from contract
+      const agent = await client.readContract({
         address: CONTRACT_ADDRESS,
         abi: SOMNIA_AGENTS_ABI,
-        functionName: 'getAgentUri',
+        functionName: 'getAgent',
         args: [agentId],
-      }) as string;
+      }) as Agent;
 
-      if (!uri) {
+      if (!agent || !agent.metadataUri) {
         return null;
       }
 
       // Fetch metadata JSON
-      const metadataResponse = await fetch(uri);
+      const metadataResponse = await fetch(agent.metadataUri);
       if (!metadataResponse.ok) {
         throw new Error(`Failed to fetch metadata: ${metadataResponse.status}`);
       }

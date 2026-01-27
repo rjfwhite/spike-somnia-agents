@@ -1,4 +1,5 @@
 {
+  "agentId": "{{agentId}}",
   "name": "{{name}}",
   "description": "{{description}}",
   "version": "1.0.0",

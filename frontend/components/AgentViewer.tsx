@@ -2,10 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { useReadContract } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
 import type { TokenMetadata, AbiFunction } from "@/lib/types";
 import { getAbiFunctions } from "@/lib/types";
 import { MethodViewer } from "./MethodViewer";
+import Link from "next/link";
+import { Settings } from "lucide-react";
 
 export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
   const [agentId, setAgentId] = useState<string>(initialAgentId || "1");
@@ -14,20 +16,21 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [expandedMethods, setExpandedMethods] = useState<Set<string>>(new Set());
 
-  // Read agent details from new contract
-  // Returns: (metadataUri, containerImageUri, cost, exists)
-  const { data: agentDetails, error, isLoading } = useReadContract({
+  // Read agent details from new ERC721 contract using getAgent
+  const { data: agentData, error, isLoading } = useReadContract({
     address: CONTRACT_ADDRESS,
     abi: SOMNIA_AGENTS_ABI,
-    functionName: "agentDetails",
+    functionName: "getAgent",
     args: agentId ? [BigInt(agentId)] : undefined,
   });
 
-  // Extract values from agent details
-  const tokenURI = agentDetails ? (agentDetails as [string, string, bigint, boolean])[0] : undefined;
-  const containerImageUri = agentDetails ? (agentDetails as [string, string, bigint, boolean])[1] : undefined;
-  const price = agentDetails ? (agentDetails as [string, string, bigint, boolean])[2] : undefined;
-  const agentExists = agentDetails ? (agentDetails as [string, string, bigint, boolean])[3] : false;
+  // Extract values from agent struct
+  const agent = agentData as Agent | undefined;
+  const tokenURI = agent?.metadataUri;
+  const containerImageUri = agent?.containerImageUri;
+  const price = agent?.cost;
+  const owner = agent?.owner;
+  const agentExists = agent && agent.owner !== "0x0000000000000000000000000000000000000000";
 
   // Fetch metadata JSON when tokenURI changes
   useEffect(() => {
@@ -71,9 +74,25 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
     setExpandedMethods(newExpanded);
   };
 
+  const formatAddress = (addr: string) => {
+    if (!addr) return "";
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  };
+
   return (
     <div className="glass-panel rounded-2xl shadow-xl p-4 sm:p-8 space-y-6">
-      <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">View Agent</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">View Agent</h2>
+        {agentExists && (
+          <Link
+            href={`/agent/${agentId}/manage`}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            Manage
+          </Link>
+        )}
+      </div>
 
       <div className="space-y-6">
         <div>
@@ -82,12 +101,11 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
           </label>
           <input
             id="agentId"
-            type="number"
+            type="text"
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
-            className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all"
+            className="w-full px-4 py-3 bg-black/20 border border-white/10 rounded-xl text-white placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-transparent transition-all font-mono"
             placeholder="Enter agent ID"
-            min="1"
           />
         </div>
 
@@ -96,17 +114,40 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
             {/* Agent Details */}
             <div className="bg-black/20 p-4 rounded-xl border border-white/5">
               {error ? (
-                <p className="text-red-400 font-semibold text-sm flex items-center gap-2">
-                  Error loading agent
+                <p className="text-yellow-400 font-semibold text-sm flex items-center gap-2">
+                  Agent not found (ID: {agentId})
                 </p>
               ) : isLoading ? (
                 <p className="text-gray-400 font-medium text-sm animate-pulse">Loading agent details...</p>
               ) : !agentExists ? (
-                <p className="text-yellow-400 font-semibold text-sm flex items-center gap-2">
-                  Agent not found (ID: {agentId})
-                </p>
+                <div className="space-y-3">
+                  <p className="text-yellow-400 font-semibold text-sm flex items-center gap-2">
+                    Agent not found (ID: {agentId})
+                  </p>
+                  <Link
+                    href={`/agent/${agentId}/manage`}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  >
+                    Create this agent
+                  </Link>
+                </div>
               ) : (
                 <div className="space-y-3">
+                  {/* Owner */}
+                  {owner && (
+                    <div className="flex flex-col">
+                      <span className="text-gray-500 font-medium mb-2 text-xs uppercase tracking-wider">Owner</span>
+                      <a
+                        href={`https://shannon-explorer.somnia.network/address/${owner}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-mono text-xs sm:text-sm text-purple-400 hover:text-purple-300 bg-purple-500/10 p-2 rounded-lg border border-purple-500/20 w-fit"
+                      >
+                        {formatAddress(owner)}
+                      </a>
+                    </div>
+                  )}
+
                   <div className="flex flex-col">
                     <span className="text-gray-500 font-medium mb-2 text-xs uppercase tracking-wider">Metadata URI</span>
                     <span className="font-mono text-xs sm:text-sm break-all text-secondary/80 bg-secondary/5 p-2 rounded-lg border border-secondary/10">

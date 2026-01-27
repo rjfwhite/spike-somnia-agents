@@ -98,6 +98,15 @@ function prompt(question) {
   });
 }
 
+// Generate a random uint64 agentId (64-bit random number as string)
+function generateAgentId() {
+  // Generate 8 random bytes (64 bits)
+  const bytes = crypto.randomBytes(8);
+  // Convert to BigInt and then to string
+  let hex = '0x' + bytes.toString('hex');
+  return BigInt(hex).toString();
+}
+
 async function createCommand(folderArg) {
   let folderName = folderArg;
 
@@ -133,6 +142,9 @@ async function createCommand(folderArg) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 
+  // Generate a random uint64 agentId
+  const agentId = generateAgentId();
+
   // Get template directory
   const templateDir = path.join(__dirname, '..', 'template');
 
@@ -142,6 +154,7 @@ async function createCommand(folderArg) {
   }
 
   console.log(`\nCreating agent: ${agentName}`);
+  console.log(`Agent ID: ${agentId}`);
   console.log(`Location: ${targetFolder}\n`);
 
   // Create target folder
@@ -160,6 +173,7 @@ async function createCommand(folderArg) {
     content = content.replace(/\{\{name\}\}/g, agentName);
     content = content.replace(/\{\{slug\}\}/g, agentSlug);
     content = content.replace(/\{\{description\}\}/g, agentDescription);
+    content = content.replace(/\{\{agentId\}\}/g, agentId);
 
     writeFileSync(targetPath, content);
     console.log(`  Created: ${file}`);
@@ -167,6 +181,9 @@ async function createCommand(folderArg) {
 
   console.log(`
 Done! Your agent has been created.
+
+Agent ID: ${agentId}
+This unique ID will be used to register your agent on-chain.
 
 Next steps:
   cd ${folderName}
@@ -417,6 +434,13 @@ async function publishCommand(agentFolderArg, restArgs) {
   console.log('PUBLISH COMPLETE');
   console.log('='.repeat(60));
   console.log(`\nAgent: ${agentDef.name} v${agentDef.version}`);
+
+  // Check if agentId exists in the metadata
+  const agentId = agentDef.agentId;
+  if (agentId) {
+    console.log(`Agent ID: ${agentId}`);
+  }
+
   console.log(`\nURLs:`);
   console.log(`  Metadata URI:   ${metadataUrl}`);
   console.log(`  Container URI:  ${containerUrl}`);
@@ -424,29 +448,41 @@ async function publishCommand(agentFolderArg, restArgs) {
     console.log(`  Image URI:      ${imageUrl}`);
   }
 
-  // Build admin URL with query params
-  const adminParams = new URLSearchParams({
-    metadataUri: metadataUrl,
-    containerImageUri: containerUrl,
-  });
-  const adminUrl = `${options.frontend}/admin?${adminParams.toString()}`;
+  // Build management URL with query params
+  // Route to /agent/[id]/manage if agentId exists, otherwise /admin
+  let manageUrl;
+  if (agentId) {
+    const params = new URLSearchParams({
+      metadataUri: metadataUrl,
+      containerImageUri: containerUrl,
+    });
+    manageUrl = `${options.frontend}/agent/${agentId}/manage?${params.toString()}`;
+  } else {
+    const params = new URLSearchParams({
+      metadataUri: metadataUrl,
+      containerImageUri: containerUrl,
+    });
+    manageUrl = `${options.frontend}/admin?${params.toString()}`;
+    console.log('\nNote: No agentId found in agent.json. Opening generic admin panel.');
+    console.log('Consider adding an "agentId" field to your agent.json for better workflow.');
+  }
 
-  console.log('\nOpening Admin Panel in browser...');
+  console.log('\nOpening Agent Management in browser...');
   console.log('='.repeat(60) + '\n');
 
   // Open browser
   const platform = process.platform;
   try {
     if (platform === 'darwin') {
-      execSync(`open "${adminUrl}"`, { stdio: 'ignore' });
+      execSync(`open "${manageUrl}"`, { stdio: 'ignore' });
     } else if (platform === 'win32') {
-      execSync(`start "" "${adminUrl}"`, { stdio: 'ignore' });
+      execSync(`start "" "${manageUrl}"`, { stdio: 'ignore' });
     } else {
-      execSync(`xdg-open "${adminUrl}"`, { stdio: 'ignore' });
+      execSync(`xdg-open "${manageUrl}"`, { stdio: 'ignore' });
     }
   } catch (err) {
     console.log(`Could not open browser. Visit this URL to complete registration:`);
-    console.log(`  ${adminUrl}\n`);
+    console.log(`  ${manageUrl}\n`);
   }
 }
 

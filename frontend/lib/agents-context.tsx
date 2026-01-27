@@ -2,19 +2,16 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { usePublicClient } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "./contract";
+import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, Agent } from "./contract";
 import { TokenMetadata } from "./types";
-
-// Maximum agent ID to scan (since there's no getMaxAgentId in the new contract)
-const MAX_AGENT_ID_TO_SCAN = 100;
 
 export interface AgentData {
     id: string;
+    owner: string;
     tokenURI: string;
     containerImageUri: string;
     metadata: TokenMetadata | null;
     price: bigint;
-    exists: boolean;
 }
 
 interface AgentsContextType {
@@ -42,60 +39,80 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
 
             const newAgents: Record<string, AgentData> = {};
 
-            // Scan agent IDs from 0 to MAX_AGENT_ID_TO_SCAN
-            // The new contract uses agentDetails(uint256) which returns (metadataUri, containerImageUri, cost, exists)
-            const agentPromises = [];
-            for (let i = 0; i <= MAX_AGENT_ID_TO_SCAN; i++) {
-                const id = BigInt(i);
-                agentPromises.push((async () => {
-                    try {
-                        // Read agent details from contract
-                        const details = await publicClient.readContract({
+            // Use getAllAgents() to get all agent IDs from the ERC721 Enumerable contract
+            let agentIds: bigint[] = [];
+            try {
+                agentIds = await publicClient.readContract({
+                    address: CONTRACT_ADDRESS,
+                    abi: SOMNIA_AGENTS_ABI,
+                    functionName: 'getAllAgents',
+                }) as bigint[];
+            } catch (err) {
+                console.error("getAllAgents call failed, falling back to totalSupply enumeration:", err);
+                // Fallback: try to enumerate using totalSupply and tokenByIndex
+                try {
+                    const totalSupply = await publicClient.readContract({
+                        address: CONTRACT_ADDRESS,
+                        abi: SOMNIA_AGENTS_ABI,
+                        functionName: 'totalSupply',
+                    }) as bigint;
+
+                    for (let i = BigInt(0); i < totalSupply; i++) {
+                        const tokenId = await publicClient.readContract({
                             address: CONTRACT_ADDRESS,
                             abi: SOMNIA_AGENTS_ABI,
-                            functionName: 'agentDetails',
-                            args: [id]
-                        }) as [string, string, bigint, boolean];
-
-                        const [metadataUri, containerImageUri, cost, exists] = details;
-
-                        // Skip if agent doesn't exist
-                        if (!exists) {
-                            return null;
-                        }
-
-                        // Fetch Metadata
-                        let metadata = null;
-                        if (metadataUri && (metadataUri.startsWith('http://') || metadataUri.startsWith('https://'))) {
-                            try {
-                                const res = await fetch(metadataUri);
-                                if (res.ok) {
-                                    metadata = await res.json();
-                                }
-                            } catch (e) {
-                                console.error(`Failed to fetch metadata for agent ${id}`, e);
-                            }
-                        }
-
-                        return {
-                            id: id.toString(),
-                            tokenURI: metadataUri,
-                            containerImageUri,
-                            price: cost,
-                            exists,
-                            metadata
-                        };
-                    } catch (err) {
-                        // Agent doesn't exist or contract call failed
-                        return null;
+                            functionName: 'tokenByIndex',
+                            args: [i],
+                        }) as bigint;
+                        agentIds.push(tokenId);
                     }
-                })());
+                } catch (enumErr) {
+                    console.error("Enumeration fallback failed:", enumErr);
+                }
             }
+
+            // Fetch details for each agent
+            const agentPromises = agentIds.map(async (agentId) => {
+                try {
+                    // Use getAgent to get full agent details including owner
+                    const agent = await publicClient.readContract({
+                        address: CONTRACT_ADDRESS,
+                        abi: SOMNIA_AGENTS_ABI,
+                        functionName: 'getAgent',
+                        args: [agentId]
+                    }) as Agent;
+
+                    // Fetch Metadata
+                    let metadata = null;
+                    if (agent.metadataUri && (agent.metadataUri.startsWith('http://') || agent.metadataUri.startsWith('https://'))) {
+                        try {
+                            const res = await fetch(agent.metadataUri);
+                            if (res.ok) {
+                                metadata = await res.json();
+                            }
+                        } catch (e) {
+                            console.error(`Failed to fetch metadata for agent ${agentId}`, e);
+                        }
+                    }
+
+                    return {
+                        id: agentId.toString(),
+                        owner: agent.owner,
+                        tokenURI: agent.metadataUri,
+                        containerImageUri: agent.containerImageUri,
+                        price: agent.cost,
+                        metadata
+                    };
+                } catch (err) {
+                    console.error(`Failed to fetch agent ${agentId}:`, err);
+                    return null;
+                }
+            });
 
             const agentsData = await Promise.all(agentPromises);
 
             agentsData.forEach(agent => {
-                if (agent && agent.exists) {
+                if (agent) {
                     newAgents[agent.id] = agent;
                 }
             });

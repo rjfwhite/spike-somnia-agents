@@ -12,7 +12,8 @@ import {
     X,
     BookOpen,
     Zap,
-    Settings
+    Settings,
+    User
 } from "lucide-react";
 export function AppShell({ children }: { children: React.ReactNode }) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -20,6 +21,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     const navItems = [
         { id: 'agents', label: 'Agents', icon: LayoutGrid, path: '/' },
+        { id: 'my-agents', label: 'My Agents', icon: User, path: '/my-agents' },
         { id: 'live', label: 'Live Feed', icon: Activity, path: '/live' },
         { id: 'invoke', label: 'Direct Invoke', icon: Zap, path: '/invoke' },
         { id: 'admin', label: 'Admin', icon: Settings, path: '/admin' },

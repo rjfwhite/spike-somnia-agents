@@ -1,29 +1,12 @@
 "use client";
 
-import { useState, useCallback } from "react";
-import { createWalletClient, http, parseEther } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL, SOMNIA_CHAIN_ID } from "@/lib/contract";
+import { useState, useCallback, useEffect } from "react";
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
+import { parseEther } from "viem";
+import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
 import { uploadFile } from "@/lib/files";
-import { X, Check, FileJson, Package, ExternalLink, Loader2 } from "lucide-react";
-
-// WARNING: This is extremely insecure - private key exposed in frontend
-// Only use for testnet/development purposes
-const OWNER_PRIVATE_KEY = "0x93816d6fbb0ae93839d852aae7d822dd0989d2526b5feb53d59b48669201f30a" as const;
-
-// Define Somnia testnet chain
-const somniaTestnet = {
-    id: SOMNIA_CHAIN_ID,
-    name: "Somnia Testnet",
-    nativeCurrency: {
-        name: "STT",
-        symbol: "STT",
-        decimals: 18,
-    },
-    rpcUrls: {
-        default: { http: [SOMNIA_RPC_URL] },
-    },
-} as const;
+import { X, Check, FileJson, Package, ExternalLink, Loader2, AlertTriangle, Dices } from "lucide-react";
+import Link from "next/link";
 
 type InputMode = 'upload' | 'url';
 
@@ -45,10 +28,9 @@ interface AdminPanelProps {
 }
 
 export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
+    const { address, isConnected } = useAccount();
     const [agentId, setAgentId] = useState(initialValues?.agentId || "");
-    const [cost, setCost] = useState(initialValues?.cost || "");
-    const [isLoading, setIsLoading] = useState(false);
-    const [result, setResult] = useState<{ success: boolean; message: string; hash?: string } | null>(null);
+    const [cost, setCost] = useState(initialValues?.cost || "0.001");
 
     // Metadata mode - default to 'url' if we have a metadataUri, otherwise 'upload'
     const [metadataMode, setMetadataMode] = useState<InputMode>(initialValues?.metadataUri ? 'url' : 'upload');
@@ -68,17 +50,29 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
         file: null, url: null, uploading: false, progress: 0, error: null
     });
 
-    const account = privateKeyToAccount(OWNER_PRIVATE_KEY);
+    // Write contract hook for setAgent
+    const { writeContract, data: hash, isPending, error: writeError } = useWriteContract();
 
-    const walletClient = createWalletClient({
-        account,
-        chain: somniaTestnet,
-        transport: http(SOMNIA_RPC_URL),
-    });
+    // Wait for transaction
+    const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash });
+
+    // Generate a random uint64 agent ID
+    const generateAgentId = useCallback(() => {
+        // Generate a random 64-bit number using crypto API
+        const randomBytes = new Uint8Array(8);
+        crypto.getRandomValues(randomBytes);
+
+        // Convert to BigInt and then to string
+        let bigIntValue = BigInt(0);
+        for (let i = 0; i < randomBytes.length; i++) {
+            bigIntValue = (bigIntValue << BigInt(8)) | BigInt(randomBytes[i]);
+        }
+
+        setAgentId(bigIntValue.toString());
+    }, []);
 
     // Handle container image tarball upload
     const handleContainerUpload = useCallback(async (file: File) => {
-        // Validate it's a tarball
         const validExtensions = ['.tar', '.tar.gz', '.tgz'];
         const isValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
 
@@ -106,18 +100,15 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
 
     // Handle JSON file selection and upload
     const handleJsonUpload = useCallback(async (file: File) => {
-        // Validate it's JSON
         if (!file.name.endsWith('.json') && file.type !== 'application/json') {
             setJsonUpload(prev => ({ ...prev, error: 'Please select a JSON file' }));
             return;
         }
 
-        // Read and validate JSON content
         try {
             const text = await file.text();
             const json = JSON.parse(text);
 
-            // Basic validation
             if (!json.name || !json.abi) {
                 setJsonUpload(prev => ({ ...prev, error: 'Invalid metadata: must have "name" and "abi" fields' }));
                 return;
@@ -139,71 +130,47 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
         }
     }, []);
 
-    const handleSetAgentDetails = async (e: React.FormEvent) => {
+    const handleSetAgent = async (e: React.FormEvent) => {
         e.preventDefault();
-        setIsLoading(true);
-        setResult(null);
 
-        try {
-            let finalMetadataUri = metadataUrl;
-
-            if (metadataMode === 'upload') {
-                if (jsonUpload.url) {
-                    finalMetadataUri = jsonUpload.url;
-                } else {
-                    setResult({ success: false, message: 'Please upload a metadata JSON file' });
-                    setIsLoading(false);
-                    return;
-                }
-            }
-
-            if (!finalMetadataUri) {
-                setResult({ success: false, message: 'Metadata URI is required' });
-                setIsLoading(false);
-                return;
-            }
-
-            // Determine container image URI
-            let finalContainerUri = containerUrl;
-            if (containerMode === 'upload') {
-                if (containerUpload.url) {
-                    finalContainerUri = containerUpload.url;
-                } else {
-                    setResult({ success: false, message: 'Please upload a container image tarball' });
-                    setIsLoading(false);
-                    return;
-                }
-            }
-
-            if (!finalContainerUri) {
-                setResult({ success: false, message: 'Container image URI is required' });
-                setIsLoading(false);
-                return;
-            }
-
-            const costInWei = cost ? parseEther(cost) : BigInt(0);
-
-            const hash = await walletClient.writeContract({
-                address: CONTRACT_ADDRESS,
-                abi: SOMNIA_AGENTS_ABI,
-                functionName: "setAgentDetails",
-                args: [BigInt(agentId), finalMetadataUri, finalContainerUri, costInWei],
-            });
-
-            setResult({
-                success: true,
-                message: `Agent details updated successfully!`,
-                hash,
-            });
-        } catch (error: unknown) {
-            console.error("Failed to set agent details:", error);
-            setResult({
-                success: false,
-                message: error instanceof Error ? error.message : String(error),
-            });
-        } finally {
-            setIsLoading(false);
+        if (!agentId) {
+            return;
         }
+
+        let finalMetadataUri = metadataUrl;
+        if (metadataMode === 'upload') {
+            if (jsonUpload.url) {
+                finalMetadataUri = jsonUpload.url;
+            } else {
+                return;
+            }
+        }
+
+        if (!finalMetadataUri) {
+            return;
+        }
+
+        let finalContainerUri = containerUrl;
+        if (containerMode === 'upload') {
+            if (containerUpload.url) {
+                finalContainerUri = containerUpload.url;
+            } else {
+                return;
+            }
+        }
+
+        if (!finalContainerUri) {
+            return;
+        }
+
+        const costInWei = cost ? parseEther(cost) : BigInt(0);
+
+        writeContract({
+            address: CONTRACT_ADDRESS,
+            abi: SOMNIA_AGENTS_ABI,
+            functionName: "setAgent",
+            args: [BigInt(agentId), finalMetadataUri, finalContainerUri, costInWei],
+        });
     };
 
     const FileDropZone = ({
@@ -299,49 +266,80 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
         </div>
     );
 
+    const isLoading = isPending || isConfirming;
+
     return (
         <div className="space-y-6">
-            {/* Security Warning */}
-            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
-                <div className="flex items-start gap-3">
-                    <span className="text-red-400 text-xl">!</span>
-                    <div>
-                        <h3 className="text-red-400 font-bold text-sm">Security Warning</h3>
-                        <p className="text-red-300/80 text-xs mt-1">
-                            This admin panel uses an embedded private key. Only use on testnet for development purposes.
-                            Never use this pattern in production.
-                        </p>
+            {/* Wallet Connection Warning */}
+            {!isConnected && (
+                <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+                    <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-yellow-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                            <h3 className="text-yellow-400 font-bold text-sm">Wallet Not Connected</h3>
+                            <p className="text-yellow-300/80 text-xs mt-1">
+                                Please connect your wallet to create or update agents. You will become the owner of any agents you create.
+                            </p>
+                        </div>
                     </div>
                 </div>
-            </div>
+            )}
 
-            {/* Owner Info */}
-            <div className="bg-slate-900/50 border border-white/10 rounded-lg p-4">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Owner Account</h3>
-                <p className="font-mono text-sm text-blue-400 break-all">{account.address}</p>
-            </div>
+            {/* Connected Account Info */}
+            {isConnected && (
+                <div className="bg-slate-900/50 border border-white/10 rounded-lg p-4">
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Connected Account</h3>
+                    <p className="font-mono text-sm text-blue-400 break-all">{address}</p>
+                    <p className="text-xs text-gray-500 mt-2">You will become the owner of any new agents you create.</p>
+                </div>
+            )}
 
-            {/* Set Agent Details Form */}
+            {/* Tip about agent management page */}
+            {agentId && (
+                <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4">
+                    <p className="text-sm text-blue-300">
+                        Tip: You can also manage this agent directly at{" "}
+                        <Link href={`/agent/${agentId}/manage`} className="underline hover:text-blue-200">
+                            /agent/{agentId}/manage
+                        </Link>
+                    </p>
+                </div>
+            )}
+
+            {/* Set Agent Form */}
             <div className="bg-slate-900/50 border border-white/10 rounded-lg p-6">
-                <h2 className="text-lg font-bold text-white mb-4">Set Agent Details</h2>
+                <h2 className="text-lg font-bold text-white mb-4">Create or Update Agent</h2>
                 <p className="text-gray-400 text-sm mb-6">
                     Configure an agent with metadata, container image URI, and invocation cost.
+                    If the agent doesn&apos;t exist, it will be minted to your address.
                 </p>
 
-                <form onSubmit={handleSetAgentDetails} className="space-y-6">
+                <form onSubmit={handleSetAgent} className="space-y-6">
                     <div>
                         <label htmlFor="agentId" className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
                             Agent ID
                         </label>
-                        <input
-                            id="agentId"
-                            type="text"
-                            value={agentId}
-                            onChange={(e) => setAgentId(e.target.value)}
-                            className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
-                            placeholder="1"
-                            required
-                        />
+                        <div className="flex gap-2">
+                            <input
+                                id="agentId"
+                                type="text"
+                                value={agentId}
+                                onChange={(e) => setAgentId(e.target.value)}
+                                className="flex-1 px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
+                                placeholder="Enter a unique uint64 ID"
+                                required
+                            />
+                            <button
+                                type="button"
+                                onClick={generateAgentId}
+                                className="px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-gray-400 hover:text-white transition-colors flex items-center gap-2"
+                                title="Generate random ID"
+                            >
+                                <Dices className="w-4 h-4" />
+                                <span className="hidden sm:inline">Generate</span>
+                            </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">A unique identifier for your agent (any uint64 value)</p>
                     </div>
 
                     {/* Metadata Section */}
@@ -470,32 +468,43 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
 
                     <button
                         type="submit"
-                        disabled={isLoading}
-                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold py-3 px-4 rounded-lg transition-all shadow-lg"
+                        disabled={isLoading || !isConnected}
+                        className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-bold py-3 px-4 rounded-lg transition-all shadow-lg flex items-center justify-center gap-2"
                     >
-                        {isLoading ? "Updating..." : "Set Agent Details"}
+                        {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
+                        {isPending ? "Confirming..." : isConfirming ? "Waiting for confirmation..." : "Create/Update Agent"}
                     </button>
                 </form>
 
-                {result && (
-                    <div className={`mt-4 p-4 rounded-lg border ${result.success
-                        ? 'bg-green-500/10 border-green-500/20'
-                        : 'bg-red-500/10 border-red-500/20'
-                        }`}>
-                        <p className={`text-sm font-medium ${result.success ? 'text-green-400' : 'text-red-400'}`}>
-                            {result.success ? 'Success!' : 'Error'}
-                        </p>
-                        <p className="text-xs text-gray-400 mt-1">{result.message}</p>
-                        {result.hash && (
+                {writeError && (
+                    <div className="mt-4 p-4 rounded-lg border bg-red-500/10 border-red-500/20">
+                        <p className="text-sm font-medium text-red-400">Error</p>
+                        <p className="text-xs text-gray-400 mt-1">{writeError.message}</p>
+                    </div>
+                )}
+
+                {isConfirmed && hash && (
+                    <div className="mt-4 p-4 rounded-lg border bg-green-500/10 border-green-500/20">
+                        <p className="text-sm font-medium text-green-400">Success!</p>
+                        <p className="text-xs text-gray-400 mt-1">Agent created/updated successfully.</p>
+                        <div className="flex flex-col gap-2 mt-2">
                             <a
-                                href={`https://shannon-explorer.somnia.network/tx/${result.hash}`}
+                                href={`https://shannon-explorer.somnia.network/tx/${hash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="text-xs text-blue-400 hover:underline mt-2 inline-flex items-center gap-1"
+                                className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1"
                             >
                                 View transaction <ExternalLink className="w-3 h-3" />
                             </a>
-                        )}
+                            {agentId && (
+                                <Link
+                                    href={`/agent/${agentId}`}
+                                    className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1"
+                                >
+                                    View agent <ExternalLink className="w-3 h-3" />
+                                </Link>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>
@@ -504,7 +513,6 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
             <div className="bg-slate-900/50 border border-white/10 rounded-lg p-4">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Contract Address</h3>
                 <p className="font-mono text-sm text-green-400 break-all">{CONTRACT_ADDRESS}</p>
-                <p className="text-xs text-gray-500 mt-2">Chain ID: {SOMNIA_CHAIN_ID}</p>
             </div>
         </div>
     );
