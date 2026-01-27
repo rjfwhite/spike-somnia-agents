@@ -12,8 +12,7 @@ import {
     X,
     BookOpen,
     Zap,
-    Settings,
-    HardDrive
+    Settings
 } from "lucide-react";
 export function AppShell({ children }: { children: React.ReactNode }) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -23,7 +22,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         { id: 'agents', label: 'Agents', icon: LayoutGrid, path: '/' },
         { id: 'live', label: 'Live Feed', icon: Activity, path: '/live' },
         { id: 'invoke', label: 'Direct Invoke', icon: Zap, path: '/invoke' },
-        { id: 'files', label: 'Files', icon: HardDrive, path: '/files' },
         { id: 'admin', label: 'Admin', icon: Settings, path: '/admin' },
         { id: 'docs', label: 'Documentation', icon: BookOpen, path: 'https://metaversal.gitbook.io/agents/s8KLL5NzoS6LwJVIQCiT/', external: true },
     ];
