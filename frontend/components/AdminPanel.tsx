@@ -4,8 +4,8 @@ import { useState, useCallback } from "react";
 import { createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL, SOMNIA_CHAIN_ID } from "@/lib/contract";
-import { uploadFile, formatFileSize } from "@/lib/files";
-import { Upload, X, Check, Image, FileJson, ExternalLink, Loader2 } from "lucide-react";
+import { uploadFile } from "@/lib/files";
+import { X, Check, FileJson, ExternalLink, Loader2 } from "lucide-react";
 
 // WARNING: This is extremely insecure - private key exposed in frontend
 // Only use for testnet/development purposes
@@ -55,23 +55,9 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
     const [metadataMode, setMetadataMode] = useState<MetadataMode>(initialValues?.metadataUri ? 'url' : 'upload');
     const [metadataUrl, setMetadataUrl] = useState(initialValues?.metadataUri || "");
 
-    // Image upload state
-    const [imageUpload, setImageUpload] = useState<UploadState>({
-        file: null, url: null, uploading: false, progress: 0, error: null
-    });
-
     // JSON upload state
     const [jsonUpload, setJsonUpload] = useState<UploadState>({
         file: null, url: null, uploading: false, progress: 0, error: null
-    });
-
-    // Metadata form fields (for building JSON)
-    const [metadataForm, setMetadataForm] = useState({
-        name: "",
-        description: "",
-        version: "1.0.0",
-        author: "",
-        abiJson: "[]",
     });
 
     const account = privateKeyToAccount(OWNER_PRIVATE_KEY);
@@ -81,30 +67,6 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
         chain: somniaTestnet,
         transport: http(SOMNIA_RPC_URL),
     });
-
-    // Handle image file upload
-    const handleImageUpload = useCallback(async (file: File) => {
-        if (!file.type.startsWith('image/')) {
-            setImageUpload(prev => ({ ...prev, error: 'Please select an image file' }));
-            return;
-        }
-
-        setImageUpload({ file, url: null, uploading: true, progress: 0, error: null });
-
-        try {
-            const result = await uploadFile(file, {
-                pathname: `agents/images/${Date.now()}-${file.name}`,
-                onProgress: (progress) => setImageUpload(prev => ({ ...prev, progress })),
-            });
-            setImageUpload(prev => ({ ...prev, url: result.url, uploading: false }));
-        } catch (err) {
-            setImageUpload(prev => ({
-                ...prev,
-                uploading: false,
-                error: err instanceof Error ? err.message : 'Upload failed'
-            }));
-        }
-    }, []);
 
     // Handle JSON file selection and upload
     const handleJsonUpload = useCallback(async (file: File) => {
@@ -141,49 +103,6 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
         }
     }, []);
 
-    // Build and upload metadata JSON from form
-    const buildAndUploadMetadata = useCallback(async () => {
-        try {
-            // Parse ABI
-            let abi;
-            try {
-                abi = JSON.parse(metadataForm.abiJson);
-            } catch {
-                throw new Error('Invalid ABI JSON');
-            }
-
-            const metadata = {
-                name: metadataForm.name,
-                description: metadataForm.description,
-                version: metadataForm.version,
-                author: metadataForm.author || undefined,
-                abi,
-                image: imageUpload.url || undefined,
-            };
-
-            // Create a file from the JSON
-            const blob = new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' });
-            const file = new File([blob], `${metadataForm.name.toLowerCase().replace(/\s+/g, '-')}-metadata.json`, { type: 'application/json' });
-
-            setJsonUpload({ file, url: null, uploading: true, progress: 0, error: null });
-
-            const result = await uploadFile(file, {
-                pathname: `agents/metadata/${Date.now()}-${file.name}`,
-                onProgress: (progress) => setJsonUpload(prev => ({ ...prev, progress })),
-            });
-
-            setJsonUpload(prev => ({ ...prev, url: result.url, uploading: false }));
-            return result.url;
-        } catch (err) {
-            setJsonUpload(prev => ({
-                ...prev,
-                uploading: false,
-                error: err instanceof Error ? err.message : 'Failed to build metadata'
-            }));
-            return null;
-        }
-    }, [metadataForm, imageUpload.url]);
-
     const handleSetAgentDetails = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
@@ -193,19 +112,10 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
             let finalMetadataUri = metadataUrl;
 
             if (metadataMode === 'upload') {
-                // If we have a JSON upload, use that URL
                 if (jsonUpload.url) {
                     finalMetadataUri = jsonUpload.url;
-                } else if (metadataForm.name && metadataForm.abiJson) {
-                    // Build and upload metadata from form
-                    const url = await buildAndUploadMetadata();
-                    if (!url) {
-                        setIsLoading(false);
-                        return;
-                    }
-                    finalMetadataUri = url;
                 } else {
-                    setResult({ success: false, message: 'Please upload a JSON file or fill in the metadata form' });
+                    setResult({ success: false, message: 'Please upload a metadata JSON file' });
                     setIsLoading(false);
                     return;
                 }
@@ -254,7 +164,7 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
         onFile: (f: File) => void;
         upload: UploadState;
         label: string;
-        icon: typeof Image;
+        icon: typeof FileJson;
         hint: string;
     }) => (
         <div className="space-y-2">
@@ -277,10 +187,7 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
                     </div>
                     <button
                         type="button"
-                        onClick={() => upload === imageUpload
-                            ? setImageUpload({ file: null, url: null, uploading: false, progress: 0, error: null })
-                            : setJsonUpload({ file: null, url: null, uploading: false, progress: 0, error: null })
-                        }
+                        onClick={() => setJsonUpload({ file: null, url: null, uploading: false, progress: 0, error: null })}
                         className="p-1 hover:bg-white/10 rounded"
                     >
                         <X className="w-4 h-4 text-gray-400" />
@@ -411,98 +318,14 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
                                 <p className="text-xs text-gray-500 mt-1">URL to the agent metadata JSON</p>
                             </div>
                         ) : (
-                            <div className="space-y-4">
-                                {/* Image Upload */}
-                                <FileDropZone
-                                    accept="image/*"
-                                    onFile={handleImageUpload}
-                                    upload={imageUpload}
-                                    label="Agent Image (Optional)"
-                                    icon={Image}
-                                    hint="PNG, JPG, GIF, WebP up to 10MB"
-                                />
-
-                                {/* JSON Upload OR Form */}
-                                <div className="border-t border-white/10 pt-4">
-                                    <FileDropZone
-                                        accept=".json,application/json"
-                                        onFile={handleJsonUpload}
-                                        upload={jsonUpload}
-                                        label="Metadata JSON"
-                                        icon={FileJson}
-                                        hint="Upload a complete agent.json file"
-                                    />
-
-                                    {!jsonUpload.url && !jsonUpload.uploading && (
-                                        <>
-                                            <div className="flex items-center gap-4 my-4">
-                                                <div className="flex-1 border-t border-white/10"></div>
-                                                <span className="text-xs text-gray-500">OR BUILD FROM FORM</span>
-                                                <div className="flex-1 border-t border-white/10"></div>
-                                            </div>
-
-                                            <div className="space-y-3">
-                                                <div className="grid grid-cols-2 gap-3">
-                                                    <div>
-                                                        <label className="block text-xs text-gray-500 mb-1">Name *</label>
-                                                        <input
-                                                            type="text"
-                                                            value={metadataForm.name}
-                                                            onChange={(e) => setMetadataForm(prev => ({ ...prev, name: e.target.value }))}
-                                                            className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                                                            placeholder="My Agent"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <label className="block text-xs text-gray-500 mb-1">Version</label>
-                                                        <input
-                                                            type="text"
-                                                            value={metadataForm.version}
-                                                            onChange={(e) => setMetadataForm(prev => ({ ...prev, version: e.target.value }))}
-                                                            className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                                                            placeholder="1.0.0"
-                                                        />
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-xs text-gray-500 mb-1">Description</label>
-                                                    <textarea
-                                                        value={metadataForm.description}
-                                                        onChange={(e) => setMetadataForm(prev => ({ ...prev, description: e.target.value }))}
-                                                        className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
-                                                        placeholder="What does this agent do?"
-                                                        rows={2}
-                                                    />
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-xs text-gray-500 mb-1">Author</label>
-                                                    <input
-                                                        type="text"
-                                                        value={metadataForm.author}
-                                                        onChange={(e) => setMetadataForm(prev => ({ ...prev, author: e.target.value }))}
-                                                        className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                                                        placeholder="Your name or organization"
-                                                    />
-                                                </div>
-
-                                                <div>
-                                                    <label className="block text-xs text-gray-500 mb-1">ABI (JSON Array) *</label>
-                                                    <textarea
-                                                        value={metadataForm.abiJson}
-                                                        onChange={(e) => setMetadataForm(prev => ({ ...prev, abiJson: e.target.value }))}
-                                                        className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-xs text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none font-mono"
-                                                        placeholder='[{"type":"function","name":"greet","inputs":[{"name":"name","type":"string"}],"outputs":[{"name":"","type":"string"}]}]'
-                                                        rows={4}
-                                                    />
-                                                    <p className="text-xs text-gray-600 mt-1">Array of function definitions</p>
-                                                </div>
-                                            </div>
-                                        </>
-                                    )}
-                                </div>
-                            </div>
+                            <FileDropZone
+                                accept=".json,application/json"
+                                onFile={handleJsonUpload}
+                                upload={jsonUpload}
+                                label="Metadata JSON"
+                                icon={FileJson}
+                                hint="Upload your agent metadata JSON file"
+                            />
                         )}
                     </div>
 
