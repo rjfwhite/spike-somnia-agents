@@ -5,7 +5,7 @@ import { createWalletClient, http, parseEther } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL, SOMNIA_CHAIN_ID } from "@/lib/contract";
 import { uploadFile } from "@/lib/files";
-import { X, Check, FileJson, ExternalLink, Loader2 } from "lucide-react";
+import { X, Check, FileJson, Package, ExternalLink, Loader2 } from "lucide-react";
 
 // WARNING: This is extremely insecure - private key exposed in frontend
 // Only use for testnet/development purposes
@@ -25,7 +25,7 @@ const somniaTestnet = {
     },
 } as const;
 
-type MetadataMode = 'upload' | 'url';
+type InputMode = 'upload' | 'url';
 
 interface UploadState {
     file: File | null;
@@ -46,17 +46,25 @@ interface AdminPanelProps {
 
 export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
     const [agentId, setAgentId] = useState(initialValues?.agentId || "");
-    const [containerImageUri, setContainerImageUri] = useState(initialValues?.containerImageUri || "");
     const [cost, setCost] = useState(initialValues?.cost || "");
     const [isLoading, setIsLoading] = useState(false);
     const [result, setResult] = useState<{ success: boolean; message: string; hash?: string } | null>(null);
 
     // Metadata mode - default to 'url' if we have a metadataUri, otherwise 'upload'
-    const [metadataMode, setMetadataMode] = useState<MetadataMode>(initialValues?.metadataUri ? 'url' : 'upload');
+    const [metadataMode, setMetadataMode] = useState<InputMode>(initialValues?.metadataUri ? 'url' : 'upload');
     const [metadataUrl, setMetadataUrl] = useState(initialValues?.metadataUri || "");
+
+    // Container image mode - default to 'url' if we have a containerImageUri, otherwise 'upload'
+    const [containerMode, setContainerMode] = useState<InputMode>(initialValues?.containerImageUri ? 'url' : 'upload');
+    const [containerUrl, setContainerUrl] = useState(initialValues?.containerImageUri || "");
 
     // JSON upload state
     const [jsonUpload, setJsonUpload] = useState<UploadState>({
+        file: null, url: null, uploading: false, progress: 0, error: null
+    });
+
+    // Container image upload state
+    const [containerUpload, setContainerUpload] = useState<UploadState>({
         file: null, url: null, uploading: false, progress: 0, error: null
     });
 
@@ -67,6 +75,34 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
         chain: somniaTestnet,
         transport: http(SOMNIA_RPC_URL),
     });
+
+    // Handle container image tarball upload
+    const handleContainerUpload = useCallback(async (file: File) => {
+        // Validate it's a tarball
+        const validExtensions = ['.tar', '.tar.gz', '.tgz'];
+        const isValidExtension = validExtensions.some(ext => file.name.toLowerCase().endsWith(ext));
+
+        if (!isValidExtension) {
+            setContainerUpload(prev => ({ ...prev, error: 'Please select a container image tarball (.tar, .tar.gz, .tgz)' }));
+            return;
+        }
+
+        setContainerUpload({ file, url: null, uploading: true, progress: 0, error: null });
+
+        try {
+            const result = await uploadFile(file, {
+                pathname: `agents/containers/${Date.now()}-${file.name}`,
+                onProgress: (progress) => setContainerUpload(prev => ({ ...prev, progress })),
+            });
+            setContainerUpload(prev => ({ ...prev, url: result.url, uploading: false }));
+        } catch (err) {
+            setContainerUpload(prev => ({
+                ...prev,
+                uploading: false,
+                error: err instanceof Error ? err.message : 'Upload failed'
+            }));
+        }
+    }, []);
 
     // Handle JSON file selection and upload
     const handleJsonUpload = useCallback(async (file: File) => {
@@ -127,13 +163,31 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
                 return;
             }
 
+            // Determine container image URI
+            let finalContainerUri = containerUrl;
+            if (containerMode === 'upload') {
+                if (containerUpload.url) {
+                    finalContainerUri = containerUpload.url;
+                } else {
+                    setResult({ success: false, message: 'Please upload a container image tarball' });
+                    setIsLoading(false);
+                    return;
+                }
+            }
+
+            if (!finalContainerUri) {
+                setResult({ success: false, message: 'Container image URI is required' });
+                setIsLoading(false);
+                return;
+            }
+
             const costInWei = cost ? parseEther(cost) : BigInt(0);
 
             const hash = await walletClient.writeContract({
                 address: CONTRACT_ADDRESS,
                 abi: SOMNIA_AGENTS_ABI,
                 functionName: "setAgentDetails",
-                args: [BigInt(agentId), finalMetadataUri, containerImageUri, costInWei],
+                args: [BigInt(agentId), finalMetadataUri, finalContainerUri, costInWei],
             });
 
             setResult({
@@ -155,6 +209,7 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
     const FileDropZone = ({
         accept,
         onFile,
+        onClear,
         upload,
         label,
         icon: Icon,
@@ -162,6 +217,7 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
     }: {
         accept: string;
         onFile: (f: File) => void;
+        onClear: () => void;
         upload: UploadState;
         label: string;
         icon: typeof FileJson;
@@ -172,26 +228,38 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
                 {label}
             </label>
             {upload.url ? (
-                <div className="flex items-center gap-3 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
-                    <Check className="w-5 h-5 text-green-400" />
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm text-white truncate">{upload.file?.name}</p>
+                <div className="p-3 bg-green-500/10 border border-green-500/20 rounded-lg space-y-2">
+                    <div className="flex items-center gap-3">
+                        <Check className="w-5 h-5 text-green-400 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                            <p className="text-sm text-white truncate">{upload.file?.name}</p>
+                            <a
+                                href={upload.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-green-400 hover:underline flex items-center gap-1"
+                            >
+                                View uploaded file <ExternalLink className="w-3 h-3" />
+                            </a>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onClear}
+                            className="p-1 hover:bg-white/10 rounded flex-shrink-0"
+                        >
+                            <X className="w-4 h-4 text-gray-400" />
+                        </button>
+                    </div>
+                    <div className="bg-black/30 rounded px-2 py-1.5">
+                        <p className="text-xs text-gray-500 mb-0.5">Canonical URL:</p>
                         <a
                             href={upload.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-green-400 hover:underline flex items-center gap-1"
+                            download
+                            className="text-xs text-blue-300 font-mono break-all select-all hover:text-blue-200 hover:underline"
                         >
-                            View uploaded file <ExternalLink className="w-3 h-3" />
+                            {upload.url}
                         </a>
                     </div>
-                    <button
-                        type="button"
-                        onClick={() => setJsonUpload({ file: null, url: null, uploading: false, progress: 0, error: null })}
-                        className="p-1 hover:bg-white/10 rounded"
-                    >
-                        <X className="w-4 h-4 text-gray-400" />
-                    </button>
                 </div>
             ) : upload.uploading ? (
                 <div className="p-4 bg-blue-500/10 border border-blue-500/20 rounded-lg">
@@ -321,6 +389,7 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
                             <FileDropZone
                                 accept=".json,application/json"
                                 onFile={handleJsonUpload}
+                                onClear={() => setJsonUpload({ file: null, url: null, uploading: false, progress: 0, error: null })}
                                 upload={jsonUpload}
                                 label="Metadata JSON"
                                 icon={FileJson}
@@ -329,20 +398,58 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
                         )}
                     </div>
 
-                    <div>
-                        <label htmlFor="containerImageUri" className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                            Container Image URI
-                        </label>
-                        <input
-                            id="containerImageUri"
-                            type="text"
-                            value={containerImageUri}
-                            onChange={(e) => setContainerImageUri(e.target.value)}
-                            className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all"
-                            placeholder="us-docker.pkg.dev/project/repo/agent:latest"
-                            required
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Docker image URI for the agent container</p>
+                    {/* Container Image Section */}
+                    <div className="space-y-4 p-4 bg-black/20 rounded-lg border border-white/5">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-sm font-semibold text-white">Container Image</h3>
+                            <div className="flex gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setContainerMode('upload')}
+                                    className={`px-3 py-1 text-xs rounded-lg transition-colors ${
+                                        containerMode === 'upload'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                    }`}
+                                >
+                                    Upload
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setContainerMode('url')}
+                                    className={`px-3 py-1 text-xs rounded-lg transition-colors ${
+                                        containerMode === 'url'
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-white/5 text-gray-400 hover:bg-white/10'
+                                    }`}
+                                >
+                                    URL
+                                </button>
+                            </div>
+                        </div>
+
+                        {containerMode === 'url' ? (
+                            <div>
+                                <input
+                                    type="text"
+                                    value={containerUrl}
+                                    onChange={(e) => setContainerUrl(e.target.value)}
+                                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all"
+                                    placeholder="https://example.com/agent.tar.gz"
+                                />
+                                <p className="text-xs text-gray-500 mt-1">URL to the container image tarball</p>
+                            </div>
+                        ) : (
+                            <FileDropZone
+                                accept=".tar,.tar.gz,.tgz"
+                                onFile={handleContainerUpload}
+                                onClear={() => setContainerUpload({ file: null, url: null, uploading: false, progress: 0, error: null })}
+                                upload={containerUpload}
+                                label="Container Image Tarball"
+                                icon={Package}
+                                hint="Upload a .tar, .tar.gz, or .tgz container image"
+                            />
+                        )}
                     </div>
 
                     <div>
