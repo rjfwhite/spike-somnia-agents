@@ -1,0 +1,21 @@
+{
+  "name": "LLM Runner",
+  "description": "A simple string-in-string-out LLM inference agent using Qwen3-30B",
+  "version": "1.0.0",
+  "author": "Somnia Team",
+  "abi": [
+    {
+      "type": "function",
+      "name": "infer",
+      "inputs": [
+        { "name": "prompt", "type": "string" },
+        { "name": "temperature", "type": "uint256" },
+        { "name": "seed", "type": "uint256" }
+      ],
+      "outputs": [
+        { "name": "response", "type": "string" }
+      ]
+    }
+  ],
+  "tags": ["llm", "inference", "ai"]
+}
