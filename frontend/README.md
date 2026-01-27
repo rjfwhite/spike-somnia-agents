@@ -52,7 +52,7 @@ Add the Somnia network to your wallet with these details:
 
 ## Contract Information
 
-- **Contract Address**: `0x1B8c77a1DD1656902d657dB1452145626cc6593f`
+- **Contract Address**: `0x58ade7Fe7633b54B0052F9006863c175b8a231bE`
 - **Network**: Somnia (Chain ID: 5031)
 - **Contract Type**: ERC721 NFT (Agent Marketplace)
 

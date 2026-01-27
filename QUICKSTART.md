@@ -85,7 +85,7 @@ To set a price for your agent, you'll need to call `setAgentPrice` directly:
 
 ```bash
 # Using cast (Foundry)
-cast send 0x1B8c77a1DD1656902d657dB1452145626cc6593f \
+cast send 0x58ade7Fe7633b54B0052F9006863c175b8a231bE \
   "setAgentPrice(uint256,uint256)" \
   <agent_id> \
   <price_in_wei> \
@@ -175,7 +175,7 @@ const unwatch = watchContractEvent(publicClient, {
 
 ## Resources
 
-- [Contract on Somnia](https://explorer.somnia.network/address/0x1B8c77a1DD1656902d657dB1452145626cc6593f) (if explorer is available)
+- [Contract on Somnia](https://explorer.somnia.network/address/0x58ade7Fe7633b54B0052F9006863c175b8a231bE) (if explorer is available)
 - [Somnia Documentation](https://docs.somnia.network)
 - [Viem Documentation](https://viem.sh)
 - [Wagmi Documentation](https://wagmi.sh)
@@ -186,5 +186,5 @@ For issues or questions:
 1. Check the console for error messages
 2. Review the transaction in a block explorer
 3. Verify your wallet configuration
-4. Check that contract address is correct: `0x1B8c77a1DD1656902d657dB1452145626cc6593f`
+4. Check that contract address is correct: `0x58ade7Fe7633b54B0052F9006863c175b8a231bE`
 

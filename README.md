@@ -7,7 +7,7 @@ A decentralized platform for AI agents as NFTs on the Somnia blockchain. This pr
 
 ## 🌐 Deployed Contract
 
-- **Contract Address**: `0x1B8c77a1DD1656902d657dB1452145626cc6593f`
+- **Contract Address**: `0x58ade7Fe7633b54B0052F9006863c175b8a231bE`
 - **Network**: Somnia
 - **RPC URL**: https://somnia-rpc.publicnode.com
 - **Chain ID**: 5031
@@ -170,17 +170,17 @@ event RequestResolved(uint256 indexed requestId, bytes responseData, uint256[] r
 
 ```bash
 # Get max agent ID
-cast call 0x1B8c77a1DD1656902d657dB1452145626cc6593f \
+cast call 0x58ade7Fe7633b54B0052F9006863c175b8a231bE \
   "getMaxAgentId()(uint256)" \
   --rpc-url https://somnia-rpc.publicnode.com
 
 # Get agent price
-cast call 0x1B8c77a1DD1656902d657dB1452145626cc6593f \
+cast call 0x58ade7Fe7633b54B0052F9006863c175b8a231bE \
   "agentPrice(uint256)(uint256)" 1 \
   --rpc-url https://somnia-rpc.publicnode.com
 
 # Mint an agent
-cast send 0x1B8c77a1DD1656902d657dB1452145626cc6593f \
+cast send 0x58ade7Fe7633b54B0052F9006863c175b8a231bE \
   "mintAgent(address,string)(uint256)" \
   <recipient_address> \
   "ipfs://metadata-uri" \

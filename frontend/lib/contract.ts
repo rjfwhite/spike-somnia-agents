@@ -1,6 +1,6 @@
 export const SOMNIA_CHAIN_ID = 50312;
 export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
-export const CONTRACT_ADDRESS = "0xCC6B5C0b9327044318cFd38E49a47dc622B898D4" as const;
+export const CONTRACT_ADDRESS = "0x58ade7Fe7633b54B0052F9006863c175b8a231bE" as const;
 
 // Contract ABI for SomniaAgents (ERC721 Enumerable)
 export const SOMNIA_AGENTS_ABI = [
@@ -268,7 +268,8 @@ export const SOMNIA_AGENTS_ABI = [
     "name": "callbackDetails",
     "outputs": [
       { "internalType": "address", "name": "callbackAddress", "type": "address" },
-      { "internalType": "bytes4", "name": "callbackSelector", "type": "bytes4" }
+      { "internalType": "bytes4", "name": "callbackSelector", "type": "bytes4" },
+      { "internalType": "uint256", "name": "agentId", "type": "uint256" }
     ],
     "stateMutability": "view",
     "type": "function"

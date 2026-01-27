@@ -1,6 +1,6 @@
 Contract for SomniaAgents deployed to
 
-0x1B8c77a1DD1656902d657dB1452145626cc6593f
+0x58ade7Fe7633b54B0052F9006863c175b8a231bE
 
 RPC node https://api.infra.mainnet.somnia.network/
 
