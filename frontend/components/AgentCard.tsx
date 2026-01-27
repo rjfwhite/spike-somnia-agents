@@ -116,10 +116,6 @@ export function AgentCard({ id, metadata, owner, cost, showActions }: AgentCardP
         </div>
     );
 
-    if (showActions) {
-        return content;
-    }
-
     return (
         <Link href={`/agent/${id}`} className="block">
             {content}
