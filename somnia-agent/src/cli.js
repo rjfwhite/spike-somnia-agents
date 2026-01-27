@@ -2,11 +2,12 @@
 
 import { spawn, execSync } from 'child_process';
 import { createServer } from 'http';
-import { readFileSync, existsSync, watch, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { readFileSync, existsSync, watch, mkdirSync, writeFileSync, readdirSync, statSync, createReadStream } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createInterface } from 'readline';
 import crypto from 'crypto';
+import { upload } from '@vercel/blob/client';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -241,26 +242,69 @@ function parsePublishArgs(args) {
   return options;
 }
 
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function createProgressBar(percent, width = 30) {
+  const filled = Math.round(width * percent / 100);
+  const empty = width - filled;
+  return `[${'█'.repeat(filled)}${'░'.repeat(empty)}] ${percent}%`;
+}
+
 async function uploadFile(frontendUrl, filePath, pathname, contentType) {
-  const fileContent = readFileSync(filePath);
-  const url = `${frontendUrl}/api/files/put?pathname=${encodeURIComponent(pathname)}`;
+  const fileStats = statSync(filePath);
+  const fileSize = fileStats.size;
 
-  console.log(`  Uploading to ${pathname}...`);
+  console.log(`  Uploading ${pathname} (${formatBytes(fileSize)})...`);
 
-  const response = await fetch(url, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': contentType,
-    },
-    body: fileContent,
-  });
+  // For small files (< 4MB), use simple PUT endpoint
+  if (fileSize < 4 * 1024 * 1024) {
+    const fileContent = readFileSync(filePath);
+    const url = `${frontendUrl}/api/files/put?pathname=${encodeURIComponent(pathname)}`;
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Upload failed: ${response.status} - ${text}`);
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': contentType,
+      },
+      body: fileContent,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Upload failed: ${response.status} - ${text}`);
+    }
+
+    console.log(`  ${createProgressBar(100)}`);
+    const result = await response.json();
+    return result.url;
   }
 
-  const result = await response.json();
+  // For large files, use chunked upload via @vercel/blob/client
+  const fileContent = readFileSync(filePath);
+  const blob = new Blob([fileContent], { type: contentType });
+
+  let lastProgress = 0;
+  const result = await upload(pathname, blob, {
+    access: 'public',
+    handleUploadUrl: `${frontendUrl}/api/files/upload`,
+    onUploadProgress: (event) => {
+      if (event.total) {
+        const percent = Math.round((event.loaded / event.total) * 100);
+        if (percent !== lastProgress) {
+          lastProgress = percent;
+          process.stdout.write(`\r  ${createProgressBar(percent)} ${formatBytes(event.loaded)}/${formatBytes(event.total)}`);
+        }
+      }
+    },
+  });
+
+  console.log(''); // New line after progress bar
   return result.url;
 }
 
