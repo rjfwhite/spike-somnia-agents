@@ -39,6 +39,12 @@ type AgentResponse struct {
 	Receipt map[string]interface{}
 }
 
+// versionCacheEntry holds a cached version hash with expiry time.
+type versionCacheEntry struct {
+	hash      string
+	expiresAt time.Time
+}
+
 // Manager manages Docker containers for agents.
 type Manager struct {
 	client            *client.Client
@@ -50,6 +56,9 @@ type Manager struct {
 	containerRuntime  string
 	startingMutex     sync.Map // Prevents concurrent starts of same container
 	httpClient        *http.Client
+	versionCache      map[string]*versionCacheEntry
+	versionCacheMutex sync.RWMutex
+	versionCacheTTL   time.Duration
 }
 
 // NewManager creates a new Docker Manager.
@@ -87,17 +96,29 @@ Underlying error: %w`, err)
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
 		},
+		versionCache:    make(map[string]*versionCacheEntry),
+		versionCacheTTL: 30 * time.Second,
 	}, nil
 }
 
 // getVersionHash fetches HEAD from URL and creates a version hash from the response headers.
-func (m *Manager) getVersionHash(url string) (string, error) {
-	req, err := http.NewRequest("HEAD", url, nil)
+// Results are cached for versionCacheTTL to avoid redundant HEAD requests.
+func (m *Manager) getVersionHash(agentURL string) (string, error) {
+	// Check cache first
+	m.versionCacheMutex.RLock()
+	if entry, exists := m.versionCache[agentURL]; exists && time.Now().Before(entry.expiresAt) {
+		m.versionCacheMutex.RUnlock()
+		slog.Debug("Version hash cache hit", "url", agentURL, "hash", entry.hash)
+		return entry.hash, nil
+	}
+	m.versionCacheMutex.RUnlock()
+
+	req, err := http.NewRequest("HEAD", agentURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create HEAD request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HEAD request failed: %w", err)
 	}
@@ -116,13 +137,23 @@ func (m *Manager) getVersionHash(url string) (string, error) {
 	} else if contentLength := resp.Header.Get("Content-Length"); contentLength != "" {
 		versionString = "size:" + contentLength
 	} else {
-		versionString = "url:" + url
+		versionString = "url:" + agentURL
 	}
 
-	slog.Debug("Version identifier resolved", "url", url, "version", versionString)
+	slog.Debug("Version identifier resolved", "url", agentURL, "version", versionString)
 
 	hash := sha256.Sum256([]byte(versionString))
-	return hex.EncodeToString(hash[:8]), nil
+	hashStr := hex.EncodeToString(hash[:8])
+
+	// Update cache
+	m.versionCacheMutex.Lock()
+	m.versionCache[agentURL] = &versionCacheEntry{
+		hash:      hashStr,
+		expiresAt: time.Now().Add(m.versionCacheTTL),
+	}
+	m.versionCacheMutex.Unlock()
+
+	return hashStr, nil
 }
 
 // downloadImage downloads a container image from a URL.
