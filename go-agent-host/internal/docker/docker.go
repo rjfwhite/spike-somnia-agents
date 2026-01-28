@@ -56,9 +56,10 @@ type Manager struct {
 	containerRuntime  string
 	startingMutex     sync.Map // Prevents concurrent starts of same container
 	httpClient        *http.Client
-	versionCache      map[string]*versionCacheEntry
-	versionCacheMutex sync.RWMutex
-	versionCacheTTL   time.Duration
+	versionCache       map[string]*versionCacheEntry
+	versionCacheMutex  sync.RWMutex
+	versionCacheTTL    time.Duration
+	versionFetchMutex  sync.Map // Prevents concurrent HEAD requests for same URL
 }
 
 // NewManager creates a new Docker Manager.
@@ -109,6 +110,34 @@ func (m *Manager) getVersionHash(agentURL string) (string, error) {
 	if entry, exists := m.versionCache[agentURL]; exists && time.Now().Before(entry.expiresAt) {
 		m.versionCacheMutex.RUnlock()
 		slog.Debug("Version hash cache hit", "url", agentURL, "hash", entry.hash)
+		return entry.hash, nil
+	}
+	m.versionCacheMutex.RUnlock()
+
+	// Prevent concurrent HEAD requests for the same URL
+	fetchChan := make(chan struct{})
+	actual, loaded := m.versionFetchMutex.LoadOrStore(agentURL, fetchChan)
+	if loaded {
+		// Another goroutine is fetching, wait for it
+		<-actual.(chan struct{})
+		// Check cache again - should be populated now
+		m.versionCacheMutex.RLock()
+		if entry, exists := m.versionCache[agentURL]; exists {
+			m.versionCacheMutex.RUnlock()
+			return entry.hash, nil
+		}
+		m.versionCacheMutex.RUnlock()
+		return "", fmt.Errorf("concurrent version fetch failed for %s", agentURL)
+	}
+	defer func() {
+		close(fetchChan)
+		m.versionFetchMutex.Delete(agentURL)
+	}()
+
+	// Double-check cache after acquiring lock
+	m.versionCacheMutex.RLock()
+	if entry, exists := m.versionCache[agentURL]; exists && time.Now().Before(entry.expiresAt) {
+		m.versionCacheMutex.RUnlock()
 		return entry.hash, nil
 	}
 	m.versionCacheMutex.RUnlock()
