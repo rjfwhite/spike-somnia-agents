@@ -19,6 +19,8 @@ const WS_URL = 'wss://dream-rpc.somnia.network/ws';
 const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/triggers/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';
 const EXPLORER_BASE_URL = 'https://shannon-explorer.somnia.network/tx';
 
+const NUM_PARALLEL_REQUESTS = 20;
+
 interface SlackPayload {
   message: string;
   request_txn?: string;
@@ -100,7 +102,7 @@ const platformAbi = [
   }
 ] as const;
 
-// Agent method ABI (for encoding request & decoding response)
+// Agent method ABI
 const agentMethodAbi = [{
   type: 'function',
   name: 'add',
@@ -113,21 +115,29 @@ const agentMethodAbi = [{
   ]
 }] as const;
 
-export const maxDuration = 60; // Allow up to 60 seconds for Vercel Pro
+export const maxDuration = 60;
 
-interface Timings {
-  sendTxn?: number;
-  waitReceipt?: number;
-  waitResponse?: number;
-  total: number;
+interface RequestResult {
+  index: number;
+  a: bigint;
+  b: bigint;
+  hash?: string;
+  requestId?: bigint;
+  result?: bigint;
+  success?: boolean;
+  error?: string;
+  timings: {
+    sendTxn?: number;
+    waitReceipt?: number;
+    waitResponse?: number;
+    total?: number;
+  };
 }
 
 export async function GET() {
   const startTime = Date.now();
-  const timings: Timings = { total: 0 };
 
   try {
-    // Get private key from environment
     const privateKey = process.env.PRIVATE_KEY;
     if (!privateKey) {
       return NextResponse.json(
@@ -137,7 +147,8 @@ export async function GET() {
     }
 
     const account = privateKeyToAccount(privateKey as Hex);
-    console.log('[Qualifier] Using account:', account.address);
+    console.log(`[Qualifier] Using account: ${account.address}`);
+    console.log(`[Qualifier] Sending ${NUM_PARALLEL_REQUESTS} parallel requests...`);
 
     const walletClient = createWalletClient({
       account,
@@ -150,78 +161,121 @@ export async function GET() {
       transport: http(RPC_URL)
     });
 
-    // Generate random numbers for the add call
-    const a = BigInt(Math.floor(Math.random() * 100));
-    const b = BigInt(Math.floor(Math.random() * 100));
-    console.log(`[Qualifier] Calling add(${a}, ${b})...`);
-
-    const request = encodeFunctionData({
-      abi: agentMethodAbi,
-      functionName: 'add',
-      args: [a, b]
+    // Get current nonce
+    const startNonce = await publicClient.getTransactionCount({
+      address: account.address
     });
+    console.log(`[Qualifier] Starting nonce: ${startNonce}`);
 
-    // Step 1: Send request to platform
-    const sendTxnStart = Date.now();
-    const hash = await walletClient.writeContract({
-      address: PLATFORM_ADDRESS,
-      abi: platformAbi,
-      functionName: 'requestAgent',
-      args: [{
-        agentId: BigInt('4124847165696832417'),
-        request,
-        callbackAddress: '0x0000000000000000000000000000000000000000',
-        callbackSelector: '0x00000000'
-      }],
-      value: parseEther('0.1')
-    });
-    timings.sendTxn = Date.now() - sendTxnStart;
-    console.log(`[Qualifier] Transaction submitted: ${hash} (${timings.sendTxn}ms)`);
+    // Prepare all requests
+    const results: RequestResult[] = [];
+    for (let i = 0; i < NUM_PARALLEL_REQUESTS; i++) {
+      const a = BigInt(Math.floor(Math.random() * 100));
+      const b = BigInt(Math.floor(Math.random() * 100));
+      results.push({
+        index: i,
+        a,
+        b,
+        timings: {}
+      });
+    }
 
-    // Step 2: Wait for transaction receipt
-    const waitReceiptStart = Date.now();
-    const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    timings.waitReceipt = Date.now() - waitReceiptStart;
-    console.log(`[Qualifier] Transaction confirmed in block: ${receipt.blockNumber} (${timings.waitReceipt}ms)`);
+    // Step 1: Send all transactions in parallel with explicit nonces
+    const sendStart = Date.now();
+    const sendPromises = results.map(async (r, i) => {
+      const requestData = encodeFunctionData({
+        abi: agentMethodAbi,
+        functionName: 'add',
+        args: [r.a, r.b]
+      });
 
-    // Extract requestId from AgentRequested event
-    let requestId: bigint | undefined;
-    for (const log of receipt.logs) {
       try {
-        const decoded = decodeEventLog({
+        const txStart = Date.now();
+        const hash = await walletClient.writeContract({
+          address: PLATFORM_ADDRESS,
           abi: platformAbi,
-          data: log.data,
-          topics: log.topics
+          functionName: 'requestAgent',
+          args: [{
+            agentId: BigInt('4124847165696832417'),
+            request: requestData,
+            callbackAddress: '0x0000000000000000000000000000000000000000',
+            callbackSelector: '0x00000000'
+          }],
+          value: parseEther('0.1'),
+          nonce: startNonce + i
         });
-        if (decoded.eventName === 'AgentRequested') {
-          const args = decoded.args as unknown as { requestId: bigint };
-          requestId = args.requestId;
-          break;
+        r.hash = hash;
+        r.timings.sendTxn = Date.now() - txStart;
+        console.log(`[Qualifier] [${i}] Tx sent: ${hash} (${r.timings.sendTxn}ms)`);
+      } catch (error) {
+        r.error = error instanceof Error ? error.message : 'Send failed';
+        console.error(`[Qualifier] [${i}] Send error:`, r.error);
+      }
+    });
+
+    await Promise.all(sendPromises);
+    const sendDuration = Date.now() - sendStart;
+    console.log(`[Qualifier] All transactions sent in ${sendDuration}ms`);
+
+    // Step 2: Wait for all receipts in parallel
+    const receiptStart = Date.now();
+    const receiptPromises = results.map(async (r) => {
+      if (!r.hash) return;
+
+      try {
+        const waitStart = Date.now();
+        const receipt = await publicClient.waitForTransactionReceipt({ hash: r.hash as Hex });
+        r.timings.waitReceipt = Date.now() - waitStart;
+
+        // Extract requestId
+        for (const log of receipt.logs) {
+          try {
+            const decoded = decodeEventLog({
+              abi: platformAbi,
+              data: log.data,
+              topics: log.topics
+            });
+            if (decoded.eventName === 'AgentRequested') {
+              const args = decoded.args as unknown as { requestId: bigint };
+              r.requestId = args.requestId;
+              break;
+            }
+          } catch {
+            // Not matching event
+          }
         }
-      } catch {
-        // Not a matching event, continue
+        console.log(`[Qualifier] [${r.index}] Receipt: requestId=${r.requestId} (${r.timings.waitReceipt}ms)`);
+      } catch (error) {
+        r.error = error instanceof Error ? error.message : 'Receipt failed';
+        console.error(`[Qualifier] [${r.index}] Receipt error:`, r.error);
+      }
+    });
+
+    await Promise.all(receiptPromises);
+    const receiptDuration = Date.now() - receiptStart;
+    console.log(`[Qualifier] All receipts received in ${receiptDuration}ms`);
+
+    // Step 3: Watch for all responses via WebSocket
+    const responseStart = Date.now();
+    const pendingRequestIds = new Map<string, RequestResult>();
+    for (const r of results) {
+      if (r.requestId) {
+        pendingRequestIds.set(r.requestId.toString(), r);
       }
     }
 
-    console.log('[Qualifier] Request ID:', requestId?.toString());
-
-    // Step 3: Watch for AgentResponded event via WebSocket
-    const waitResponseStart = Date.now();
-    const wsTimeout = 30000; // 30 seconds
-    let responseData: { success: boolean; result?: bigint; error?: string; txHash?: string } | undefined;
-
-    if (requestId) {
+    if (pendingRequestIds.size > 0) {
       const wsClient = createPublicClient({
         chain: somniaTestnet,
         transport: webSocket(WS_URL)
       });
 
-      responseData = await new Promise<typeof responseData>((resolve) => {
+      await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
           unwatch();
-          console.log('[Qualifier] WebSocket timeout waiting for response');
-          resolve(undefined);
-        }, wsTimeout);
+          console.log(`[Qualifier] WebSocket timeout - ${pendingRequestIds.size} still pending`);
+          resolve();
+        }, 45000); // 45 second timeout
 
         const unwatch = wsClient.watchContractEvent({
           address: PLATFORM_ADDRESS,
@@ -231,105 +285,130 @@ export async function GET() {
             for (const log of logs) {
               const logWithArgs = log as typeof log & { args: { requestId?: bigint; success?: boolean; response?: Hex } };
               const logArgs = logWithArgs.args;
-              if (logArgs.requestId === requestId) {
-                clearTimeout(timeout);
-                unwatch();
+              const reqIdStr = logArgs.requestId?.toString();
+
+              if (reqIdStr && pendingRequestIds.has(reqIdStr)) {
+                const r = pendingRequestIds.get(reqIdStr)!;
+                r.timings.waitResponse = Date.now() - responseStart;
 
                 if (logArgs.success && logArgs.response) {
                   const decoded = decodeAbiParameters(
                     [{ type: 'uint256', name: 'sum' }],
                     logArgs.response
                   );
-                  console.log(`[Qualifier] Result: ${a} + ${b} = ${decoded[0]}`);
-                  resolve({
-                    success: true,
-                    result: decoded[0] as bigint,
-                    txHash: log.transactionHash ?? undefined
-                  });
+                  r.success = true;
+                  r.result = decoded[0] as bigint;
+                  console.log(`[Qualifier] [${r.index}] Response: ${r.a} + ${r.b} = ${r.result} (${r.timings.waitResponse}ms)`);
                 } else {
-                  resolve({
-                    success: false,
-                    error: 'Agent execution failed',
-                    txHash: log.transactionHash ?? undefined
-                  });
+                  r.success = false;
+                  r.error = 'Agent execution failed';
+                  console.log(`[Qualifier] [${r.index}] Failed (${r.timings.waitResponse}ms)`);
                 }
-                return;
+
+                pendingRequestIds.delete(reqIdStr);
+
+                if (pendingRequestIds.size === 0) {
+                  clearTimeout(timeout);
+                  unwatch();
+                  resolve();
+                }
               }
             }
           }
         });
       });
     }
-    timings.waitResponse = Date.now() - waitResponseStart;
-    console.log(`[Qualifier] Response wait completed (${timings.waitResponse}ms)`);
+    const responseDuration = Date.now() - responseStart;
 
-    timings.total = Date.now() - startTime;
+    // Calculate statistics
+    const totalDuration = Date.now() - startTime;
+    const successful = results.filter(r => r.success === true);
+    const failed = results.filter(r => r.success === false);
+    const timedOut = results.filter(r => r.requestId && r.success === undefined);
+    const sendErrors = results.filter(r => !r.hash);
 
-    // Post to Slack
-    const requestTxnUrl = explorerLink(hash);
-    const responseTxnUrl = responseData?.txHash ? explorerLink(responseData.txHash) : undefined;
+    const responseTimes = successful.map(r => r.timings.waitResponse!).sort((a, b) => a - b);
+    const stats = {
+      total: NUM_PARALLEL_REQUESTS,
+      successful: successful.length,
+      failed: failed.length,
+      timedOut: timedOut.length,
+      sendErrors: sendErrors.length,
+      responseTimeMs: responseTimes.length > 0 ? {
+        min: responseTimes[0],
+        max: responseTimes[responseTimes.length - 1],
+        median: responseTimes[Math.floor(responseTimes.length / 2)],
+        avg: Math.round(responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length)
+      } : null
+    };
 
-    const timingBreakdown = [
-      `📤 Send txn: ${timings.sendTxn}ms`,
-      `⏳ Wait receipt: ${timings.waitReceipt}ms`,
-      `🔄 Wait response: ${timings.waitResponse}ms`,
-      `⏱️ Total: ${timings.total}ms`
-    ].join('\n');
+    // Build Slack message
+    const message = [
+      `🚀 Qualifier Batch Complete (${NUM_PARALLEL_REQUESTS} requests)`,
+      ``,
+      `✅ Successful: ${stats.successful}`,
+      `❌ Failed: ${stats.failed}`,
+      `⏳ Timed out: ${stats.timedOut}`,
+      `🚫 Send errors: ${stats.sendErrors}`,
+      ``,
+      `⏱️ Timings:`,
+      `  📤 Send all: ${sendDuration}ms`,
+      `  📝 Receipts: ${receiptDuration}ms`,
+      `  🔄 Responses: ${responseDuration}ms`,
+      `  ⏱️ Total: ${totalDuration}ms`,
+    ];
 
-    if (responseData?.success) {
-      await postToSlack({
-        message: `✅ Qualifier SUCCESS\n\n🧮 add(${a}, ${b}) = ${responseData.result}\n\n${timingBreakdown}`,
-        request_txn: requestTxnUrl,
-        response_txn: responseTxnUrl
-      });
-    } else if (responseData && !responseData.success) {
-      await postToSlack({
-        message: `❌ Qualifier FAILED\n\nAgent execution failed\n\n${timingBreakdown}`,
-        request_txn: requestTxnUrl,
-        response_txn: responseTxnUrl
-      });
-    } else {
-      await postToSlack({
-        message: `⏳ Qualifier PENDING\n\n🧮 add(${a}, ${b}) - waiting for response\n\n${timingBreakdown}`,
-        request_txn: requestTxnUrl
-      });
+    if (stats.responseTimeMs) {
+      message.push(
+        ``,
+        `📊 Response time distribution:`,
+        `  Min: ${stats.responseTimeMs.min}ms`,
+        `  Max: ${stats.responseTimeMs.max}ms`,
+        `  Median: ${stats.responseTimeMs.median}ms`,
+        `  Avg: ${stats.responseTimeMs.avg}ms`
+      );
     }
+
+    await postToSlack({
+      message: message.join('\n')
+    });
 
     return NextResponse.json({
       success: true,
       account: account.address,
-      transactionHash: hash,
-      blockNumber: receipt.blockNumber.toString(),
-      requestId: requestId?.toString(),
-      input: { a: a.toString(), b: b.toString() },
-      response: responseData ? {
-        success: responseData.success,
-        result: responseData.result?.toString(),
-        error: responseData.error
-      } : { pending: true },
+      stats,
       timings: {
-        sendTxn: `${timings.sendTxn}ms`,
-        waitReceipt: `${timings.waitReceipt}ms`,
-        waitResponse: `${timings.waitResponse}ms`,
-        total: `${timings.total}ms`
+        sendAll: `${sendDuration}ms`,
+        receipts: `${receiptDuration}ms`,
+        responses: `${responseDuration}ms`,
+        total: `${totalDuration}ms`
       },
+      results: results.map(r => ({
+        index: r.index,
+        input: { a: r.a.toString(), b: r.b.toString() },
+        hash: r.hash,
+        requestId: r.requestId?.toString(),
+        success: r.success,
+        result: r.result?.toString(),
+        error: r.error,
+        timings: r.timings
+      })),
       timestamp: new Date().toISOString()
     });
 
   } catch (error: unknown) {
-    timings.total = Date.now() - startTime;
+    const duration = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Qualifier] Error:', errorMessage);
 
-    // Post failure to Slack
     await postToSlack({
-      message: `🚨 Qualifier ERROR\n\n${errorMessage}\n\n⏱️ Failed after ${timings.total}ms`
+      message: `🚨 Qualifier Batch ERROR\n\n${errorMessage}\n\n⏱️ Failed after ${duration}ms`
     });
 
     return NextResponse.json({
       success: false,
       error: errorMessage,
-      timings: { total: `${timings.total}ms` },
+      duration: `${duration}ms`,
       timestamp: new Date().toISOString()
     }, { status: 500 });
   }
