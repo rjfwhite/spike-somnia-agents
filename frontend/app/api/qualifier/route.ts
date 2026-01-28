@@ -301,8 +301,22 @@ export async function GET() {
                   console.log(`[Qualifier] [${r.index}] Response: ${r.a} + ${r.b} = ${r.result} (${r.timings.waitResponse}ms)`);
                 } else {
                   r.success = false;
-                  r.error = 'Agent execution failed';
-                  console.log(`[Qualifier] [${r.index}] Failed (${r.timings.waitResponse}ms)`);
+                  // Try to decode the response as a string for error message
+                  let errorMsg = 'Agent execution failed';
+                  if (logArgs.response) {
+                    try {
+                      const decoded = decodeAbiParameters(
+                        [{ type: 'string', name: 'error' }],
+                        logArgs.response
+                      );
+                      errorMsg = decoded[0] as string;
+                    } catch {
+                      // If string decode fails, show raw hex
+                      errorMsg = `Agent failed (raw: ${logArgs.response.slice(0, 66)}...)`;
+                    }
+                  }
+                  r.error = errorMsg;
+                  console.log(`[Qualifier] [${r.index}] Failed: ${errorMsg} (${r.timings.waitResponse}ms)`);
                 }
 
                 pendingRequestIds.delete(reqIdStr);
