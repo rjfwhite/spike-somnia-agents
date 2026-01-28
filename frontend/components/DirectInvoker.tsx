@@ -5,27 +5,10 @@ import type { TokenMetadata, MethodDefinition, AbiParameter } from "@/lib/types"
 import { encodeFunctionCall, decodeAbi, parseInputValue } from "@/lib/abi-utils";
 import { hexToBytes } from "viem";
 import { ReceiptViewer, ResultDisplay, RequestDisplay } from "@/components/ReceiptViewer";
+import { fetchReceipts } from "@/lib/receipts";
 
 const INVOKE_API_URL = "/api/invoke";
 const METADATA_API_URL = "/api/metadata";
-const RECEIPTS_SERVICE_URL = "https://agent-receipts-937722299914.us-central1.run.app";
-
-async function fetchReceipts(requestId: string): Promise<any[]> {
-    try {
-        const response = await fetch(
-            `${RECEIPTS_SERVICE_URL}/agent-receipts?requestId=${encodeURIComponent(requestId)}`
-        );
-        if (!response.ok) {
-            console.error(`Failed to fetch receipts: ${response.status}`);
-            return [];
-        }
-        const data = await response.json();
-        return data.receipts || [];
-    } catch (error: any) {
-        console.error(`Failed to fetch receipts: ${error.message}`);
-        return [];
-    }
-}
 
 interface DirectInvokerProps {
     initialMetadataUrl?: string;

@@ -7,6 +7,8 @@ import { formatEther, decodeEventLog } from "viem";
 import type { AbiFunction } from "@/lib/types";
 import { encodeFunctionCall, parseInputValue } from "@/lib/abi-utils";
 import { DecodedData } from "@/components/DecodedData";
+import { ReceiptViewer } from "@/components/ReceiptViewer";
+import { fetchReceipts } from "@/lib/receipts";
 
 interface MethodInvokerProps {
     agentId: string;
@@ -20,6 +22,8 @@ interface TrackedRequest {
     response?: string;
     success?: boolean;
     responseTxHash?: string;
+    receipts?: any[];
+    receiptsFetching?: boolean;
 }
 
 // Zero address for callback (oracle-based invocation - responses go through oracle)
@@ -97,7 +101,19 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                             response,
                             success,
                             responseTxHash: log.transactionHash,
+                            receiptsFetching: true,
                         }));
+
+                        // Fetch receipts after a short delay to allow upload
+                        setTimeout(async () => {
+                            const receipts = await fetchReceipts(requestId.toString());
+                            setTrackedRequest(prev => prev ? ({
+                                ...prev,
+                                receipts,
+                                receiptsFetching: false,
+                            }) : null);
+                        }, 500);
+
                         break;
                     }
                 }
@@ -223,6 +239,7 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                     )}
 
                     {trackedRequest && (
+                        <>
                         <div className={`mt-2 p-3 rounded-lg border ${trackedRequest.status === 'responded'
                             ? trackedRequest.success
                                 ? 'bg-green-500/10 border-green-500/20'
@@ -275,6 +292,25 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
                                 </div>
                             )}
                         </div>
+
+                        {/* Receipts */}
+                        {trackedRequest.status === 'responded' && (
+                            trackedRequest.receiptsFetching ? (
+                                <div className="mt-3 bg-black/30 rounded-xl border border-white/10 px-4 py-3 flex items-center gap-2">
+                                    <span className="animate-spin w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full"></span>
+                                    <span className="text-sm text-gray-500">Loading receipts...</span>
+                                </div>
+                            ) : trackedRequest.receipts && trackedRequest.receipts.length > 0 ? (
+                                <div className="mt-3">
+                                    <ReceiptViewer receipts={trackedRequest.receipts} />
+                                </div>
+                            ) : (
+                                <div className="mt-3 bg-black/30 rounded-xl border border-white/10 px-4 py-3">
+                                    <span className="text-sm text-gray-500">No receipts available</span>
+                                </div>
+                            )
+                        )}
+                        </>
                     )}
                 </div>
             )}
