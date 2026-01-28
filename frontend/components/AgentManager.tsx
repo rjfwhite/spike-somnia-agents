@@ -28,7 +28,7 @@ interface AgentManagerProps {
 
 export function AgentManager({ agentId, initialValues }: AgentManagerProps) {
     const { address, isConnected } = useAccount();
-    const [cost, setCost] = useState(initialValues?.cost || "0.001");
+    const [cost, setCost] = useState(initialValues?.cost || "0.1");
 
     // Read existing agent data
     const { data: agentData, isLoading: isLoadingAgent, refetch } = useReadContract({
@@ -477,7 +477,7 @@ export function AgentManager({ agentId, initialValues }: AgentManagerProps) {
                                 value={cost}
                                 onChange={(e) => setCost(e.target.value)}
                                 className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
-                                placeholder="0.001"
+                                placeholder="0.1"
                                 required
                             />
                             <p className="text-xs text-gray-500 mt-1">Cost in STT tokens to invoke this agent</p>
