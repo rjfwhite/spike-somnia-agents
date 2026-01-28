@@ -48,6 +48,8 @@ type Manager struct {
 	portMutex         sync.Mutex
 	imageCacheDir     string
 	containerRuntime  string
+	startingMutex     sync.Map // Prevents concurrent starts of same container
+	httpClient        *http.Client
 }
 
 // NewManager creates a new Docker Manager.
@@ -82,6 +84,9 @@ Underlying error: %w`, err)
 		nextPort:          startPort,
 		imageCacheDir:     cacheDir,
 		containerRuntime:  runtime,
+		httpClient: &http.Client{
+			Timeout: 60 * time.Second,
+		},
 	}, nil
 }
 
@@ -214,6 +219,60 @@ func (m *Manager) loadImage(tarPath string) (string, error) {
 	return "", fmt.Errorf("could not parse image name from: %s", outputStr)
 }
 
+// streamContainerLogs starts a goroutine that streams container logs to slog.
+func (m *Manager) streamContainerLogs(containerID, versionHash, agentURL string) {
+	go func() {
+		ctx := context.Background()
+		options := container.LogsOptions{
+			ShowStdout: true,
+			ShowStderr: true,
+			Follow:     true,
+			Timestamps: true,
+		}
+
+		logs, err := m.client.ContainerLogs(ctx, containerID, options)
+		if err != nil {
+			slog.Error("Failed to attach to container logs", "version", versionHash, "error", err)
+			return
+		}
+		defer logs.Close()
+
+		reader := bufio.NewReader(logs)
+		for {
+			// Docker multiplexes stdout/stderr with an 8-byte header
+			header := make([]byte, 8)
+			_, err := io.ReadFull(reader, header)
+			if err != nil {
+				if err != io.EOF {
+					slog.Debug("Container log stream ended", "version", versionHash, "error", err)
+				}
+				return
+			}
+
+			// Header format: [stream_type, 0, 0, 0, size1, size2, size3, size4]
+			streamType := header[0]
+			size := int(header[4])<<24 | int(header[5])<<16 | int(header[6])<<8 | int(header[7])
+
+			if size > 0 {
+				payload := make([]byte, size)
+				_, err := io.ReadFull(reader, payload)
+				if err != nil {
+					return
+				}
+
+				line := strings.TrimSpace(string(payload))
+				if line != "" {
+					if streamType == 2 {
+						slog.Error("Container stderr", "version", versionHash, "agent_url", agentURL, "message", line)
+					} else {
+						slog.Info("Container stdout", "version", versionHash, "agent_url", agentURL, "message", line)
+					}
+				}
+			}
+		}
+	}()
+}
+
 // waitForContainerReady waits for a container to be ready to accept requests.
 func (m *Manager) waitForContainerReady(port int, maxAttempts int, delayMs int) error {
 	slog.Debug("Waiting for container", "port", port)
@@ -300,6 +359,41 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 		m.containersMutex.Unlock()
 	}
 
+	// Prevent concurrent container starts for the same version
+	// Use a channel as a mutex per versionHash
+	startChan := make(chan struct{})
+	actual, loaded := m.startingMutex.LoadOrStore(versionHash, startChan)
+	if loaded {
+		// Another goroutine is already starting this container, wait for it
+		<-actual.(chan struct{})
+		// Now check if the container is running
+		m.containersMutex.RLock()
+		info, exists := m.runningContainers[versionHash]
+		m.containersMutex.RUnlock()
+		if exists {
+			return info.Port, false, nil
+		}
+		return 0, false, fmt.Errorf("concurrent container start failed for %s", versionHash)
+	}
+	// We're the one starting this container, clean up when done
+	defer func() {
+		close(startChan)
+		m.startingMutex.Delete(versionHash)
+	}()
+
+	// Double-check after acquiring start lock
+	m.containersMutex.RLock()
+	info, exists = m.runningContainers[versionHash]
+	m.containersMutex.RUnlock()
+	if exists {
+		ctx := context.Background()
+		containerJSON, err := m.client.ContainerInspect(ctx, info.ContainerID)
+		if err == nil && containerJSON.State.Running {
+			slog.Debug("Container already running (after lock)", "version", versionHash, "port", info.Port)
+			return info.Port, false, nil
+		}
+	}
+
 	// Check if there's an old version running for this URL and stop it
 	m.containersMutex.RLock()
 	var hashesToStop []string
@@ -374,6 +468,9 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 		return 0, false, fmt.Errorf("failed to start container: %w", err)
 	}
 
+	// Start streaming container logs to structured logging
+	m.streamContainerLogs(resp.ID, versionHash, agentURL)
+
 	m.containersMutex.Lock()
 	m.runningContainers[versionHash] = &ContainerInfo{
 		ContainerID: resp.ID,
@@ -428,7 +525,7 @@ func (m *Manager) ForwardToAgent(agentURL string, body []byte, headers map[strin
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
 		return nil, fmt.Errorf("failed to forward request: %w", err)
