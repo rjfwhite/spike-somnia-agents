@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/qualifier",
-      "schedule": "* * * * *"
+      "schedule": "0 * * * *"
     }
   ]
 }
