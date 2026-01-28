@@ -278,19 +278,19 @@ export async function GET() {
 
     if (responseData?.success) {
       await postToSlack({
-        message: `✅ *Qualifier SUCCESS*\n\n🧮 \`add(${a}, ${b}) = ${responseData.result}\`\n\n${timingBreakdown}`,
+        message: `✅ Qualifier SUCCESS\n\n🧮 add(${a}, ${b}) = ${responseData.result}\n\n${timingBreakdown}`,
         request_txn: requestTxnUrl,
         response_txn: responseTxnUrl
       });
     } else if (responseData && !responseData.success) {
       await postToSlack({
-        message: `❌ *Qualifier FAILED*\n\nAgent execution failed\n\n${timingBreakdown}`,
+        message: `❌ Qualifier FAILED\n\nAgent execution failed\n\n${timingBreakdown}`,
         request_txn: requestTxnUrl,
         response_txn: responseTxnUrl
       });
     } else {
       await postToSlack({
-        message: `⏳ *Qualifier PENDING*\n\n🧮 \`add(${a}, ${b})\` - waiting for response\n\n${timingBreakdown}`,
+        message: `⏳ Qualifier PENDING\n\n🧮 add(${a}, ${b}) - waiting for response\n\n${timingBreakdown}`,
         request_txn: requestTxnUrl
       });
     }
@@ -323,7 +323,7 @@ export async function GET() {
 
     // Post failure to Slack
     await postToSlack({
-      message: `🚨 *Qualifier ERROR*\n\n\`${errorMessage}\`\n\n⏱️ Failed after ${timings.total}ms`
+      message: `🚨 Qualifier ERROR\n\n${errorMessage}\n\n⏱️ Failed after ${timings.total}ms`
     });
 
     return NextResponse.json({
