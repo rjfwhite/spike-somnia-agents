@@ -9,6 +9,7 @@ import {
   decodeEventLog,
   parseEther,
   defineChain,
+  hexToBytes,
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -126,6 +127,7 @@ interface RequestResult {
   result?: bigint;
   success?: boolean;
   error?: string;
+  responseRaw?: string;
   timings: {
     sendTxn?: number;
     waitReceipt?: number;
@@ -301,18 +303,16 @@ export async function GET() {
                   console.log(`[Qualifier] [${r.index}] Response: ${r.a} + ${r.b} = ${r.result} (${r.timings.waitResponse}ms)`);
                 } else {
                   r.success = false;
-                  // Try to decode the response as a string for error message
                   let errorMsg = 'Agent execution failed';
                   if (logArgs.response) {
+                    // Decode the response bytes as UTF-8 string
                     try {
-                      const decoded = decodeAbiParameters(
-                        [{ type: 'string', name: 'error' }],
-                        logArgs.response
-                      );
-                      errorMsg = decoded[0] as string;
+                      const bytes = hexToBytes(logArgs.response);
+                      const decoder = new TextDecoder('utf-8', { fatal: false });
+                      r.responseRaw = decoder.decode(bytes);
+                      errorMsg = `Agent failed: ${r.responseRaw}`;
                     } catch {
-                      // If string decode fails, show raw hex
-                      errorMsg = `Agent failed (raw: ${logArgs.response.slice(0, 66)}...)`;
+                      errorMsg = `Agent failed (raw hex: ${logArgs.response})`;
                     }
                   }
                   r.error = errorMsg;
@@ -405,6 +405,7 @@ export async function GET() {
         success: r.success,
         result: r.result?.toString(),
         error: r.error,
+        responseRaw: r.responseRaw,
         timings: r.timings
       })),
       timestamp: new Date().toISOString()
