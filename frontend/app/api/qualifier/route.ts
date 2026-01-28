@@ -17,12 +17,18 @@ const RPC_URL = 'https://dream-rpc.somnia.network/';
 const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/triggers/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';
 const EXPLORER_BASE_URL = 'https://shannon-explorer.somnia.network/tx';
 
-async function postToSlack(message: string): Promise<void> {
+interface SlackPayload {
+  message: string;
+  request_txn?: string;
+  response_txn?: string;
+}
+
+async function postToSlack(payload: SlackPayload): Promise<void> {
   try {
     await fetch(SLACK_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
+      body: JSON.stringify(payload)
     });
   } catch (error) {
     console.error('[Qualifier] Failed to post to Slack:', error);
@@ -185,7 +191,7 @@ export async function GET() {
     const pollTimeout = 30000; // 30 seconds
     const pollInterval = 2000; // 2 seconds
     const pollStart = Date.now();
-    let responseData: { success: boolean; result?: bigint; error?: string } | undefined;
+    let responseData: { success: boolean; result?: bigint; error?: string; txHash?: string } | undefined;
 
     if (requestId) {
       while (Date.now() - pollStart < pollTimeout) {
@@ -215,13 +221,15 @@ export async function GET() {
               );
               responseData = {
                 success: true,
-                result: decoded[0] as bigint
+                result: decoded[0] as bigint,
+                txHash: log.transactionHash
               };
               console.log(`[Qualifier] Result: ${a} + ${b} = ${responseData.result}`);
             } else {
               responseData = {
                 success: false,
-                error: 'Agent execution failed'
+                error: 'Agent execution failed',
+                txHash: log.transactionHash
               };
             }
             break;
@@ -237,26 +245,27 @@ export async function GET() {
 
     const duration = Date.now() - startTime;
 
-    // Post success to Slack
-    const txLink = explorerLink(hash);
+    // Post to Slack
+    const requestTxnUrl = explorerLink(hash);
+    const responseTxnUrl = responseData?.txHash ? explorerLink(responseData.txHash) : undefined;
+
     if (responseData?.success) {
-      await postToSlack(
-        `Qualifier SUCCESS: add(${a}, ${b}) = ${responseData.result}\n` +
-        `Transaction: ${txLink}\n` +
-        `Duration: ${duration}ms`
-      );
+      await postToSlack({
+        message: `Qualifier SUCCESS: add(${a}, ${b}) = ${responseData.result} (${duration}ms)`,
+        request_txn: requestTxnUrl,
+        response_txn: responseTxnUrl
+      });
     } else if (responseData && !responseData.success) {
-      await postToSlack(
-        `Qualifier FAILED: Agent execution failed\n` +
-        `Transaction: ${txLink}\n` +
-        `Duration: ${duration}ms`
-      );
+      await postToSlack({
+        message: `Qualifier FAILED: Agent execution failed (${duration}ms)`,
+        request_txn: requestTxnUrl,
+        response_txn: responseTxnUrl
+      });
     } else {
-      await postToSlack(
-        `Qualifier PENDING: add(${a}, ${b}) - waiting for response\n` +
-        `Transaction: ${txLink}\n` +
-        `Duration: ${duration}ms`
-      );
+      await postToSlack({
+        message: `Qualifier PENDING: add(${a}, ${b}) - waiting for response (${duration}ms)`,
+        request_txn: requestTxnUrl
+      });
     }
 
     return NextResponse.json({
@@ -281,10 +290,9 @@ export async function GET() {
     console.error('[Qualifier] Error:', errorMessage);
 
     // Post failure to Slack
-    await postToSlack(
-      `Qualifier ERROR: ${errorMessage}\n` +
-      `Duration: ${duration}ms`
-    );
+    await postToSlack({
+      message: `Qualifier ERROR: ${errorMessage} (${duration}ms)`
+    });
 
     return NextResponse.json({
       success: false,
