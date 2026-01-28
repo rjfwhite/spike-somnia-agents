@@ -25,11 +25,16 @@ interface SlackPayload {
 
 async function postToSlack(payload: SlackPayload): Promise<void> {
   try {
-    await fetch(SLACK_WEBHOOK_URL, {
+    console.log('[Qualifier] Posting to Slack:', JSON.stringify(payload));
+    const response = await fetch(SLACK_WEBHOOK_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(payload)
     });
+    const responseText = await response.text();
+    console.log('[Qualifier] Slack response:', response.status, responseText);
   } catch (error) {
     console.error('[Qualifier] Failed to post to Slack:', error);
   }
@@ -108,8 +113,16 @@ const agentMethodAbi = [{
 
 export const maxDuration = 60; // Allow up to 60 seconds for Vercel Pro
 
+interface Timings {
+  sendTxn?: number;
+  waitReceipt?: number;
+  waitResponse?: number;
+  total: number;
+}
+
 export async function GET() {
   const startTime = Date.now();
+  const timings: Timings = { total: 0 };
 
   try {
     // Get private key from environment
@@ -146,7 +159,8 @@ export async function GET() {
       args: [a, b]
     });
 
-    // Send request to platform
+    // Step 1: Send request to platform
+    const sendTxnStart = Date.now();
     const hash = await walletClient.writeContract({
       address: PLATFORM_ADDRESS,
       abi: platformAbi,
@@ -159,12 +173,14 @@ export async function GET() {
       }],
       value: parseEther('0.1')
     });
+    timings.sendTxn = Date.now() - sendTxnStart;
+    console.log(`[Qualifier] Transaction submitted: ${hash} (${timings.sendTxn}ms)`);
 
-    console.log('[Qualifier] Transaction submitted:', hash);
-
-    // Wait for transaction receipt
+    // Step 2: Wait for transaction receipt
+    const waitReceiptStart = Date.now();
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log('[Qualifier] Transaction confirmed in block:', receipt.blockNumber);
+    timings.waitReceipt = Date.now() - waitReceiptStart;
+    console.log(`[Qualifier] Transaction confirmed in block: ${receipt.blockNumber} (${timings.waitReceipt}ms)`);
 
     // Extract requestId from AgentRequested event
     let requestId: bigint | undefined;
@@ -187,14 +203,14 @@ export async function GET() {
 
     console.log('[Qualifier] Request ID:', requestId?.toString());
 
-    // Poll for AgentResponded event (with timeout)
+    // Step 3: Poll for AgentResponded event (with timeout)
+    const waitResponseStart = Date.now();
     const pollTimeout = 30000; // 30 seconds
     const pollInterval = 2000; // 2 seconds
-    const pollStart = Date.now();
     let responseData: { success: boolean; result?: bigint; error?: string; txHash?: string } | undefined;
 
     if (requestId) {
-      while (Date.now() - pollStart < pollTimeout) {
+      while (Date.now() - waitResponseStart < pollTimeout) {
         // Get recent logs for AgentResponded
         const logs = await publicClient.getLogs({
           address: PLATFORM_ADDRESS,
@@ -242,28 +258,37 @@ export async function GET() {
         await new Promise(resolve => setTimeout(resolve, pollInterval));
       }
     }
+    timings.waitResponse = Date.now() - waitResponseStart;
+    console.log(`[Qualifier] Response wait completed (${timings.waitResponse}ms)`);
 
-    const duration = Date.now() - startTime;
+    timings.total = Date.now() - startTime;
 
     // Post to Slack
     const requestTxnUrl = explorerLink(hash);
     const responseTxnUrl = responseData?.txHash ? explorerLink(responseData.txHash) : undefined;
 
+    const timingBreakdown = [
+      `📤 Send txn: ${timings.sendTxn}ms`,
+      `⏳ Wait receipt: ${timings.waitReceipt}ms`,
+      `🔄 Wait response: ${timings.waitResponse}ms`,
+      `⏱️ Total: ${timings.total}ms`
+    ].join('\n');
+
     if (responseData?.success) {
       await postToSlack({
-        message: `Qualifier SUCCESS: add(${a}, ${b}) = ${responseData.result} (${duration}ms)`,
+        message: `✅ *Qualifier SUCCESS*\n\n🧮 \`add(${a}, ${b}) = ${responseData.result}\`\n\n${timingBreakdown}`,
         request_txn: requestTxnUrl,
         response_txn: responseTxnUrl
       });
     } else if (responseData && !responseData.success) {
       await postToSlack({
-        message: `Qualifier FAILED: Agent execution failed (${duration}ms)`,
+        message: `❌ *Qualifier FAILED*\n\nAgent execution failed\n\n${timingBreakdown}`,
         request_txn: requestTxnUrl,
         response_txn: responseTxnUrl
       });
     } else {
       await postToSlack({
-        message: `Qualifier PENDING: add(${a}, ${b}) - waiting for response (${duration}ms)`,
+        message: `⏳ *Qualifier PENDING*\n\n🧮 \`add(${a}, ${b})\` - waiting for response\n\n${timingBreakdown}`,
         request_txn: requestTxnUrl
       });
     }
@@ -280,24 +305,29 @@ export async function GET() {
         result: responseData.result?.toString(),
         error: responseData.error
       } : { pending: true },
-      duration: `${duration}ms`,
+      timings: {
+        sendTxn: `${timings.sendTxn}ms`,
+        waitReceipt: `${timings.waitReceipt}ms`,
+        waitResponse: `${timings.waitResponse}ms`,
+        total: `${timings.total}ms`
+      },
       timestamp: new Date().toISOString()
     });
 
   } catch (error: unknown) {
-    const duration = Date.now() - startTime;
+    timings.total = Date.now() - startTime;
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error('[Qualifier] Error:', errorMessage);
 
     // Post failure to Slack
     await postToSlack({
-      message: `Qualifier ERROR: ${errorMessage} (${duration}ms)`
+      message: `🚨 *Qualifier ERROR*\n\n\`${errorMessage}\`\n\n⏱️ Failed after ${timings.total}ms`
     });
 
     return NextResponse.json({
       success: false,
       error: errorMessage,
-      duration: `${duration}ms`,
+      timings: { total: `${timings.total}ms` },
       timestamp: new Date().toISOString()
     }, { status: 500 });
   }
