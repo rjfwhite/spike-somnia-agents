@@ -1,0 +1,13 @@
+{
+  "name": "json-api-request",
+  "version": "1.0.0",
+  "description": "A Somnia agent",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "viem": "^2.21.0"
+  }
+}

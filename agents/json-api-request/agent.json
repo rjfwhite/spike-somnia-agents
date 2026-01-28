@@ -1,0 +1,79 @@
+{
+  "agentId": "13174292974160097713",
+  "name": "JSON API Request",
+  "description": "Fetches JSON data from public API endpoints and extracts specific values using selector paths, serving as a foundational component for building on-chain oracles",
+  "version": "1.0.0",
+  "author": "Somnia Team",
+  "abi": [
+    {
+      "type": "function",
+      "name": "fetchString",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "selector", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "string" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "fetchUint",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "selector", "type": "string" },
+        { "name": "decimals", "type": "uint8" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "uint256" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "fetchInt",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "selector", "type": "string" },
+        { "name": "decimals", "type": "uint8" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "int256" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "fetchBool",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "selector", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "bool" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "fetchStringArray",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "selector", "type": "string" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "string[]" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "fetchUintArray",
+      "inputs": [
+        { "name": "url", "type": "string" },
+        { "name": "selector", "type": "string" },
+        { "name": "decimals", "type": "uint8" }
+      ],
+      "outputs": [
+        { "name": "result", "type": "uint256[]" }
+      ]
+    }
+  ],
+  "tags": ["json", "api", "oracle", "data"]
+}
