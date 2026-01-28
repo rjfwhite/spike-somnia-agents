@@ -1,6 +1,6 @@
 {
   "agentId": "12847293847561029384",
-  "name": "LLM Runner",
+  "name": "LLM Inference",
   "description": "A simple string-in-string-out LLM inference agent using Qwen3-30B",
   "version": "1.0.0",
   "author": "Somnia Team",
