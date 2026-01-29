@@ -661,15 +661,79 @@ async function devCommand(agentFolderArg) {
         resultDiv.textContent = JSON.stringify(result, (k, v) =>
           typeof v === 'bigint' ? v.toString() : v, 2);
 
-        if (steps) {
-          receiptDiv.innerHTML = '<div class="receipt-label">Steps</div>' +
-            JSON.stringify(steps, null, 2);
+        if (steps && steps.length > 0) {
+          receiptDiv.innerHTML = renderReceipt(steps, responseHex);
         }
 
       } catch (error) {
         console.error(error);
         errorDiv.textContent = error.message;
       }
+    };
+
+    // Render receipt with tabs
+    function renderReceipt(steps, resultHex) {
+      const stepsHtml = steps.map((step, idx) => {
+        const { name, ...rest } = step;
+        const fields = Object.entries(rest);
+        const color = getStepColor(name);
+
+        const fieldsHtml = fields.length > 0
+          ? '<div class="step-fields">' + fields.map(([k, v]) =>
+              '<div class="step-field"><span class="field-key">' + escapeHtml(k) + ':</span> <span class="field-value">' + escapeHtml(formatValue(v)) + '</span></div>'
+            ).join('') + '</div>'
+          : '';
+
+        return '<div class="step">' +
+          '<div class="step-indicator" style="background:' + color.bg + ';border-color:' + color.border + ';color:' + color.text + '">' + (idx + 1) + '</div>' +
+          '<div class="step-content">' +
+            '<div class="step-name" style="color:' + color.text + '">' + escapeHtml(name) + '</div>' +
+            fieldsHtml +
+          '</div>' +
+        '</div>';
+      }).join('');
+
+      const jsonHtml = '<pre class="json-view">' + escapeHtml(JSON.stringify(steps, null, 2)) + '</pre>';
+
+      return '<div class="receipt-container">' +
+        '<div class="receipt-tabs">' +
+          '<button class="receipt-tab active" onclick="switchTab(this, \\'formatted\\')">Formatted</button>' +
+          '<button class="receipt-tab" onclick="switchTab(this, \\'json\\')">JSON</button>' +
+        '</div>' +
+        '<div class="receipt-content">' +
+          '<div class="tab-panel active" data-tab="formatted">' +
+            '<div class="steps-list">' + stepsHtml + '</div>' +
+            (resultHex ? '<div class="result-hex"><span class="result-hex-label">Raw result:</span> <code>' + escapeHtml(resultHex) + '</code></div>' : '') +
+          '</div>' +
+          '<div class="tab-panel" data-tab="json">' + jsonHtml + '</div>' +
+        '</div>' +
+      '</div>';
+    }
+
+    function getStepColor(name) {
+      if (name.includes('error')) return { bg: 'rgba(239,68,68,0.2)', border: 'rgba(239,68,68,0.3)', text: '#f87171' };
+      if (name.includes('completed') || name.includes('encoded')) return { bg: 'rgba(16,185,129,0.2)', border: 'rgba(16,185,129,0.3)', text: '#10b981' };
+      if (name.includes('started')) return { bg: 'rgba(59,130,246,0.2)', border: 'rgba(59,130,246,0.3)', text: '#3b82f6' };
+      if (name.includes('request') || name.includes('response')) return { bg: 'rgba(168,85,247,0.2)', border: 'rgba(168,85,247,0.3)', text: '#a855f7' };
+      return { bg: 'rgba(107,114,128,0.2)', border: 'rgba(107,114,128,0.3)', text: '#9ca3af' };
+    }
+
+    function formatValue(v) {
+      if (v === null || v === undefined) return 'null';
+      if (typeof v === 'object') return JSON.stringify(v);
+      return String(v);
+    }
+
+    function escapeHtml(str) {
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    window.switchTab = function(btn, tabName) {
+      const container = btn.closest('.receipt-container');
+      container.querySelectorAll('.receipt-tab').forEach(t => t.classList.remove('active'));
+      container.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      container.querySelector('.tab-panel[data-tab="' + tabName + '"]').classList.add('active');
     };
   </script>
   <style>
@@ -785,25 +849,98 @@ async function devCommand(agentFolderArg) {
     .result:not(:empty) { display: block; }
     .receipt {
       margin-top: 12px;
-      padding: 14px;
-      background: rgba(59, 130, 246, 0.05);
-      border-radius: 8px;
-      font-family: inherit;
-      font-size: 11px;
-      white-space: pre-wrap;
-      word-break: break-all;
       display: none;
-      border: 1px solid rgba(59, 130, 246, 0.2);
-      color: #93c5fd;
     }
     .receipt:not(:empty) { display: block; }
-    .receipt-label {
+    .receipt-container {
+      background: rgba(0,0,0,0.3);
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+      overflow: hidden;
+    }
+    .receipt-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 8px 12px;
+      background: rgba(0,0,0,0.2);
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .receipt-tab {
+      background: transparent;
+      border: none;
+      padding: 6px 12px;
+      font-size: 11px;
+      font-weight: 500;
+      color: #737373;
+      cursor: pointer;
+      border-radius: 4px;
+      margin: 0;
+      transition: all 0.15s;
+    }
+    .receipt-tab:hover { color: #a3a3a3; background: rgba(255,255,255,0.05); }
+    .receipt-tab.active { color: #fff; background: rgba(255,255,255,0.1); }
+    .receipt-content { padding: 12px; }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .steps-list { display: flex; flex-direction: column; gap: 8px; }
+    .step {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .step-indicator {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       font-size: 10px;
+      font-weight: 700;
+      border: 1px solid;
+      flex-shrink: 0;
+    }
+    .step-content {
+      flex: 1;
+      min-width: 0;
+    }
+    .step-name {
+      font-size: 12px;
       font-weight: 600;
-      color: #3b82f6;
-      margin-bottom: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .step-fields {
+      background: rgba(0,0,0,0.2);
+      border-radius: 6px;
+      padding: 8px 10px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .step-field {
+      font-size: 11px;
+      margin-bottom: 2px;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .step-field:last-child { margin-bottom: 0; }
+    .field-key { color: #737373; flex-shrink: 0; }
+    .field-value { color: #d4d4d4; word-break: break-all; }
+    .result-hex {
+      margin-top: 12px;
+      padding: 10px;
+      background: rgba(16,185,129,0.1);
+      border-radius: 6px;
+      border: 1px solid rgba(16,185,129,0.2);
+      font-size: 10px;
+    }
+    .result-hex-label { color: #10b981; font-weight: 600; }
+    .result-hex code { color: rgba(16,185,129,0.7); word-break: break-all; }
+    .json-view {
+      font-size: 10px;
+      color: #93c5fd;
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-all;
     }
     .error {
       margin-top: 16px;

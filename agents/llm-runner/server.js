@@ -36,9 +36,16 @@ for (const fn of abi.filter(x => x.type === 'function')) {
 }
 
 // Call the LLM API
-async function callLLM(prompt, temperature, seed, addStep, response) {
+async function callLLM(prompt, system, temperature, seed, addStep, response) {
   // Convert temperature from 0-100 int to 0.0-1.0 float
   const tempFloat = Number(temperature) / 100;
+
+  // Build messages array with optional system prompt
+  const messages = [];
+  if (system && system.trim()) {
+    messages.push({ role: 'system', content: system });
+  }
+  messages.push({ role: 'user', content: prompt });
 
   const llmResponse = await fetch(LLM_URL, {
     method: 'POST',
@@ -47,9 +54,61 @@ async function callLLM(prompt, temperature, seed, addStep, response) {
     },
     body: JSON.stringify({
       model: MODEL,
-      messages: [
-        { role: 'user', content: prompt }
-      ],
+      messages,
+      temperature: tempFloat,
+      seed: Number(seed)
+    })
+  });
+
+  if (!llmResponse.ok) {
+    const error = await llmResponse.text();
+    throw new Error(`LLM API error: ${llmResponse.status} - ${error}`);
+  }
+
+  const data = await llmResponse.json();
+  const content = data.choices[0].message.content;
+
+  // Parse out <think></think> tags
+  const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
+  const reasoning = thinkMatch ? thinkMatch[1].trim() : '';
+  const answer = content.replace(/<think>[\s\S]*?<\/think>/, '').trim();
+
+  // Add reasoning to receipts if present
+  if (reasoning) {
+    addStep(response, 'reasoning', { content: reasoning });
+  }
+
+  return answer;
+}
+
+// Call the LLM API with a full conversation
+async function callLLMConversation(roles, messages, temperature, seed, addStep, response) {
+  // Convert temperature from 0-100 int to 0.0-1.0 float
+  const tempFloat = Number(temperature) / 100;
+
+  // Validate arrays have same length
+  if (roles.length !== messages.length) {
+    throw new Error(`Roles and messages arrays must have same length (got ${roles.length} roles, ${messages.length} messages)`);
+  }
+
+  // Build messages array from roles and messages
+  const conversationMessages = [];
+  for (let i = 0; i < roles.length; i++) {
+    const role = roles[i].toLowerCase();
+    if (!['system', 'user', 'assistant'].includes(role)) {
+      throw new Error(`Invalid role "${roles[i]}" at index ${i}. Must be "system", "user", or "assistant"`);
+    }
+    conversationMessages.push({ role, content: messages[i] });
+  }
+
+  const llmResponse = await fetch(LLM_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages: conversationMessages,
       temperature: tempFloat,
       seed: Number(seed)
     })
@@ -79,8 +138,11 @@ async function callLLM(prompt, temperature, seed, addStep, response) {
 // Handler functions - created dynamically to access addStep and response
 function createHandlers(addStep, response) {
   return {
-    async infer(prompt, temperature, seed) {
-      return await callLLM(prompt, temperature, seed, addStep, response);
+    async infer(prompt, system, temperature, seed) {
+      return await callLLM(prompt, system, temperature, seed, addStep, response);
+    },
+    async inferConversation(roles, messages, temperature, seed) {
+      return await callLLMConversation(roles, messages, temperature, seed, addStep, response);
     }
   };
 }

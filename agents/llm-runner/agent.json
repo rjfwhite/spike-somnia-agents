@@ -10,6 +10,20 @@
       "name": "infer",
       "inputs": [
         { "name": "prompt", "type": "string" },
+        { "name": "system", "type": "string" },
+        { "name": "temperature", "type": "uint256" },
+        { "name": "seed", "type": "uint256" }
+      ],
+      "outputs": [
+        { "name": "response", "type": "string" }
+      ]
+    },
+    {
+      "type": "function",
+      "name": "inferConversation",
+      "inputs": [
+        { "name": "roles", "type": "string[]" },
+        { "name": "messages", "type": "string[]" },
         { "name": "temperature", "type": "uint256" },
         { "name": "seed", "type": "uint256" }
       ],
