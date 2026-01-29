@@ -138,7 +138,7 @@ async function callLLMConversation(roles, messages, temperature, seed, addStep, 
 // Handler functions - created dynamically to access addStep and response
 function createHandlers(addStep, response) {
   return {
-    async infer(prompt, system, temperature, seed) {
+    async inferSingle(prompt, system, temperature, seed) {
       return await callLLM(prompt, system, temperature, seed, addStep, response);
     },
     async inferConversation(roles, messages, temperature, seed) {

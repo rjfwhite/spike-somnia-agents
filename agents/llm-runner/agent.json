@@ -7,7 +7,7 @@
   "abi": [
     {
       "type": "function",
-      "name": "infer",
+      "name": "inferSingle",
       "inputs": [
         { "name": "prompt", "type": "string" },
         { "name": "system", "type": "string" },
