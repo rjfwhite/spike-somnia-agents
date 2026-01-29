@@ -1,10 +1,10 @@
 {
-  "name": "rob-somnia-agent",
+  "name": "somnia-agents",
   "version": "1.3.3",
   "description": "CLI tool for testing Somnia agents locally",
   "type": "module",
   "bin": {
-    "rob-somnia-agent": "src/cli.js"
+    "somnia-agents": "src/cli.js"
   },
   "files": [
     "src",

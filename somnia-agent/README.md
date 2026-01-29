@@ -1,23 +1,37 @@
-# Agent Tester
+# Somnia Agents CLI
 
 A CLI tool for testing and building Somnia agents locally.
 
 ## Installation
 
 ```bash
-cd agent-tester
-npm install
-npm link  # Optional: makes 'agent-tester' available globally
+npm install -g somnia-agents
+```
+
+Or use directly with npx:
+
+```bash
+npx somnia-agents <command>
 ```
 
 ## Commands
+
+### create
+
+Generate a new agent from a template:
+
+```bash
+npx somnia-agents create [folder]
+```
+
+This will prompt you for the agent name and description, then create a new folder with all the necessary files.
 
 ### dev
 
 Start a development server with hot reload:
 
 ```bash
-agent-tester dev <agent-folder>
+npx somnia-agents dev [agent-folder]
 ```
 
 This will:
@@ -26,27 +40,37 @@ This will:
 3. Start a web UI at http://localhost:3000
 4. Watch for file changes and auto-rebuild
 
-### build
+If no folder is specified, uses the current directory.
 
-Build the agent and export as a tar file:
+### publish
+
+Build and upload the agent to the hosting service:
 
 ```bash
-agent-tester build <agent-folder> <output.tar>
+npx somnia-agents publish [agent-folder]
 ```
 
 This will:
 1. Build the Docker image for linux/amd64
-2. Export the image to the specified tar file
-3. Clean up the temporary image
+2. Export and upload the container tar file
+3. Upload the agent metadata
+4. Open the browser to complete registration
 
 ## Examples
 
 ```bash
-# Development mode
-agent-tester dev ./agents/test-agent
+# Create a new agent
+npx somnia-agents create my-agent
 
-# Build for deployment
-agent-tester build ./agents/test-agent ./test-agent.tar
+# Development mode (current directory)
+cd my-agent
+npx somnia-agents dev
+
+# Development mode (specific folder)
+npx somnia-agents dev ./agents/test-agent
+
+# Publish to network
+npx somnia-agents publish
 ```
 
 ## Agent Folder Structure

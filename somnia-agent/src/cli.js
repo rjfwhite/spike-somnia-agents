@@ -182,7 +182,7 @@ This unique ID will be used to register your agent on-chain.
 Next steps:
   cd ${folderName}
   npm install
-  npx rob-somnia-agent dev
+  npx somnia-agents dev
 
 Edit agent.json to define your functions, then implement them in server.js.
 `);
