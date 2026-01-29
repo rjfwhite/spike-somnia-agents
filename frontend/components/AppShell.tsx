@@ -24,9 +24,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         { id: 'agents', label: 'Agents', icon: LayoutGrid, path: '/' },
         { id: 'my-agents', label: 'My Agents', icon: User, path: '/my-agents' },
         { id: 'live', label: 'Live Feed', icon: Activity, path: '/live' },
-        { id: 'invoke', label: 'Direct Invoke', icon: Zap, path: '/invoke' },
         { id: 'receipts', label: 'Receipts', icon: FileText, path: '/receipts' },
         { id: 'admin', label: 'Admin', icon: Settings, path: '/admin' },
+        { id: 'invoke', label: 'Direct Invoke', icon: Zap, path: '/invoke' },
         { id: 'docs', label: 'Documentation', icon: BookOpen, path: 'https://metaversal.gitbook.io/agents/s8KLL5NzoS6LwJVIQCiT/', external: true },
     ];
 

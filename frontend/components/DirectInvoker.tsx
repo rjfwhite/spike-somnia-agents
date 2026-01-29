@@ -186,6 +186,21 @@ export function DirectInvoker({ initialMetadataUrl, initialContainerUrl }: Direc
                 </p>
             </div>
 
+            {/* Development Notice */}
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                    <span className="text-yellow-400 text-lg">⚠️</span>
+                    <div>
+                        <p className="text-yellow-300 font-semibold text-sm">Development Tool</p>
+                        <p className="text-yellow-200/70 text-sm mt-1">
+                            This endpoint is purely for development purposes to test an agent running in the cloud.
+                            For production use, we recommend publishing your agent directly and testing it through
+                            the standard on-chain invocation flow instead.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
             <div className="space-y-6">
                 {/* Container Image URL Input */}
                 <div>
