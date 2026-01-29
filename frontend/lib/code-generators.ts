@@ -2,10 +2,18 @@ import { AbiFunction } from "./types";
 import { CONTRACT_ADDRESS } from "./contract";
 import { formatEther } from "viem";
 
+// Helper to add memory qualifier for string and bytes types in function signatures
+function withMemory(type: string): string {
+  if (type === 'string' || type === 'bytes' || type.endsWith('[]')) {
+    return `${type} memory`;
+  }
+  return type;
+}
+
 export function generateSolidityExample(method: AbiFunction, agentId?: string, price?: bigint): string {
-  const inputs = method.inputs.map(p => `${p.type} ${p.name}`).join(", ");
+  const inputs = method.inputs.map(p => `${withMemory(p.type)} ${p.name}`).join(", ");
   const argNames = method.inputs.map(p => p.name).join(", ");
-  const outputTypes = method.outputs.map(p => p.type).join(", ");
+  const outputTypes = method.outputs.map(p => withMemory(p.type)).join(", ");
   const outputNames = method.outputs.map((p, i) => p.name || `result${i}`).join(", ");
 
   // Encoding uses the interface selector

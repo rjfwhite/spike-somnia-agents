@@ -24,25 +24,19 @@ function usage() {
 somnia-agent - Test and build Somnia agents locally
 
 Usage:
-  somnia-agent create [folder]                     Create a new agent from template
-  somnia-agent dev <agent-folder>                  Run agent with web UI and file watching
-  somnia-agent build <agent-folder> <output.tar>   Build agent to tar file
-  somnia-agent publish <agent-folder> [options]    Build and upload agent to hosting service
+  somnia-agent create [folder]           Create a new agent from template
+  somnia-agent dev [agent-folder]        Run agent with web UI and file watching
+  somnia-agent publish [agent-folder]    Build and upload agent to hosting service
 
 Commands:
   create   Create a new agent project from template
-  dev      Start development server with hot reload
-  build    Build Docker image and export as tar
-  publish  Build container, upload tar and metadata to hosting service
-
-Publish Options:
-  --frontend <url>      Frontend URL for file uploads (default: https://spike-somnia-agents.vercel.app)
+  dev      Start development server with hot reload (default: current directory)
+  publish  Build container, upload tar and metadata to hosting service (default: current directory)
 
 Examples:
   somnia-agent create my-agent
-  somnia-agent dev ./my-agent
-  somnia-agent build ./my-agent ./my-agent.tar
-  somnia-agent publish ./my-agent
+  somnia-agent dev
+  somnia-agent publish
 `);
   process.exit(1);
 }
@@ -188,56 +182,10 @@ This unique ID will be used to register your agent on-chain.
 Next steps:
   cd ${folderName}
   npm install
-  npx rob-somnia-agent dev .
+  npx rob-somnia-agent dev
 
 Edit agent.json to define your functions, then implement them in server.js.
 `);
-}
-
-// ============================================================================
-// BUILD COMMAND
-// ============================================================================
-
-async function buildCommand(agentFolderArg, outputTar) {
-  if (!agentFolderArg || !outputTar) {
-    console.error('Usage: agent-tester build <agent-folder> <output.tar>');
-    process.exit(1);
-  }
-
-  const { agentFolder, agentJsonPath } = validateFolder(agentFolderArg);
-  const agentDef = JSON.parse(readFileSync(agentJsonPath, 'utf-8'));
-
-  console.log(`\nBuilding ${agentDef.name} v${agentDef.version}`);
-  console.log(`${agentDef.description}\n`);
-
-  const imageName = `agent-build-${agentDef.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
-
-  // Build image
-  console.log('Building Docker image (linux/amd64)...');
-  try {
-    execSync(`docker build --platform linux/amd64 -t ${imageName} ${agentFolder}`, { stdio: 'inherit' });
-  } catch (error) {
-    console.error('Failed to build Docker image');
-    process.exit(1);
-  }
-
-  // Export to tar
-  const outputPath = path.resolve(outputTar);
-  console.log(`\nExporting to ${outputPath}...`);
-  try {
-    execSync(`docker save ${imageName} -o ${outputPath}`, { stdio: 'inherit' });
-  } catch (error) {
-    console.error('Failed to export image');
-    process.exit(1);
-  }
-
-  // Cleanup image
-  console.log('Cleaning up...');
-  try {
-    execSync(`docker rmi ${imageName}`, { stdio: 'ignore' });
-  } catch {}
-
-  console.log(`\nDone! Image saved to ${outputPath}`);
 }
 
 // ============================================================================
@@ -326,13 +274,9 @@ async function uploadFile(frontendUrl, filePath, pathname, contentType) {
 }
 
 async function publishCommand(agentFolderArg, restArgs) {
-  if (!agentFolderArg) {
-    console.error('Usage: somnia-agent publish <agent-folder> [options]');
-    process.exit(1);
-  }
-
+  const folderToUse = agentFolderArg || '.';
   const options = parsePublishArgs(restArgs);
-  const { agentFolder, agentJsonPath } = validateFolder(agentFolderArg);
+  const { agentFolder, agentJsonPath } = validateFolder(folderToUse);
   const agentDef = JSON.parse(readFileSync(agentJsonPath, 'utf-8'));
 
   console.log(`\nPublishing ${agentDef.name} v${agentDef.version}`);
@@ -491,12 +435,8 @@ async function publishCommand(agentFolderArg, restArgs) {
 // ============================================================================
 
 async function devCommand(agentFolderArg) {
-  if (!agentFolderArg) {
-    console.error('Usage: agent-tester dev <agent-folder>');
-    process.exit(1);
-  }
-
-  const { agentFolder, agentJsonPath } = validateFolder(agentFolderArg);
+  const folderToUse = agentFolderArg || '.';
+  const { agentFolder, agentJsonPath } = validateFolder(folderToUse);
 
   // State
   let agentDef = null;
@@ -1053,9 +993,6 @@ switch (command) {
     break;
   case 'dev':
     devCommand(args[1]);
-    break;
-  case 'build':
-    buildCommand(args[1], args[2]);
     break;
   case 'publish':
     publishCommand(args[1], args.slice(2));
