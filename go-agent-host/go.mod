@@ -3,8 +3,10 @@ module github.com/somnia-chain/agent-runner
 go 1.24.0
 
 require (
+	github.com/coreos/go-iptables v0.8.0
 	github.com/docker/docker v27.0.0+incompatible
 	github.com/docker/go-connections v0.5.0
+	github.com/elazarl/goproxy v0.0.0-20231117061959-7cc037d33fb5
 )
 
 require (

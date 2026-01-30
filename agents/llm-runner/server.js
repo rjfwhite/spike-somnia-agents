@@ -68,6 +68,13 @@ async function callLLM(prompt, system, temperature, seed, addStep, response) {
   const data = await llmResponse.json();
   const content = data.choices[0].message.content;
 
+  // Log token usage
+  if (data.usage) {
+    const { prompt_tokens, completion_tokens, total_tokens } = data.usage;
+    console.log(`[TOKEN USAGE] prompt: ${prompt_tokens}, completion: ${completion_tokens}, total: ${total_tokens}`);
+    addStep(response, 'token_usage', { prompt_tokens, completion_tokens, total_tokens });
+  }
+
   // Parse out <think></think> tags
   const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);
   const reasoning = thinkMatch ? thinkMatch[1].trim() : '';
@@ -121,6 +128,13 @@ async function callLLMConversation(roles, messages, temperature, seed, addStep, 
 
   const data = await llmResponse.json();
   const content = data.choices[0].message.content;
+
+  // Log token usage
+  if (data.usage) {
+    const { prompt_tokens, completion_tokens, total_tokens } = data.usage;
+    console.log(`[TOKEN USAGE] prompt: ${prompt_tokens}, completion: ${completion_tokens}, total: ${total_tokens}`);
+    addStep(response, 'token_usage', { prompt_tokens, completion_tokens, total_tokens });
+  }
 
   // Parse out <think></think> tags
   const thinkMatch = content.match(/<think>([\s\S]*?)<\/think>/);

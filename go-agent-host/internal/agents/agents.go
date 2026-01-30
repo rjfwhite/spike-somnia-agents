@@ -1,5 +1,5 @@
-// Package docker provides Docker container lifecycle management.
-package docker
+// Package agents provides agent container lifecycle management.
+package agents
 
 import (
 	"bufio"
@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 	"github.com/somnia-chain/agent-runner/internal/metrics"
@@ -32,8 +33,8 @@ type ContainerInfo struct {
 	URL         string
 }
 
-// AgentResponse represents the response from forwarding to an agent.
-type AgentResponse struct {
+// Response represents the response from forwarding to an agent.
+type Response struct {
 	Status  int
 	Body    []byte
 	Receipt map[string]interface{}
@@ -43,6 +44,13 @@ type AgentResponse struct {
 type versionCacheEntry struct {
 	hash      string
 	expiresAt time.Time
+}
+
+// SandboxNetworkConfig holds the sandbox network configuration.
+type SandboxNetworkConfig struct {
+	Name      string // Network name (e.g., "agent-sandbox")
+	Gateway   string // Gateway IP on host (e.g., "172.30.0.1")
+	ProxyPort int    // Proxy port (e.g., 3128)
 }
 
 // Manager manages Docker containers for agents.
@@ -60,34 +68,12 @@ type Manager struct {
 	versionCacheMutex  sync.RWMutex
 	versionCacheTTL    time.Duration
 	versionFetchMutex  sync.Map // Prevents concurrent HEAD requests for same URL
+	sandboxNetwork    *SandboxNetworkConfig // Sandbox network configuration (nil = no sandbox network)
 }
 
-// NewManager creates a new Docker Manager.
-func NewManager(cacheDir string, startPort int, runtime string) (*Manager, error) {
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Docker client: %w", err)
-	}
-
-	// Verify Docker daemon is running
-	ctx := context.Background()
-	_, err = dockerClient.Ping(ctx)
-	if err != nil {
-		return nil, fmt.Errorf(`Docker daemon is not running.
-
-To fix this:
-  - macOS: Open Docker Desktop application
-  - Linux: Run 'sudo systemctl start docker' or 'sudo service docker start'
-  - Windows: Start Docker Desktop from the Start menu
-
-If Docker is not installed:
-  - macOS: brew install --cask docker
-  - Linux: https://docs.docker.com/engine/install/
-  - Windows: https://docs.docker.com/desktop/install/windows-install/
-
-Underlying error: %w`, err)
-	}
-
+// NewManager creates a new Manager with a pre-existing Docker client.
+// Use this when the Docker client has already been created (e.g., by startup checks).
+func NewManager(dockerClient *client.Client, cacheDir string, startPort int, runtime string) *Manager {
 	return &Manager{
 		client:            dockerClient,
 		runningContainers: make(map[string]*ContainerInfo),
@@ -99,7 +85,28 @@ Underlying error: %w`, err)
 		},
 		versionCache:    make(map[string]*versionCacheEntry),
 		versionCacheTTL: 30 * time.Second,
-	}, nil
+	}
+}
+
+// Client returns the underlying Docker client.
+func (m *Manager) Client() *client.Client {
+	return m.client
+}
+
+// SetSandboxNetwork configures the sandbox network for container isolation.
+// When set, containers will be attached to this network and have HTTP_PROXY
+// environment variables injected to route traffic through the sandbox proxy.
+func (m *Manager) SetSandboxNetwork(networkName, gatewayIP string, proxyPort int) {
+	m.sandboxNetwork = &SandboxNetworkConfig{
+		Name:      networkName,
+		Gateway:   gatewayIP,
+		ProxyPort: proxyPort,
+	}
+	slog.Info("Sandbox network configured",
+		"network", networkName,
+		"gateway", gatewayIP,
+		"proxy_port", proxyPort,
+	)
 }
 
 // getVersionHash fetches HEAD from URL and creates a version hash from the response headers.
@@ -392,8 +399,8 @@ func (m *Manager) stopContainer(versionHash string) error {
 	return nil
 }
 
-// EnsureAgentRunning ensures a container is running for the given agent URL and version.
-func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
+// EnsureRunning ensures a container is running for the given agent URL and version.
+func (m *Manager) EnsureRunning(agentURL string) (int, bool, error) {
 	start := time.Now()
 
 	versionHash, err := m.getVersionHash(agentURL)
@@ -499,8 +506,28 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 	slog.Info("Starting container", "agent_url", agentURL, "version", versionHash, "port", hostPort)
 
 	hostPortStr := fmt.Sprintf("%d", hostPort)
+
+	// Build environment variables
+	var envVars []string
+	if m.sandboxNetwork != nil {
+		proxyURL := fmt.Sprintf("http://%s:%d", m.sandboxNetwork.Gateway, m.sandboxNetwork.ProxyPort)
+		envVars = append(envVars,
+			"HTTP_PROXY="+proxyURL,
+			"HTTPS_PROXY="+proxyURL,
+			"http_proxy="+proxyURL,
+			"https_proxy="+proxyURL,
+			"NO_PROXY=localhost,127.0.0.1",
+			"no_proxy=localhost,127.0.0.1",
+		)
+		slog.Debug("Injecting proxy environment variables",
+			"proxy_url", proxyURL,
+			"container", containerName,
+		)
+	}
+
 	containerConfig := &container.Config{
 		Image: imageName,
+		Env:   envVars,
 		ExposedPorts: nat.PortSet{
 			"80/tcp": struct{}{},
 		},
@@ -519,7 +546,21 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 		Runtime: m.containerRuntime,
 	}
 
-	resp, err := m.client.ContainerCreate(ctx, containerConfig, hostConfig, nil, nil, containerName)
+	// Configure network - use sandbox network if configured
+	var networkConfig *network.NetworkingConfig
+	if m.sandboxNetwork != nil {
+		networkConfig = &network.NetworkingConfig{
+			EndpointsConfig: map[string]*network.EndpointSettings{
+				m.sandboxNetwork.Name: {},
+			},
+		}
+		slog.Debug("Attaching container to sandbox network",
+			"network", m.sandboxNetwork.Name,
+			"container", containerName,
+		)
+	}
+
+	resp, err := m.client.ContainerCreate(ctx, containerConfig, hostConfig, networkConfig, nil, containerName)
 	if err != nil {
 		return 0, false, fmt.Errorf("failed to create container: %w", err)
 	}
@@ -553,9 +594,9 @@ func (m *Manager) EnsureAgentRunning(agentURL string) (int, bool, error) {
 	return hostPort, true, nil
 }
 
-// ForwardToAgent forwards a request to an agent container using JSON-in-JSON-out protocol.
-func (m *Manager) ForwardToAgent(agentURL string, body []byte, headers map[string]string) (*AgentResponse, error) {
-	port, _, err := m.EnsureAgentRunning(agentURL)
+// Forward forwards a request to an agent container using JSON-in-JSON-out protocol.
+func (m *Manager) Forward(agentURL string, body []byte, headers map[string]string) (*Response, error) {
+	port, _, err := m.EnsureRunning(agentURL)
 	if err != nil {
 		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
 		return nil, err
@@ -621,7 +662,7 @@ func (m *Manager) ForwardToAgent(agentURL string, body []byte, headers map[strin
 	metrics.AgentRequestsTotal.WithLabelValues(agentURL, statusCode).Inc()
 	metrics.AgentRequestDuration.WithLabelValues(agentURL).Observe(time.Since(start).Seconds())
 
-	return &AgentResponse{
+	return &Response{
 		Status:  resp.StatusCode,
 		Body:    responseBody,
 		Receipt: receipt,

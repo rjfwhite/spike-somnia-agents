@@ -14,22 +14,22 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/somnia-chain/agent-runner/internal/agents"
 	"github.com/somnia-chain/agent-runner/internal/config"
-	"github.com/somnia-chain/agent-runner/internal/docker"
 	"github.com/somnia-chain/agent-runner/internal/metrics"
 )
 
 // Server handles HTTP requests for the agent runner.
 type Server struct {
-	dockerManager      *docker.Manager
+	agentManager       *agents.Manager
 	receiptsServiceURL string
 	apiKey             string
 }
 
 // NewServer creates a new API Server.
-func NewServer(dockerManager *docker.Manager, receiptsServiceURL, apiKey string) *Server {
+func NewServer(agentManager *agents.Manager, receiptsServiceURL, apiKey string) *Server {
 	return &Server{
-		dockerManager:      dockerManager,
+		agentManager:       agentManager,
 		receiptsServiceURL: receiptsServiceURL,
 		apiKey:             apiKey,
 	}
@@ -160,7 +160,7 @@ func (s *Server) handleAgentRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("Forwarding to agent", "request_id", requestID, "agent_url", agentURL, "body_size", len(body), "body_source", source)
 
-	agentResponse, err := s.dockerManager.ForwardToAgent(agentURL, body, map[string]string{
+	agentResponse, err := s.agentManager.Forward(agentURL, body, map[string]string{
 		"X-Request-Id": requestID,
 	})
 	if err != nil {

@@ -20,8 +20,15 @@ type Config struct {
 	StartPort          int
 	Runtime            string
 	APIKey             string
-	LogFile        string
-	MaxLogFileSize int
+	LogFile            string
+	MaxLogFileSize     int
+
+	// Sandbox network configuration
+	SandboxNetworkName    string
+	SandboxNetworkSubnet  string
+	SandboxNetworkGateway string
+	SandboxProxyPort      int
+	EnableFirewall        bool
 }
 
 // Parse parses command-line flags and returns a Config.
@@ -36,6 +43,14 @@ func Parse() *Config {
 	flag.StringVar(&cfg.APIKey, "api-key", "", "API key for request authentication (optional, no auth if empty)")
 	flag.StringVar(&cfg.LogFile, "log-file", "", "Path to log file (default: stdout)")
 	flag.IntVar(&cfg.MaxLogFileSize, "max-log-file-size", 10*1024*1024, "Max log file size in bytes before rotation (default: 10MB)")
+
+	// Sandbox network configuration
+	flag.StringVar(&cfg.SandboxNetworkName, "sandbox-network", "agent-sandbox", "Docker network name for sandbox containers")
+	flag.StringVar(&cfg.SandboxNetworkSubnet, "sandbox-subnet", "172.30.0.0/16", "Subnet for sandbox network")
+	flag.StringVar(&cfg.SandboxNetworkGateway, "sandbox-gateway", "172.30.0.1", "Gateway IP for sandbox network (host-side)")
+	flag.IntVar(&cfg.SandboxProxyPort, "sandbox-proxy-port", 3128, "Port for sandbox HTTP/HTTPS proxy")
+	flag.BoolVar(&cfg.EnableFirewall, "enable-firewall", false, "Enable iptables firewall rules for sandbox isolation")
+
 	flag.Parse()
 
 	return cfg
