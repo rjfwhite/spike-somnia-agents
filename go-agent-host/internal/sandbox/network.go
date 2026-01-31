@@ -8,7 +8,6 @@ import (
 	"net"
 	"strings"
 
-	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
@@ -34,7 +33,7 @@ type NetworkInfo struct {
 // services running on the host (like the HTTP proxy).
 func EnsureNetwork(ctx context.Context, cli *client.Client, name, subnet, gateway string) (*NetworkInfo, error) {
 	// Check if network already exists
-	nw, err := cli.NetworkInspect(ctx, name, types.NetworkInspectOptions{})
+	nw, err := cli.NetworkInspect(ctx, name, network.InspectOptions{})
 	if err == nil {
 		// Network exists, validate it has proper IPAM config
 		if len(nw.IPAM.Config) == 0 || nw.IPAM.Config[0].Subnet == "" || nw.IPAM.Config[0].Gateway == "" {
@@ -59,11 +58,9 @@ func EnsureNetwork(ctx context.Context, cli *client.Client, name, subnet, gatewa
 		"gateway", gateway,
 	)
 
-	_, err = cli.NetworkCreate(ctx, name, types.NetworkCreate{
-		CheckDuplicate: true,
-		Driver:         "bridge",
-		EnableIPv6:     false, // Disable IPv6 to prevent bypass
-		Internal:       false, // Keep false; we enforce egress with firewall
+	_, err = cli.NetworkCreate(ctx, name, network.CreateOptions{
+		Driver:   "bridge",
+		Internal: false, // Keep false; we enforce egress with firewall
 		IPAM: &network.IPAM{
 			Config: []network.IPAMConfig{
 				{Subnet: subnet, Gateway: gateway},
@@ -71,7 +68,6 @@ func EnsureNetwork(ctx context.Context, cli *client.Client, name, subnet, gatewa
 		},
 		Options: map[string]string{
 			"com.docker.network.bridge.enable_ip_masquerade": "true",
-			"com.docker.network.bridge.name":                 "br-" + name,
 		},
 	})
 	if err != nil {
@@ -79,7 +75,7 @@ func EnsureNetwork(ctx context.Context, cli *client.Client, name, subnet, gatewa
 	}
 
 	// Verify creation
-	nw, err = cli.NetworkInspect(ctx, name, types.NetworkInspectOptions{})
+	nw, err = cli.NetworkInspect(ctx, name, network.InspectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect created network: %w", err)
 	}

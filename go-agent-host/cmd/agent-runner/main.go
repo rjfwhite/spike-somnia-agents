@@ -67,9 +67,13 @@ func main() {
 	}
 
 	// Check 4: Firewall rules (created but not applied unless --enable-firewall)
+	allowedPorts := []int{cfg.SandboxProxyPort}
+	if cfg.LLMProxyEnabled {
+		allowedPorts = append(allowedPorts, cfg.LLMProxyPort)
+	}
 	firewallRules, err := checker.CheckFirewall(
 		sandboxNet,
-		[]int{cfg.SandboxProxyPort},
+		allowedPorts,
 		cfg.EnableFirewall,
 	)
 	if err != nil {
@@ -93,7 +97,11 @@ func main() {
 	)
 
 	// Configure agents manager to use the sandbox network
-	agentManager.SetSandboxNetwork(sandboxNet.Name, sandboxNet.Gateway, cfg.SandboxProxyPort)
+	llmProxyPort := 0
+	if cfg.LLMProxyEnabled {
+		llmProxyPort = cfg.LLMProxyPort
+	}
+	agentManager.SetSandboxNetwork(sandboxNet.Name, sandboxNet.Gateway, cfg.SandboxProxyPort, llmProxyPort)
 
 	// Start the sandbox HTTP/HTTPS proxy
 	proxyAddr := fmt.Sprintf("%s:%d", sandboxNet.Gateway, cfg.SandboxProxyPort)
@@ -125,6 +133,47 @@ func main() {
 	}
 	slog.Info("Sandbox proxy started", "addr", proxyAddr)
 
+	// Start the LLM proxy if enabled
+	var llmProxy *sandbox.LLMProxy
+	if cfg.LLMProxyEnabled {
+		llmProxyAddr := fmt.Sprintf("%s:%d", sandboxNet.Gateway, cfg.LLMProxyPort)
+		llmProxyCfg := sandbox.LLMProxyConfig{
+			ListenAddr:  llmProxyAddr,
+			UpstreamURL: cfg.LLMUpstreamURL,
+			APIKey:      cfg.LLMAPIKey,
+		}
+
+		var err error
+		llmProxy, err = sandbox.NewLLMProxy(llmProxyCfg)
+		if err != nil {
+			slog.Error("Failed to create LLM proxy", "error", err)
+			os.Exit(1)
+		}
+
+		// Add request logging
+		llmProxy.OnComplete = func(r *http.Request, statusCode int, duration time.Duration, streaming bool, err error) {
+			if err != nil {
+				slog.Warn("LLM proxy request failed",
+					"path", r.URL.Path,
+					"error", err,
+				)
+			} else {
+				slog.Debug("LLM proxy request completed",
+					"path", r.URL.Path,
+					"status", statusCode,
+					"duration_ms", duration.Milliseconds(),
+					"streaming", streaming,
+				)
+			}
+		}
+
+		if err := llmProxy.Start(); err != nil {
+			slog.Error("Failed to start LLM proxy", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("LLM proxy started", "addr", llmProxyAddr, "upstream", cfg.LLMUpstreamURL)
+	}
+
 	// Create API server
 	server := api.NewServer(agentManager, cfg.ReceiptsServiceURL, cfg.APIKey)
 	http.HandleFunc("/", server.HandleRequest)
@@ -148,6 +197,13 @@ func main() {
 			slog.Warn("Failed to stop sandbox proxy", "error", err)
 		}
 
+		// Stop the LLM proxy if running
+		if llmProxy != nil {
+			if err := llmProxy.Stop(shutdownCtx); err != nil {
+				slog.Warn("Failed to stop LLM proxy", "error", err)
+			}
+		}
+
 		agentManager.Cleanup()
 		os.Exit(0)
 	}()
@@ -166,6 +222,11 @@ func main() {
 		firewallStatus = "enabled"
 	}
 
+	llmProxyStatus := "disabled"
+	if cfg.LLMProxyEnabled {
+		llmProxyStatus = fmt.Sprintf("enabled (%s:%d -> %s)", sandboxNet.Gateway, cfg.LLMProxyPort, cfg.LLMUpstreamURL)
+	}
+
 	slog.Info("Configuration",
 		"port", cfg.Port,
 		"cache_dir", cfg.CacheDir,
@@ -177,6 +238,7 @@ func main() {
 		"sandbox_gateway", sandboxNet.Gateway,
 		"sandbox_proxy", proxyAddr,
 		"firewall", firewallStatus,
+		"llm_proxy", llmProxyStatus,
 	)
 
 	// Print usage to stdout

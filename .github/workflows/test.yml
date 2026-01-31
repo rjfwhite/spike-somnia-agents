@@ -36,3 +36,31 @@ jobs:
 
       - name: Run Forge tests
         run: forge test -vvv
+
+  go-agent-host:
+    name: Go Agent Host
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: go-agent-host/go.sum
+
+      - name: Build
+        working-directory: go-agent-host
+        run: make build
+
+      - name: Run unit tests
+        working-directory: go-agent-host
+        run: make test
+
+      - name: Run e2e tests
+        working-directory: go-agent-host
+        run: make test-e2e

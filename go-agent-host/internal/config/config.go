@@ -29,6 +29,12 @@ type Config struct {
 	SandboxNetworkGateway string
 	SandboxProxyPort      int
 	EnableFirewall        bool
+
+	// LLM Proxy configuration
+	LLMProxyEnabled bool
+	LLMProxyPort    int
+	LLMUpstreamURL  string
+	LLMAPIKey       string
 }
 
 // Parse parses command-line flags and returns a Config.
@@ -50,6 +56,12 @@ func Parse() *Config {
 	flag.StringVar(&cfg.SandboxNetworkGateway, "sandbox-gateway", "172.30.0.1", "Gateway IP for sandbox network (host-side)")
 	flag.IntVar(&cfg.SandboxProxyPort, "sandbox-proxy-port", 3128, "Port for sandbox HTTP/HTTPS proxy")
 	flag.BoolVar(&cfg.EnableFirewall, "enable-firewall", false, "Enable iptables firewall rules for sandbox isolation")
+
+	// LLM Proxy configuration
+	flag.BoolVar(&cfg.LLMProxyEnabled, "llm-proxy-enabled", false, "Enable OpenAI-compatible LLM proxy")
+	flag.IntVar(&cfg.LLMProxyPort, "llm-proxy-port", 11434, "Port for LLM proxy")
+	flag.StringVar(&cfg.LLMUpstreamURL, "llm-upstream-url", "https://api.openai.com", "Upstream LLM service URL")
+	flag.StringVar(&cfg.LLMAPIKey, "llm-api-key", "", "API key for upstream LLM service")
 
 	flag.Parse()
 

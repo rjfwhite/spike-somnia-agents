@@ -48,9 +48,10 @@ type versionCacheEntry struct {
 
 // SandboxNetworkConfig holds the sandbox network configuration.
 type SandboxNetworkConfig struct {
-	Name      string // Network name (e.g., "agent-sandbox")
-	Gateway   string // Gateway IP on host (e.g., "172.30.0.1")
-	ProxyPort int    // Proxy port (e.g., 3128)
+	Name         string // Network name (e.g., "agent-sandbox")
+	Gateway      string // Gateway IP on host (e.g., "172.30.0.1")
+	ProxyPort    int    // Proxy port (e.g., 3128)
+	LLMProxyPort int    // LLM proxy port (e.g., 11434), 0 = disabled
 }
 
 // Manager manages Docker containers for agents.
@@ -96,16 +97,19 @@ func (m *Manager) Client() *client.Client {
 // SetSandboxNetwork configures the sandbox network for container isolation.
 // When set, containers will be attached to this network and have HTTP_PROXY
 // environment variables injected to route traffic through the sandbox proxy.
-func (m *Manager) SetSandboxNetwork(networkName, gatewayIP string, proxyPort int) {
+// If llmProxyPort > 0, OpenAI-compatible environment variables will also be injected.
+func (m *Manager) SetSandboxNetwork(networkName, gatewayIP string, proxyPort, llmProxyPort int) {
 	m.sandboxNetwork = &SandboxNetworkConfig{
-		Name:      networkName,
-		Gateway:   gatewayIP,
-		ProxyPort: proxyPort,
+		Name:         networkName,
+		Gateway:      gatewayIP,
+		ProxyPort:    proxyPort,
+		LLMProxyPort: llmProxyPort,
 	}
 	slog.Info("Sandbox network configured",
 		"network", networkName,
 		"gateway", gatewayIP,
 		"proxy_port", proxyPort,
+		"llm_proxy_port", llmProxyPort,
 	)
 }
 
@@ -523,6 +527,25 @@ func (m *Manager) EnsureRunning(agentURL string) (int, bool, error) {
 			"proxy_url", proxyURL,
 			"container", containerName,
 		)
+
+		// Inject LLM proxy configuration if enabled
+		if m.sandboxNetwork.LLMProxyPort > 0 {
+			llmBaseURL := fmt.Sprintf("http://%s:%d/v1", m.sandboxNetwork.Gateway, m.sandboxNetwork.LLMProxyPort)
+			envVars = append(envVars,
+				// OpenAI SDK compatible (older versions)
+				"OPENAI_API_BASE="+llmBaseURL,
+				// OpenAI SDK compatible (newer versions)
+				"OPENAI_BASE_URL="+llmBaseURL,
+				// Generic
+				"LLM_API_BASE="+llmBaseURL,
+				// API key placeholder - the proxy injects the real key
+				"OPENAI_API_KEY=sk-proxy-injected",
+			)
+			slog.Debug("Injecting LLM proxy environment variables",
+				"llm_base_url", llmBaseURL,
+				"container", containerName,
+			)
+		}
 	}
 
 	containerConfig := &container.Config{
