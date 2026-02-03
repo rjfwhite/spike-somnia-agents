@@ -9,8 +9,14 @@ LDFLAGS := -ldflags "-s -w \
 	-X github.com/somnia-chain/agent-runner/internal/config.GitCommit=$(GIT_COMMIT) \
 	-X github.com/somnia-chain/agent-runner/internal/config.BuildTime=$(BUILD_TIME)"
 
+LDFLAGS_COMMITTEE := -ldflags "-s -w \
+	-X main.Version=$(VERSION) \
+	-X main.GitCommit=$(GIT_COMMIT) \
+	-X main.BuildTime=$(BUILD_TIME)"
+
 build:
 	go build $(LDFLAGS) -o bin/agent-runner ./cmd/agent-runner
+	go build $(LDFLAGS_COMMITTEE) -o bin/committee-member ./cmd/committee-member
 
 run: build
 	./bin/agent-runner

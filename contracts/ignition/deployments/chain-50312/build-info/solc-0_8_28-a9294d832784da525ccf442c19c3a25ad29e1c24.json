@@ -1,0 +1,39 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_28-a9294d832784da525ccf442c19c3a25ad29e1c24",
+  "solcVersion": "0.8.28",
+  "solcLongVersion": "0.8.28+commit.7893614a",
+  "userSourceNameMap": {
+    "contracts/Committee.sol": "project/contracts/Committee.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "evm.methodIdentifiers",
+            "metadata"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/Committee.sol": {
+        "content": "// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.28;\n\n/// @title ICommittee Interface\n/// @notice Interface for validator committee management\ninterface ICommittee {\n    event MemberJoined(address indexed member);\n    event MemberLeft(address indexed member);\n    event MemberTimedOut(address indexed member);\n\n    function heartbeatMembership() external;\n    function leaveMembership() external;\n    function upkeep() external;\n    function getActiveMembers() external view returns (address[] memory);\n    function electSubcommittee(uint256 n, bytes32 seed) external view returns (address[] memory);\n    function isActive(address addr) external view returns (bool);\n}\n\ncontract Committee is ICommittee {\n    mapping(address => uint256) public lastHeartbeat;\n    mapping(address => bool) internal _active;\n    mapping(address => uint256) internal _memberIndex;\n    address[] public members;\n\n    uint256 public lastUpkeep;\n    uint256 public constant HEARTBEAT_INTERVAL = 1 minutes;\n\n    function heartbeatMembership() external override {\n        if (!_active[msg.sender]) {\n            _active[msg.sender] = true;\n            _memberIndex[msg.sender] = members.length;\n            members.push(msg.sender);\n            emit MemberJoined(msg.sender);\n        }\n        lastHeartbeat[msg.sender] = block.timestamp;\n        _upkeep();\n    }\n\n    function leaveMembership() external override {\n        require(_active[msg.sender], \"Not a member\");\n        _removeMember(msg.sender);\n        emit MemberLeft(msg.sender);\n    }\n\n    function _removeMember(address addr) internal {\n        uint256 index = _memberIndex[addr];\n        uint256 lastIndex = members.length - 1;\n\n        if (index != lastIndex) {\n            address lastMember = members[lastIndex];\n            members[index] = lastMember;\n            _memberIndex[lastMember] = index;\n        }\n\n        members.pop();\n        delete _active[addr];\n        delete _memberIndex[addr];\n        delete lastHeartbeat[addr];\n    }\n\n    function upkeep() external override {\n        _upkeep();\n    }\n\n    function _upkeep() internal {\n        if (block.timestamp < lastUpkeep + 1 minutes) {\n            return;\n        }\n        lastUpkeep = block.timestamp;\n\n        uint256 i = 0;\n        while (i < members.length) {\n            address addr = members[i];\n            if (block.timestamp > lastHeartbeat[addr] + HEARTBEAT_INTERVAL) {\n                emit MemberTimedOut(addr);\n                _removeMember(addr);\n                continue;\n            }\n            i++;\n        }\n    }\n\n    function isActive(address addr) external view override returns (bool) {\n        return _active[addr];\n    }\n\n    function getActiveMembers() public view override returns (address[] memory) {\n        return members;\n    }\n\n    function electSubcommittee(uint256 n, bytes32 seed) external view override returns (address[] memory) {\n        require(n <= members.length, \"n exceeds active members\");\n\n        address[] memory shuffled = new address[](members.length);\n        for (uint256 i = 0; i < members.length; i++) {\n            shuffled[i] = members[i];\n        }\n\n        for (uint256 i = 0; i < n; i++) {\n            uint256 j = i + uint256(keccak256(abi.encodePacked(seed, i))) % (shuffled.length - i);\n            (shuffled[i], shuffled[j]) = (shuffled[j], shuffled[i]);\n        }\n\n        address[] memory result = new address[](n);\n        for (uint256 i = 0; i < n; i++) {\n            result[i] = shuffled[i];\n        }\n\n        return result;\n    }\n}\n"
+      }
+    }
+  }
+}

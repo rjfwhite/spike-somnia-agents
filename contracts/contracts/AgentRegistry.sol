@@ -71,7 +71,7 @@ contract AgentRegistry is IAgentRegistry, ERC721Enumerable {
         address currentOwner = _ownerOf(agentId);
 
         if (currentOwner == address(0)) {
-            _mint(msg.sender, agentId);
+            _safeMint(msg.sender, agentId);
         } else if (currentOwner != msg.sender) {
             revert NotAgentOwner(agentId, msg.sender);
         }

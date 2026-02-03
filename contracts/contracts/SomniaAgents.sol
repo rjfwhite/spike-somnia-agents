@@ -12,24 +12,24 @@ enum ConsensusType {
 
 struct Request {
     uint256 id;             // Request ID to verify slot hasn't been overwritten
-    address requester;
+    address requester;      // Address to receive rebate
     address callbackAddress;
     bytes4 callbackSelector;
-    bytes payload;
-    uint256 agentId;        // ID of the agent to run
     address[] subcommittee;
     Response[] responses;
     uint256 threshold;
     uint256 createdAt;
     bool finalized;
     ConsensusType consensusType;
-    uint256 finalPrice;     // Median price * consensus count
+    uint256 agentCost;      // Base fee for the agent (captured at request time)
+    uint256 maxCost;        // Maximum cost paid upfront by requester
+    uint256 finalCost;      // Actual cost: agentCost + validatorCosts + callbackGasCost
 }
 
 struct Response {
     address validator;
     bytes result;
-    bytes receipt;      // CID of JSON manifest of the computation
+    uint256 receipt;    // CID of JSON manifest of the computation
     uint256 price;      // Price quoted by this validator
     uint256 timestamp;
 }
@@ -38,17 +38,17 @@ struct Response {
 /// @notice Consumer interface for requesting agent execution
 interface ISomniaAgents {
     // Events
-    event RequestCreated(uint256 indexed requestId, uint256 indexed agentId, bytes payload, address[] subcommittee);
-    event RequestFinalized(uint256 indexed requestId);
+    event RequestCreated(uint256 indexed requestId, uint256 indexed agentId, address indexed requester, uint256 maxCost, bytes payload, address[] subcommittee);
+    event RequestFinalized(uint256 indexed requestId, uint256 finalCost, uint256 rebate);
     event RequestTimedOut(uint256 indexed requestId);
 
-    // Request Creation
+    // Request Creation (payable - sends max cost upfront)
     function createRequest(
         uint256 agentId,
         address callbackAddress,
         bytes4 callbackSelector,
         bytes calldata payload
-    ) external returns (uint256 requestId);
+    ) external payable returns (uint256 requestId);
 
     function createRequestWithParams(
         uint256 agentId,
@@ -58,22 +58,22 @@ interface ISomniaAgents {
         uint256 subcommitteeSize,
         uint256 threshold,
         ConsensusType consensusType
-    ) external returns (uint256 requestId);
+    ) external payable returns (uint256 requestId);
 
     // Query Functions
     function getRequest(uint256 requestId) external view returns (
         address requester,
         address callbackAddress,
         bytes4 callbackSelector,
-        bytes memory payload,
-        uint256 agentId,
         address[] memory subcommittee,
         uint256 threshold,
         uint256 createdAt,
         bool finalized,
         uint256 responseCount,
         ConsensusType consensusType,
-        uint256 finalPrice
+        uint256 agentCost,
+        uint256 maxCost,
+        uint256 finalCost
     );
 
     function isRequestPending(uint256 requestId) external view returns (bool);
@@ -90,8 +90,15 @@ interface ISomniaAgentsRunner {
     function submitResponse(
         uint256 requestId,
         bytes calldata result,
-        bytes calldata receipt,
+        uint256 receipt,
         uint256 price
+    ) external;
+
+    function submitResponseBatch(
+        uint256[] calldata requestIds,
+        bytes[] calldata results,
+        uint256[] calldata receipts,
+        uint256[] calldata prices
     ) external;
 
     // Maintenance
@@ -120,6 +127,8 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     uint256 public defaultSubcommitteeSize = 3;
     uint256 public defaultThreshold = 2;
     uint256 public requestTimeout = 1 minutes;
+    uint256 public callbackGasLimit = 500_000;
+    uint256 public maxExecutionFee = 10 ether;  // Maximum allowed prepaid cost per request
 
     // Circular buffer of requests
     Request[] public requests;
@@ -173,6 +182,14 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         requestTimeout = timeout;
     }
 
+    function setCallbackGasLimit(uint256 gasLimit) external onlyOwner {
+        callbackGasLimit = gasLimit;
+    }
+
+    function setMaxExecutionFee(uint256 maxFee) external onlyOwner {
+        maxExecutionFee = maxFee;
+    }
+
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "SomniaAgents: new owner is zero address");
         owner = newOwner;
@@ -185,7 +202,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         address callbackAddress,
         bytes4 callbackSelector,
         bytes calldata payload
-    ) external override returns (uint256 requestId) {
+    ) external payable override returns (uint256 requestId) {
         return _createRequest(agentId, callbackAddress, callbackSelector, payload, defaultSubcommitteeSize, defaultThreshold, ConsensusType.Majority);
     }
 
@@ -197,7 +214,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         uint256 subcommitteeSize,
         uint256 threshold,
         ConsensusType consensusType
-    ) external override returns (uint256 requestId) {
+    ) external payable override returns (uint256 requestId) {
         return _createRequest(agentId, callbackAddress, callbackSelector, payload, subcommitteeSize, threshold, consensusType);
     }
 
@@ -211,23 +228,17 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         ConsensusType consensusType
     ) internal returns (uint256 requestId) {
         require(threshold > 0 && threshold <= subcommitteeSize, "SomniaAgents: invalid threshold");
-        require(agentRegistry.agentExists(agentId), "SomniaAgents: agent does not exist");
+        require(msg.value > 0 && msg.value <= maxExecutionFee, "SomniaAgents: invalid max cost");
+
+        // Get agent info (validates existence and captures cost)
+        Agent memory agent = agentRegistry.getAgent(agentId);
 
         address[] memory activeMembers = committee.getActiveMembers();
         require(activeMembers.length >= subcommitteeSize, "SomniaAgents: not enough active members");
 
         requestId = nextRequestId++;
 
-        // Generate deterministic seed from request parameters
-        bytes32 seed = keccak256(abi.encodePacked(
-            requestId,
-            block.timestamp,
-            blockhash(block.number - 1),
-            msg.sender,
-            payload
-        ));
-
-        address[] memory subcommittee = committee.electSubcommittee(subcommitteeSize, seed);
+        address[] memory subcommittee = committee.electSubcommittee(subcommitteeSize, bytes32(requestId));
 
         // Use circular buffer
         Request storage req = requests[requestId % requests.length];
@@ -241,16 +252,16 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         req.requester = msg.sender;
         req.callbackAddress = callbackAddress;
         req.callbackSelector = callbackSelector;
-        req.payload = payload;
-        req.agentId = agentId;
         req.subcommittee = subcommittee;
         req.threshold = threshold;
         req.createdAt = block.timestamp;
         req.finalized = false;
         req.consensusType = consensusType;
-        req.finalPrice = 0;
+        req.agentCost = agent.cost;
+        req.maxCost = msg.value;
+        req.finalCost = 0;
 
-        emit RequestCreated(requestId, agentId, payload, subcommittee);
+        emit RequestCreated(requestId, agentId, msg.sender, msg.value, payload, subcommittee);
     }
 
     // ============ Response Functions ============
@@ -258,14 +269,62 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     function submitResponse(
         uint256 requestId,
         bytes calldata result,
-        bytes calldata receipt,
+        uint256 receipt,
         uint256 price
-    ) external override validRequest(requestId) onlySubcommitteeMember(requestId) {
+    ) external override {
+        require(_trySubmitResponse(requestId, result, receipt, price), "SomniaAgents: submission failed");
+    }
+
+    function submitResponseBatch(
+        uint256[] calldata requestIds,
+        bytes[] calldata results,
+        uint256[] calldata receipts,
+        uint256[] calldata prices
+    ) external override {
+        require(
+            requestIds.length == results.length &&
+            requestIds.length == receipts.length &&
+            requestIds.length == prices.length,
+            "SomniaAgents: array length mismatch"
+        );
+
+        for (uint256 i = 0; i < requestIds.length; i++) {
+            _trySubmitResponse(requestIds[i], results[i], receipts[i], prices[i]);
+        }
+    }
+
+    function _trySubmitResponse(
+        uint256 requestId,
+        bytes calldata result,
+        uint256 receipt,
+        uint256 price
+    ) internal returns (bool) {
+        // Validate request exists
+        if (requests.length == 0 || requests[requestId % requests.length].id != requestId) {
+            return false;
+        }
+
+        // Validate caller is subcommittee member
+        if (!_isSubcommitteeMember(requestId, msg.sender)) {
+            return false;
+        }
+
         Request storage req = requests[requestId % requests.length];
 
-        require(!req.finalized, "SomniaAgents: request already finalized");
-        require(block.timestamp <= req.createdAt + requestTimeout, "SomniaAgents: request timed out");
-        require(!_hasResponded(req.responses, msg.sender), "SomniaAgents: already responded");
+        // Check not finalized
+        if (req.finalized) {
+            return false;
+        }
+
+        // Check not timed out
+        if (block.timestamp > req.createdAt + requestTimeout) {
+            return false;
+        }
+
+        // Check not already responded
+        if (_hasResponded(req.responses, msg.sender)) {
+            return false;
+        }
 
         req.responses.push(Response({
             validator: msg.sender,
@@ -279,16 +338,16 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         // Check finalization based on consensus type
         if (req.consensusType == ConsensusType.Majority) {
-            // Check if any result has reached threshold agreement
             if (_checkMajorityConsensus(req.responses, req.threshold)) {
                 _finalizeRequest(requestId);
             }
         } else {
-            // Threshold consensus: finalize when we have enough responses
             if (req.responses.length >= req.threshold) {
                 _finalizeRequest(requestId);
             }
         }
+
+        return true;
     }
 
     function _hasResponded(Response[] storage responses, address validator) internal view returns (bool) {
@@ -333,18 +392,33 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             consensusPrices = _getAllPrices(req.responses);
         }
 
-        // Calculate final price: median price * consensus count
+        // Calculate validator costs: median price * subcommittee size (pay all elected validators)
         uint256 medianPrice = MathLib.median(consensusPrices);
-        req.finalPrice = medianPrice * consensusPrices.length;
+        uint256 validatorCosts = medianPrice * req.subcommittee.length;
 
-        // Call the callback if one was provided
+        // Call the callback if one was provided, tracking gas used
+        uint256 callbackGasCost = 0;
         if (req.callbackAddress != address(0)) {
-            (bool success, ) = req.callbackAddress.call(
+            uint256 gasBefore = gasleft();
+            (bool success, ) = req.callbackAddress.call{gas: callbackGasLimit}(
                 abi.encodeWithSelector(req.callbackSelector, requestId, callbackData)
             );
+            uint256 gasUsed = gasBefore - gasleft();
+            callbackGasCost = gasUsed * tx.gasprice;
         }
 
-        emit RequestFinalized(requestId);
+        // Calculate final cost: agent fee + validator costs + callback gas
+        req.finalCost = req.agentCost + validatorCosts + callbackGasCost;
+
+        // Send rebate to requester if final cost < max cost
+        uint256 rebate = 0;
+        if (req.finalCost < req.maxCost) {
+            rebate = req.maxCost - req.finalCost;
+            (bool sent, ) = req.requester.call{value: rebate}("");
+            // Rebate failure is not fatal - funds stay in contract
+        }
+
+        emit RequestFinalized(requestId, req.finalCost, rebate);
     }
 
     function _getMajorityResultAndPrices(
@@ -425,21 +499,36 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         emit RequestTimedOut(requestId);
 
-        // Always call callback - with results if we have them, empty if not
+        // Calculate validator costs from any responses we have
         bytes memory aggregatedResult;
+        uint256 validatorCosts = 0;
         if (req.responses.length > 0) {
             uint256[] memory prices;
             (aggregatedResult, prices) = _aggregateResponses(req.responses, req.consensusType, req.threshold);
             uint256 medianPrice = MathLib.median(prices);
-            req.finalPrice = medianPrice * prices.length;
+            validatorCosts = medianPrice * req.subcommittee.length;
         }
 
+        // Call callback and track gas
+        uint256 callbackGasCost = 0;
         if (req.callbackAddress != address(0)) {
-            (bool success, ) = req.callbackAddress.call(
+            uint256 gasBefore = gasleft();
+            (bool success, ) = req.callbackAddress.call{gas: callbackGasLimit}(
                 abi.encodeWithSelector(req.callbackSelector, requestId, aggregatedResult)
             );
+            uint256 gasUsed = gasBefore - gasleft();
+            callbackGasCost = gasUsed * tx.gasprice;
         }
-        emit RequestFinalized(requestId);
+
+        // Calculate final cost and send rebate
+        req.finalCost = req.agentCost + validatorCosts + callbackGasCost;
+        uint256 rebate = 0;
+        if (req.finalCost < req.maxCost) {
+            rebate = req.maxCost - req.finalCost;
+            (bool sent, ) = req.requester.call{value: rebate}("");
+        }
+
+        emit RequestFinalized(requestId, req.finalCost, rebate);
     }
 
     // Upkeep function to timeout old requests - walks from oldest pending forward
@@ -483,20 +572,36 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         emit RequestTimedOut(requestId);
 
+        // Calculate validator costs from any responses we have
         bytes memory aggregatedResult;
+        uint256 validatorCosts = 0;
         if (req.responses.length > 0) {
             uint256[] memory prices;
             (aggregatedResult, prices) = _aggregateResponses(req.responses, req.consensusType, req.threshold);
             uint256 medianPrice = MathLib.median(prices);
-            req.finalPrice = medianPrice * prices.length;
+            validatorCosts = medianPrice * req.subcommittee.length;
         }
 
+        // Call callback and track gas
+        uint256 callbackGasCost = 0;
         if (req.callbackAddress != address(0)) {
-            (bool success, ) = req.callbackAddress.call(
+            uint256 gasBefore = gasleft();
+            (bool success, ) = req.callbackAddress.call{gas: callbackGasLimit}(
                 abi.encodeWithSelector(req.callbackSelector, requestId, aggregatedResult)
             );
+            uint256 gasUsed = gasBefore - gasleft();
+            callbackGasCost = gasUsed * tx.gasprice;
         }
-        emit RequestFinalized(requestId);
+
+        // Calculate final cost and send rebate
+        req.finalCost = req.agentCost + validatorCosts + callbackGasCost;
+        uint256 rebate = 0;
+        if (req.finalCost < req.maxCost) {
+            rebate = req.maxCost - req.finalCost;
+            (bool sent, ) = req.requester.call{value: rebate}("");
+        }
+
+        emit RequestFinalized(requestId, req.finalCost, rebate);
     }
 
     // ============ View Functions ============
@@ -505,15 +610,15 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         address requester,
         address callbackAddress,
         bytes4 callbackSelector,
-        bytes memory payload,
-        uint256 agentId,
         address[] memory subcommittee,
         uint256 threshold,
         uint256 createdAt,
         bool finalized,
         uint256 responseCount,
         ConsensusType consensusType,
-        uint256 finalPrice
+        uint256 agentCost,
+        uint256 maxCost,
+        uint256 finalCost
     ) {
         Request storage req = requests[requestId % requests.length];
         require(req.id == requestId, "SomniaAgents: request not found or overwritten");
@@ -521,15 +626,15 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             req.requester,
             req.callbackAddress,
             req.callbackSelector,
-            req.payload,
-            req.agentId,
             req.subcommittee,
             req.threshold,
             req.createdAt,
             req.finalized,
             req.responses.length,
             req.consensusType,
-            req.finalPrice
+            req.agentCost,
+            req.maxCost,
+            req.finalCost
         );
     }
 

@@ -29,6 +29,11 @@ contract SomniaAgentsTest is Test {
     Committee committee;
     MockCallback callback;
 
+    // Implement ERC721Receiver so test contract can receive NFTs
+    function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
     address validator1;
     address validator2;
     address validator3;
@@ -36,7 +41,7 @@ contract SomniaAgentsTest is Test {
     address validator5;
 
     // Default test values for receipt, price, and agent
-    bytes constant TEST_RECEIPT = "QmTestCID123";
+    uint256 constant TEST_RECEIPT = 12345; // CID as uint256
     uint256 constant TEST_PRICE = 100;
     uint256 constant TEST_AGENT_ID = 1;
     string constant TEST_CONTAINER_URL = "docker.io/somnia/agent:v1";
@@ -62,19 +67,15 @@ contract SomniaAgentsTest is Test {
 
     function _registerValidators() internal {
         vm.prank(validator1);
-        committee.memberHeartbeat();
+        committee.heartbeatMembership();
         vm.prank(validator2);
-        committee.memberHeartbeat();
+        committee.heartbeatMembership();
         vm.prank(validator3);
-        committee.memberHeartbeat();
+        committee.heartbeatMembership();
         vm.prank(validator4);
-        committee.memberHeartbeat();
+        committee.heartbeatMembership();
         vm.prank(validator5);
-        committee.memberHeartbeat();
-
-        // Activate them
-        vm.warp(block.timestamp + 1 minutes);
-        committee.upkeep();
+        committee.heartbeatMembership();
     }
 
     function _setupSmallAgent() internal returns (SomniaAgents) {
@@ -87,19 +88,18 @@ contract SomniaAgentsTest is Test {
 
         // Register validators
         vm.prank(validator1);
-        smallCommittee.memberHeartbeat();
+        smallCommittee.heartbeatMembership();
         vm.prank(validator2);
-        smallCommittee.memberHeartbeat();
+        smallCommittee.heartbeatMembership();
         vm.prank(validator3);
-        smallCommittee.memberHeartbeat();
-        vm.warp(block.timestamp + 1 minutes);
-        smallCommittee.upkeep();
+        smallCommittee.heartbeatMembership();
 
         return smallAgent;
     }
 
     function test_CreateRequest() public {
-        uint256 requestId = agents.createRequest(
+        uint256 maxCostSent = 1 ether;
+        uint256 requestId = agents.createRequest{value: maxCostSent}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -110,33 +110,33 @@ contract SomniaAgentsTest is Test {
             address requester,
             address callbackAddr,
             bytes4 selector,
-            bytes memory payload,
-            uint256 agentId,
             address[] memory subcommittee,
             uint256 threshold,
             uint256 createdAt,
             bool finalized,
             uint256 responseCount,
             ConsensusType consensusType,
-            uint256 finalPrice
+            uint256 agentCost,
+            uint256 maxCost,
+            uint256 finalCost
         ) = agents.getRequest(requestId);
 
         assertEq(requester, address(this));
         assertEq(callbackAddr, address(callback));
         assertEq(selector, MockCallback.handleResponse.selector);
-        assertEq(payload, "test payload");
-        assertEq(agentId, TEST_AGENT_ID);
         assertEq(subcommittee.length, 3); // default size
         assertEq(threshold, 2); // default threshold
         assertEq(createdAt, block.timestamp);
         assertFalse(finalized);
         assertEq(responseCount, 0);
         assertEq(uint8(consensusType), uint8(ConsensusType.Majority)); // default
-        assertEq(finalPrice, 0); // not finalized yet
+        assertEq(agentCost, 0); // agent cost from registry
+        assertEq(maxCost, maxCostSent);
+        assertEq(finalCost, 0); // not finalized yet
     }
 
     function test_CreateRequestWithParams() public {
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -146,7 +146,7 @@ contract SomniaAgentsTest is Test {
             ConsensusType.Threshold
         );
 
-        (,,,,, address[] memory subcommittee, uint256 threshold,,,,ConsensusType consensusType,) = agents.getRequest(requestId);
+        (,,, address[] memory subcommittee, uint256 threshold,,,,ConsensusType consensusType,,,) = agents.getRequest(requestId);
 
         assertEq(subcommittee.length, 5);
         assertEq(threshold, 3);
@@ -154,7 +154,7 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_SubmitResponse() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -176,7 +176,7 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_SubmitResponse_OnlySubcommittee() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -186,12 +186,12 @@ contract SomniaAgentsTest is Test {
         address nonMember = address(0x999);
 
         vm.prank(nonMember);
-        vm.expectRevert("SomniaAgents: not a subcommittee member");
+        vm.expectRevert("SomniaAgents: submission failed");
         agents.submitResponse(requestId, "response", TEST_RECEIPT, TEST_PRICE);
     }
 
     function test_SubmitResponse_NoDuplicates() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -205,12 +205,12 @@ contract SomniaAgentsTest is Test {
         agents.submitResponse(requestId, "response1", TEST_RECEIPT, TEST_PRICE);
 
         vm.prank(member);
-        vm.expectRevert("SomniaAgents: already responded");
+        vm.expectRevert("SomniaAgents: submission failed");
         agents.submitResponse(requestId, "response2", TEST_RECEIPT, TEST_PRICE);
     }
 
     function test_Finalization_AtThreshold_Majority() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -223,14 +223,14 @@ contract SomniaAgentsTest is Test {
         vm.prank(subcommittee[0]);
         agents.submitResponse(requestId, "result", TEST_RECEIPT, 100);
 
-        (,,,,,,,,bool finalized1,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized1,,,,,) = agents.getRequest(requestId);
         assertFalse(finalized1);
 
         // Submit second response with same value - should finalize
         vm.prank(subcommittee[1]);
         agents.submitResponse(requestId, "result", TEST_RECEIPT, 200);
 
-        (,,,,,,,,bool finalized2,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized2,,,,,) = agents.getRequest(requestId);
         assertTrue(finalized2);
 
         // Callback should have been called
@@ -241,7 +241,7 @@ contract SomniaAgentsTest is Test {
 
     function test_Majority_RequiresAgreement() public {
         // With threshold=2, need 2 validators to agree on the same value
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -261,7 +261,7 @@ contract SomniaAgentsTest is Test {
         agents.submitResponse(requestId, "value2", TEST_RECEIPT, TEST_PRICE);
 
         // Should NOT be finalized - no majority agreement
-        (,,,,,,,,bool finalized1,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized1,,,,,) = agents.getRequest(requestId);
         assertFalse(finalized1);
 
         // Third validator agrees with first
@@ -269,14 +269,14 @@ contract SomniaAgentsTest is Test {
         agents.submitResponse(requestId, "value1", TEST_RECEIPT, TEST_PRICE);
 
         // Now should be finalized
-        (,,,,,,,,bool finalized2,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized2,,,,,) = agents.getRequest(requestId);
         assertTrue(finalized2);
 
         assertEq(callback.lastResult(), "value1");
     }
 
     function test_Aggregation_MajorityWins() public {
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -300,7 +300,7 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_CannotSubmitAfterFinalized() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -317,12 +317,12 @@ contract SomniaAgentsTest is Test {
 
         // Third member cannot submit
         vm.prank(subcommittee[2]);
-        vm.expectRevert("SomniaAgents: request already finalized");
+        vm.expectRevert("SomniaAgents: submission failed");
         agents.submitResponse(requestId, "late response", TEST_RECEIPT, TEST_PRICE);
     }
 
     function test_Timeout() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -335,12 +335,12 @@ contract SomniaAgentsTest is Test {
         // Cannot submit after timeout
         address[] memory subcommittee = agents.getSubcommittee(requestId);
         vm.prank(subcommittee[0]);
-        vm.expectRevert("SomniaAgents: request timed out");
+        vm.expectRevert("SomniaAgents: submission failed");
         agents.submitResponse(requestId, "late", TEST_RECEIPT, TEST_PRICE);
     }
 
     function test_TimeoutRequest_ManualTimeout() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -358,7 +358,7 @@ contract SomniaAgentsTest is Test {
         // Anyone can call timeout
         agents.timeoutRequest(requestId);
 
-        (,,,,,,,,bool finalized,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized,,,,,) = agents.getRequest(requestId);
         assertTrue(finalized);
 
         // Callback should still be called with partial result
@@ -367,7 +367,7 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_TimeoutRequest_CannotTimeoutEarly() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -412,7 +412,7 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_IsRequestPending() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -441,7 +441,7 @@ contract SomniaAgentsTest is Test {
         freshRegistry.setAgent(TEST_AGENT_ID, "ipfs://metadata", TEST_CONTAINER_URL, 0);
 
         vm.expectRevert("SomniaAgents: not enough active members");
-        freshAgents.createRequest(
+        freshAgents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -451,7 +451,7 @@ contract SomniaAgentsTest is Test {
 
     function test_CreateRequest_InvalidThreshold() public {
         vm.expectRevert("SomniaAgents: invalid threshold");
-        agents.createRequestWithParams(
+        agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -462,7 +462,7 @@ contract SomniaAgentsTest is Test {
         );
 
         vm.expectRevert("SomniaAgents: invalid threshold");
-        agents.createRequestWithParams(
+        agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -475,14 +475,14 @@ contract SomniaAgentsTest is Test {
 
     function test_CreateRequest_NoCallback() public {
         // Requests without callbacks are allowed (pure outbound queries)
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(0),
             bytes4(0),
             "test payload"
         );
 
-        (,address callbackAddr,,,,,,,,,, ) = agents.getRequest(requestId);
+        (,address callbackAddr,,,,,,,,,,) = agents.getRequest(requestId);
         assertEq(callbackAddr, address(0));
 
         // Finalize without callback - should not revert
@@ -492,13 +492,13 @@ contract SomniaAgentsTest is Test {
         vm.prank(subcommittee[1]);
         agents.submitResponse(requestId, "result", TEST_RECEIPT, TEST_PRICE);
 
-        (,,,,,,,,bool finalized,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized,,,,,) = agents.getRequest(requestId);
         assertTrue(finalized);
     }
 
     function test_CreateRequest_AgentNotFound() public {
-        vm.expectRevert("SomniaAgents: agent does not exist");
-        agents.createRequest(
+        vm.expectRevert(abi.encodeWithSelector(IAgentRegistry.AgentNotFound.selector, 999));
+        agents.createRequest{value: 1 ether}(
             999, // non-existent agent
             address(callback),
             MockCallback.handleResponse.selector,
@@ -507,14 +507,14 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_MultipleRequests() public {
-        uint256 req1 = agents.createRequest(
+        uint256 req1 = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
             "payload1"
         );
 
-        uint256 req2 = agents.createRequest(
+        uint256 req2 = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -529,7 +529,7 @@ contract SomniaAgentsTest is Test {
     // ============ Threshold Consensus Tests ============
 
     function test_Threshold_FinalizesOnCount() public {
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -545,14 +545,14 @@ contract SomniaAgentsTest is Test {
         vm.prank(subcommittee[0]);
         agents.submitResponse(requestId, "value1", TEST_RECEIPT, TEST_PRICE);
 
-        (,,,,,,,,bool finalized1,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized1,,,,,) = agents.getRequest(requestId);
         assertFalse(finalized1);
 
         // Submit second response (different value) - SHOULD finalize (threshold reached)
         vm.prank(subcommittee[1]);
         agents.submitResponse(requestId, "value2", TEST_RECEIPT, TEST_PRICE);
 
-        (,,,,,,,,bool finalized2,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized2,,,,,) = agents.getRequest(requestId);
         assertTrue(finalized2);
 
         // Callback should receive all responses encoded
@@ -560,7 +560,7 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_Threshold_ReturnsAllResponses() public {
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -592,7 +592,7 @@ contract SomniaAgentsTest is Test {
 
     function test_Threshold_DifferentValuesFinalizes() public {
         // Unlike Majority, Threshold doesn't care if values match
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -612,13 +612,13 @@ contract SomniaAgentsTest is Test {
         agents.submitResponse(requestId, "y", TEST_RECEIPT, TEST_PRICE);
 
         // Should be finalized even with different values
-        (,,,,,,,,bool finalized,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized,,,,,) = agents.getRequest(requestId);
         assertTrue(finalized);
     }
 
     function test_Threshold_UsedForMedian() public {
         // Simulate numeric values that would be median-aggregated
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -652,8 +652,8 @@ contract SomniaAgentsTest is Test {
 
     // ============ Price Calculation Tests ============
 
-    function test_FinalPrice_MedianTimesConsensusCount() public {
-        uint256 requestId = agents.createRequestWithParams(
+    function test_FinalPrice_MedianTimesSubcommitteeSize() public {
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -667,18 +667,19 @@ contract SomniaAgentsTest is Test {
 
         // Two validators agree with different prices
         vm.prank(subcommittee[0]);
-        agents.submitResponse(requestId, "result", "cid1", 100);
+        agents.submitResponse(requestId, "result", 1001, 100);
 
         vm.prank(subcommittee[1]);
-        agents.submitResponse(requestId, "result", "cid2", 200);
+        agents.submitResponse(requestId, "result", 1002, 200);
 
-        // Final price should be median(100, 200) * 2 = 150 * 2 = 300
-        (,,,,,,,,,,,uint256 finalPrice) = agents.getRequest(requestId);
-        assertEq(finalPrice, 300);
+        // Final cost = median(100, 200) * subcommitteeSize(3) = 150 * 3 = 450
+        // All subcommittee members are paid, not just responders
+        (,,,,,,,,,,,uint256 finalCost) = agents.getRequest(requestId);
+        assertEq(finalCost, 450);
     }
 
     function test_FinalPrice_OddConsensusCount() public {
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -692,21 +693,21 @@ contract SomniaAgentsTest is Test {
 
         // Three validators agree with different prices
         vm.prank(subcommittee[0]);
-        agents.submitResponse(requestId, "result", "cid1", 100);
+        agents.submitResponse(requestId, "result", 1001, 100);
 
         vm.prank(subcommittee[1]);
-        agents.submitResponse(requestId, "result", "cid2", 300);
+        agents.submitResponse(requestId, "result", 1002, 300);
 
         vm.prank(subcommittee[2]);
-        agents.submitResponse(requestId, "result", "cid3", 200);
+        agents.submitResponse(requestId, "result", 1003, 200);
 
         // Final price should be median(100, 200, 300) * 3 = 200 * 3 = 600
-        (,,,,,,,,,,,uint256 finalPrice) = agents.getRequest(requestId);
-        assertEq(finalPrice, 600);
+        (,,,,,,,,,,,uint256 finalCost) = agents.getRequest(requestId);
+        assertEq(finalCost, 600);
     }
 
     function test_FinalPrice_ThresholdConsensus() public {
-        uint256 requestId = agents.createRequestWithParams(
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -720,19 +721,20 @@ contract SomniaAgentsTest is Test {
 
         // Different results but prices still used
         vm.prank(subcommittee[0]);
-        agents.submitResponse(requestId, "x", "cid1", 50);
+        agents.submitResponse(requestId, "x", 1001, 50);
 
         vm.prank(subcommittee[1]);
-        agents.submitResponse(requestId, "y", "cid2", 150);
+        agents.submitResponse(requestId, "y", 1002, 150);
 
-        // Final price should be median(50, 150) * 2 = 100 * 2 = 200
-        (,,,,,,,,,,,uint256 finalPrice) = agents.getRequest(requestId);
-        assertEq(finalPrice, 200);
+        // Final cost = median(50, 150) * subcommitteeSize(3) = 100 * 3 = 300
+        (,,,,,,,,,,,uint256 finalCost) = agents.getRequest(requestId);
+        assertEq(finalCost, 300);
     }
 
     function test_FinalPrice_OnlyConsensusValidatorsPrices() public {
-        // In Majority consensus, only agreeing validators' prices count
-        uint256 requestId = agents.createRequestWithParams(
+        // In Majority consensus, only agreeing validators' prices count for median
+        // But ALL subcommittee members are paid
+        uint256 requestId = agents.createRequestWithParams{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -746,23 +748,24 @@ contract SomniaAgentsTest is Test {
 
         // First validator disagrees with high price
         vm.prank(subcommittee[0]);
-        agents.submitResponse(requestId, "different", "cid1", 10000);
+        agents.submitResponse(requestId, "different", 1001, 10000);
 
         // Two validators agree with lower prices
         vm.prank(subcommittee[1]);
-        agents.submitResponse(requestId, "same", "cid2", 100);
+        agents.submitResponse(requestId, "same", 1002, 100);
 
         vm.prank(subcommittee[2]);
-        agents.submitResponse(requestId, "same", "cid3", 200);
+        agents.submitResponse(requestId, "same", 1003, 200);
 
-        // Final price should only consider agreeing validators: median(100, 200) * 2 = 150 * 2 = 300
-        // The 10000 from disagreeing validator should NOT be included
-        (,,,,,,,,,,,uint256 finalPrice) = agents.getRequest(requestId);
-        assertEq(finalPrice, 300);
+        // Median uses only agreeing validators: median(100, 200) = 150
+        // But cost is median * subcommitteeSize: 150 * 3 = 450
+        // The 10000 from disagreeing validator is NOT included in median
+        (,,,,,,,,,,,uint256 finalCost) = agents.getRequest(requestId);
+        assertEq(finalCost, 450);
     }
 
     function test_Response_HasReceiptAndPrice() public {
-        uint256 requestId = agents.createRequest(
+        uint256 requestId = agents.createRequest{value: 1 ether}(
             TEST_AGENT_ID,
             address(callback),
             MockCallback.handleResponse.selector,
@@ -771,7 +774,7 @@ contract SomniaAgentsTest is Test {
 
         address[] memory subcommittee = agents.getSubcommittee(requestId);
 
-        bytes memory testReceipt = "QmYwAPJzv5CZsnAzt8auVZRn";
+        uint256 testReceipt = 67890;
         uint256 testPrice = 12345;
 
         vm.prank(subcommittee[0]);
@@ -788,9 +791,9 @@ contract SomniaAgentsTest is Test {
         SomniaAgents smallAgent = _setupSmallAgent();
 
         // Create 3 requests (fills buffer)
-        uint256 req0 = smallAgent.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload0");
-        uint256 req1 = smallAgent.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload1");
-        uint256 req2 = smallAgent.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload2");
+        uint256 req0 = smallAgent.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload0");
+        uint256 req1 = smallAgent.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload1");
+        uint256 req2 = smallAgent.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload2");
 
         assertEq(req0, 0);
         assertEq(req1, 1);
@@ -802,7 +805,7 @@ contract SomniaAgentsTest is Test {
         assertTrue(smallAgent.isRequestValid(req2));
 
         // Create 4th request - overwrites slot 0 (req0)
-        uint256 req3 = smallAgent.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload3");
+        uint256 req3 = smallAgent.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload3");
         assertEq(req3, 3);
 
         // req0 should now be invalid (overwritten), req3 should be valid
@@ -820,25 +823,23 @@ contract SomniaAgentsTest is Test {
         smallRegistry.setAgent(TEST_AGENT_ID, "ipfs://metadata", TEST_CONTAINER_URL, 0);
 
         vm.prank(validator1);
-        smallCommittee.memberHeartbeat();
+        smallCommittee.heartbeatMembership();
         vm.prank(validator2);
-        smallCommittee.memberHeartbeat();
+        smallCommittee.heartbeatMembership();
         vm.prank(validator3);
-        smallCommittee.memberHeartbeat();
-        vm.warp(block.timestamp + 1 minutes);
-        smallCommittee.upkeep();
+        smallCommittee.heartbeatMembership();
 
         // Create request 0
-        uint256 req0 = smallAgent.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "old");
+        uint256 req0 = smallAgent.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "old");
 
         // Create requests 1 and 2 to overwrite slot 0
-        smallAgent.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "new1");
-        smallAgent.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "new2");
+        smallAgent.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "new1");
+        smallAgent.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "new2");
 
         // Trying to submit response to overwritten request should fail
         address[] memory sub = smallAgent.getSubcommittee(2); // Get subcommittee for valid request
         vm.prank(sub[0]);
-        vm.expectRevert("SomniaAgents: request not found or overwritten");
+        vm.expectRevert("SomniaAgents: submission failed");
         smallAgent.submitResponse(req0, "late", TEST_RECEIPT, TEST_PRICE);
     }
 
@@ -846,8 +847,8 @@ contract SomniaAgentsTest is Test {
 
     function test_UpkeepRequests_TimesOutOldRequests() public {
         // Create multiple requests
-        uint256 req0 = agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload0");
-        uint256 req1 = agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload1");
+        uint256 req0 = agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload0");
+        uint256 req1 = agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload1");
 
         // Submit partial response to req0
         address[] memory sub0 = agents.getSubcommittee(req0);
@@ -861,8 +862,8 @@ contract SomniaAgentsTest is Test {
         agents.upkeepRequests();
 
         // Both requests should be finalized
-        (,,,,,,,,bool finalized0,,,) = agents.getRequest(req0);
-        (,,,,,,,,bool finalized1,,,) = agents.getRequest(req1);
+        (,,,,,,bool finalized0,,,,,) = agents.getRequest(req0);
+        (,,,,,,bool finalized1,,,,,) = agents.getRequest(req1);
         assertTrue(finalized0);
         assertTrue(finalized1);
 
@@ -872,7 +873,7 @@ contract SomniaAgentsTest is Test {
 
     function test_UpkeepRequests_CallbackWithNoResponses() public {
         // Create request with no responses
-        uint256 requestId = agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload");
+        uint256 requestId = agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload");
 
         // Warp past timeout
         vm.warp(block.timestamp + 6 minutes);
@@ -881,7 +882,7 @@ contract SomniaAgentsTest is Test {
         agents.upkeepRequests();
 
         // Request should be finalized
-        (,,,,,,,,bool finalized,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized,,,,,) = agents.getRequest(requestId);
         assertTrue(finalized);
 
         // Callback should have been called with empty result
@@ -891,7 +892,7 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_UpkeepRequests_SkipsAlreadyFinalized() public {
-        uint256 requestId = agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload");
+        uint256 requestId = agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload");
 
         // Finalize by reaching consensus
         address[] memory sub = agents.getSubcommittee(requestId);
@@ -911,13 +912,13 @@ contract SomniaAgentsTest is Test {
     }
 
     function test_UpkeepRequests_SkipsNotYetTimedOut() public {
-        uint256 requestId = agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload");
+        uint256 requestId = agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "payload");
 
         // Run upkeep without waiting for timeout
         agents.upkeepRequests();
 
         // Request should NOT be finalized
-        (,,,,,,,,bool finalized,,,) = agents.getRequest(requestId);
+        (,,,,,,bool finalized,,,,,) = agents.getRequest(requestId);
         assertFalse(finalized);
         assertEq(callback.callCount(), 0);
     }
@@ -925,7 +926,7 @@ contract SomniaAgentsTest is Test {
     function test_UpkeepRequests_AdvancesOldestPending() public {
         // Create several requests
         for (uint256 i = 0; i < 5; i++) {
-            agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, abi.encodePacked("payload", i));
+            agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, abi.encodePacked("payload", i));
         }
 
         assertEq(agents.oldestPendingId(), 0);
@@ -937,8 +938,8 @@ contract SomniaAgentsTest is Test {
         agents.upkeepRequests();
 
         // All should be finalized
-        (,,,,,,,,bool finalized0,,,) = agents.getRequest(0);
-        (,,,,,,,,bool finalized4,,,) = agents.getRequest(4);
+        (,,,,,,bool finalized0,,,,,) = agents.getRequest(0);
+        (,,,,,,bool finalized4,,,,,) = agents.getRequest(4);
         assertTrue(finalized0);
         assertTrue(finalized4);
 
@@ -953,22 +954,22 @@ contract SomniaAgentsTest is Test {
 
     function test_UpkeepRequests_StopsAtNotTimedOut() public {
         // Create 3 requests
-        agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "req0");
-        agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "req1");
+        agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "req0");
+        agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "req1");
 
         // Warp past timeout for first 2
         vm.warp(block.timestamp + 6 minutes);
 
         // Create a new request (not timed out yet)
-        agents.createRequest(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "req2");
+        agents.createRequest{value: 1 ether}(TEST_AGENT_ID, address(callback), MockCallback.handleResponse.selector, "req2");
 
         // Run upkeep
         agents.upkeepRequests();
 
         // First 2 should be finalized, 3rd should not
-        (,,,,,,,,bool finalized0,,,) = agents.getRequest(0);
-        (,,,,,,,,bool finalized1,,,) = agents.getRequest(1);
-        (,,,,,,,,bool finalized2,,,) = agents.getRequest(2);
+        (,,,,,,bool finalized0,,,,,) = agents.getRequest(0);
+        (,,,,,,bool finalized1,,,,,) = agents.getRequest(1);
+        (,,,,,,bool finalized2,,,,,) = agents.getRequest(2);
 
         assertTrue(finalized0);
         assertTrue(finalized1);

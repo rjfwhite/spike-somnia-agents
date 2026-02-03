@@ -4,37 +4,58 @@ pragma solidity ^0.8.28;
 /// @title ICommittee Interface
 /// @notice Interface for validator committee management
 interface ICommittee {
-    event NewEpoch(uint256 indexed epoch, address[] members);
+    event MemberJoined(address indexed member);
+    event MemberLeft(address indexed member);
+    event MemberTimedOut(address indexed member);
 
-    function memberHeartbeat() external;
+    function heartbeatMembership() external;
+    function leaveMembership() external;
     function upkeep() external;
     function getActiveMembers() external view returns (address[] memory);
     function electSubcommittee(uint256 n, bytes32 seed) external view returns (address[] memory);
     function isActive(address addr) external view returns (bool);
-    function currentEpoch() external view returns (uint256);
 }
 
 contract Committee is ICommittee {
     mapping(address => uint256) public lastHeartbeat;
     mapping(address => bool) internal _active;
-    address[] public knownAddresses;
+    mapping(address => uint256) internal _memberIndex;
+    address[] public members;
 
-    uint256 public override currentEpoch;
     uint256 public lastUpkeep;
     uint256 public constant HEARTBEAT_INTERVAL = 1 minutes;
 
-    constructor() {
-        currentEpoch = 1;
+    function heartbeatMembership() external override {
+        if (!_active[msg.sender]) {
+            _active[msg.sender] = true;
+            _memberIndex[msg.sender] = members.length;
+            members.push(msg.sender);
+            emit MemberJoined(msg.sender);
+        }
+        lastHeartbeat[msg.sender] = block.timestamp;
+        _upkeep();
     }
 
-    function memberHeartbeat() external override {
-        _upkeep();
+    function leaveMembership() external override {
+        require(_active[msg.sender], "Not a member");
+        _removeMember(msg.sender);
+        emit MemberLeft(msg.sender);
+    }
 
-        if (lastHeartbeat[msg.sender] == 0) {
-            knownAddresses.push(msg.sender);
+    function _removeMember(address addr) internal {
+        uint256 index = _memberIndex[addr];
+        uint256 lastIndex = members.length - 1;
+
+        if (index != lastIndex) {
+            address lastMember = members[lastIndex];
+            members[index] = lastMember;
+            _memberIndex[lastMember] = index;
         }
 
-        lastHeartbeat[msg.sender] = block.timestamp;
+        members.pop();
+        delete _active[addr];
+        delete _memberIndex[addr];
+        delete lastHeartbeat[addr];
     }
 
     function upkeep() external override {
@@ -47,34 +68,15 @@ contract Committee is ICommittee {
         }
         lastUpkeep = block.timestamp;
 
-        bool epochChanged = false;
         uint256 i = 0;
-
-        while (i < knownAddresses.length) {
-            address addr = knownAddresses[i];
-            bool wasActive = _active[addr];
-            bool nowActive = block.timestamp <= lastHeartbeat[addr] + HEARTBEAT_INTERVAL;
-
-            if (!nowActive) {
-                delete lastHeartbeat[addr];
-                delete _active[addr];
-                knownAddresses[i] = knownAddresses[knownAddresses.length - 1];
-                knownAddresses.pop();
-                if (wasActive) epochChanged = true;
+        while (i < members.length) {
+            address addr = members[i];
+            if (block.timestamp > lastHeartbeat[addr] + HEARTBEAT_INTERVAL) {
+                emit MemberTimedOut(addr);
+                _removeMember(addr);
                 continue;
             }
-
-            if (wasActive != nowActive) {
-                _active[addr] = nowActive;
-                epochChanged = true;
-            }
-
             i++;
-        }
-
-        if (epochChanged) {
-            currentEpoch++;
-            emit NewEpoch(currentEpoch, getActiveMembers());
         }
     }
 
@@ -83,36 +85,25 @@ contract Committee is ICommittee {
     }
 
     function getActiveMembers() public view override returns (address[] memory) {
-        uint256 count = 0;
-        for (uint256 i = 0; i < knownAddresses.length; i++) {
-            if (_active[knownAddresses[i]]) {
-                count++;
-            }
-        }
-
-        address[] memory result = new address[](count);
-        uint256 index = 0;
-        for (uint256 i = 0; i < knownAddresses.length; i++) {
-            if (_active[knownAddresses[i]]) {
-                result[index++] = knownAddresses[i];
-            }
-        }
-
-        return result;
+        return members;
     }
 
     function electSubcommittee(uint256 n, bytes32 seed) external view override returns (address[] memory) {
-        address[] memory members = getActiveMembers();
         require(n <= members.length, "n exceeds active members");
 
+        address[] memory shuffled = new address[](members.length);
+        for (uint256 i = 0; i < members.length; i++) {
+            shuffled[i] = members[i];
+        }
+
         for (uint256 i = 0; i < n; i++) {
-            uint256 j = i + uint256(keccak256(abi.encodePacked(seed, i))) % (members.length - i);
-            (members[i], members[j]) = (members[j], members[i]);
+            uint256 j = i + uint256(keccak256(abi.encodePacked(seed, i))) % (shuffled.length - i);
+            (shuffled[i], shuffled[j]) = (shuffled[j], shuffled[i]);
         }
 
         address[] memory result = new address[](n);
         for (uint256 i = 0; i < n; i++) {
-            result[i] = members[i];
+            result[i] = shuffled[i];
         }
 
         return result;
