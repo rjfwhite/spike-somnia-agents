@@ -573,7 +573,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		// Replay the call at the block where it failed to get revert data
 		_, callErr := l.client.CallContract(ctx, callMsg, txReceipt.BlockNumber)
 		if callErr != nil {
-			revertReason = callErr.Error()
+			revertReason = decodeRevertReason(callErr)
 		}
 		slog.Error("Response transaction failed",
 			"requestId", requestId,
