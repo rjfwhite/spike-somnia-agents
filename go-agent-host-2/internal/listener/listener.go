@@ -528,33 +528,50 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 
 	slog.Info("Submitting response to blockchain",
 		"requestId", requestId,
+		"validator", l.address.Hex(),
+		"contract", l.somniaAgentsAddr.Hex(),
 		"resultSize", len(result),
 		"price", price,
 		"nonce", nonce,
+		"gasPrice", gasPrice,
 	)
 
 	tx, err := l.somniaAgents.SubmitResponse(l.auth, requestId, result, receipt, price)
 	if err != nil {
 		slog.Error("Failed to submit response",
 			"requestId", requestId,
+			"validator", l.address.Hex(),
+			"contract", l.somniaAgentsAddr.Hex(),
+			"nonce", nonce,
 			"error", err,
 			"revertReason", decodeRevertReason(err),
 		)
 		return
 	}
 
-	slog.Info("Response transaction sent", "requestId", requestId, "txHash", tx.Hash().Hex())
+	slog.Info("Response transaction sent",
+		"requestId", requestId,
+		"txHash", tx.Hash().Hex(),
+		"validator", l.address.Hex(),
+		"nonce", nonce,
+	)
 
 	// Wait for transaction receipt
 	txReceipt, err := bind.WaitMined(ctx, l.client, tx)
 	if err != nil {
-		slog.Error("Failed to wait for response transaction", "requestId", requestId, "error", err)
+		slog.Error("Failed to wait for response transaction",
+			"requestId", requestId,
+			"validator", l.address.Hex(),
+			"txHash", tx.Hash().Hex(),
+			"error", err,
+		)
 		return
 	}
 
 	if txReceipt.Status == 1 {
 		slog.Info("Response submitted successfully",
 			"requestId", requestId,
+			"validator", l.address.Hex(),
 			"txHash", tx.Hash().Hex(),
 			"block", txReceipt.BlockNumber,
 			"gasUsed", txReceipt.GasUsed,
@@ -577,7 +594,10 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		}
 		slog.Error("Response transaction failed",
 			"requestId", requestId,
+			"validator", l.address.Hex(),
+			"contract", l.somniaAgentsAddr.Hex(),
 			"txHash", tx.Hash().Hex(),
+			"block", txReceipt.BlockNumber,
 			"status", txReceipt.Status,
 			"gasUsed", txReceipt.GasUsed,
 			"revertReason", revertReason,
