@@ -94,13 +94,6 @@ interface ISomniaAgentsRunner {
         uint256 price
     ) external;
 
-    function submitResponseBatch(
-        uint256[] calldata requestIds,
-        bytes[] calldata results,
-        uint256[] calldata receipts,
-        uint256[] calldata prices
-    ) external;
-
     // Maintenance
     function upkeepRequests() external;
 
@@ -272,58 +265,35 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         uint256 receipt,
         uint256 price
     ) external override {
-        require(_trySubmitResponse(requestId, result, receipt, price), "SomniaAgents: submission failed");
-    }
-
-    function submitResponseBatch(
-        uint256[] calldata requestIds,
-        bytes[] calldata results,
-        uint256[] calldata receipts,
-        uint256[] calldata prices
-    ) external override {
+        // Validate request exists
         require(
-            requestIds.length == results.length &&
-            requestIds.length == receipts.length &&
-            requestIds.length == prices.length,
-            "SomniaAgents: array length mismatch"
+            requests.length > 0 && requests[requestId % requests.length].id == requestId,
+            "SomniaAgents: request not found or overwritten"
         );
 
-        for (uint256 i = 0; i < requestIds.length; i++) {
-            _trySubmitResponse(requestIds[i], results[i], receipts[i], prices[i]);
-        }
-    }
-
-    function _trySubmitResponse(
-        uint256 requestId,
-        bytes calldata result,
-        uint256 receipt,
-        uint256 price
-    ) internal returns (bool) {
-        // Validate request exists
-        if (requests.length == 0 || requests[requestId % requests.length].id != requestId) {
-            return false;
-        }
-
         // Validate caller is subcommittee member
-        if (!_isSubcommitteeMember(requestId, msg.sender)) {
-            return false;
-        }
+        require(
+            _isSubcommitteeMember(requestId, msg.sender),
+            "SomniaAgents: not a subcommittee member"
+        );
 
         Request storage req = requests[requestId % requests.length];
 
-        // Check not finalized
-        if (req.finalized) {
-            return false;
-        }
-
         // Check not timed out
-        if (block.timestamp > req.createdAt + requestTimeout) {
-            return false;
-        }
+        require(
+            block.timestamp <= req.createdAt + requestTimeout,
+            "SomniaAgents: request timed out"
+        );
 
         // Check not already responded
-        if (_hasResponded(req.responses, msg.sender)) {
-            return false;
+        require(
+            !_hasResponded(req.responses, msg.sender),
+            "SomniaAgents: already responded"
+        );
+
+        // If already finalized, just return - this is valid but a no-op
+        if (req.finalized) {
+            return;
         }
 
         req.responses.push(Response({
@@ -346,8 +316,6 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
                 _finalizeRequest(requestId);
             }
         }
-
-        return true;
     }
 
     function _hasResponded(Response[] storage responses, address validator) internal view returns (bool) {

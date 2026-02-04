@@ -66,18 +66,6 @@ const SomniaAgentsABI = `[
 		"type": "function"
 	},
 	{
-		"inputs": [
-			{"internalType": "uint256[]", "name": "requestIds", "type": "uint256[]"},
-			{"internalType": "bytes[]", "name": "results", "type": "bytes[]"},
-			{"internalType": "uint256[]", "name": "receipts", "type": "uint256[]"},
-			{"internalType": "uint256[]", "name": "prices", "type": "uint256[]"}
-		],
-		"name": "submitResponseBatch",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
 		"inputs": [{"internalType": "uint256", "name": "requestId", "type": "uint256"}],
 		"name": "isRequestPending",
 		"outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
@@ -250,11 +238,6 @@ func (c *SomniaAgentsCaller) Committee(opts *bind.CallOpts) (common.Address, err
 // SubmitResponse submits a response for a request.
 func (t *SomniaAgentsTransactor) SubmitResponse(opts *bind.TransactOpts, requestId *big.Int, result []byte, receipt *big.Int, price *big.Int) (*types.Transaction, error) {
 	return t.contract.Transact(opts, "submitResponse", requestId, result, receipt, price)
-}
-
-// SubmitResponseBatch submits multiple responses in a single transaction.
-func (t *SomniaAgentsTransactor) SubmitResponseBatch(opts *bind.TransactOpts, requestIds []*big.Int, results [][]byte, receipts []*big.Int, prices []*big.Int) (*types.Transaction, error) {
-	return t.contract.Transact(opts, "submitResponseBatch", requestIds, results, receipts, prices)
 }
 
 // ParseRequestCreated parses a RequestCreated event from a log.

@@ -3,7 +3,7 @@ export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
 export const CONTRACT_ADDRESS = "0x58ade7Fe7633b54B0052F9006863c175b8a231bE" as const;
 export const COMMITTEE_CONTRACT_ADDRESS = "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB" as const;
 export const AGENT_REGISTRY_V2_ADDRESS = "0x0B4A083E482eFBE8537eE2265A62AB2E84Ac8DFa" as const;
-export const SOMNIA_AGENTS_V2_ADDRESS = "0x176B4C001C023f954B22D2083fbBF82C038cBC20" as const;
+export const SOMNIA_AGENTS_V2_ADDRESS = "0x7bdC5108b06c4B73Abe19a70DC90B56bA642A7aC" as const;
 
 // Contract ABI for SomniaAgents (ERC721 Enumerable)
 export const SOMNIA_AGENTS_ABI = [
@@ -957,18 +957,6 @@ export const SOMNIA_AGENTS_V2_ABI = [
       { "internalType": "uint256", "name": "price", "type": "uint256" }
     ],
     "name": "submitResponse",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256[]", "name": "requestIds", "type": "uint256[]" },
-      { "internalType": "bytes[]", "name": "results", "type": "bytes[]" },
-      { "internalType": "uint256[]", "name": "receipts", "type": "uint256[]" },
-      { "internalType": "uint256[]", "name": "prices", "type": "uint256[]" }
-    ],
-    "name": "submitResponseBatch",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
