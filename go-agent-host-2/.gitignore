@@ -1,0 +1,13 @@
+# Binary
+go-agent-host
+
+# Environment
+.env
+gcp-sa-key.json
+
+# Image cache
+image-cache/*.tar
+
+# IDE
+.vscode
+.idea

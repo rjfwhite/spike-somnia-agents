@@ -128,7 +128,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     uint256 public defaultThreshold = 2;
     uint256 public requestTimeout = 1 minutes;
     uint256 public callbackGasLimit = 500_000;
-    uint256 public maxExecutionFee = 10 ether;  // Maximum allowed prepaid cost per request
+    uint256 public maxExecutionFee = 1 ether;  // Maximum allowed prepaid cost per request
 
     // Circular buffer of requests
     Request[] public requests;

@@ -1,0 +1,11 @@
+# Copy to terraform.tfvars and fill in values
+
+project_id         = "your-gcp-project-id"
+region             = "us-central1"
+zone               = "us-central1-a"
+committee_size     = 5
+committee_contract = "0xYourCommitteeContractAddress"
+committee_rpc_url  = "https://dream-rpc.somnia.network/"
+committee_interval = "30s"
+machine_type       = "e2-medium"
+container_image    = "us-central1-docker.pkg.dev/your-project/agent-runner-repo/agent-runner:latest"

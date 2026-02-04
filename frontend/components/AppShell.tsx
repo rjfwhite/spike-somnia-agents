@@ -16,7 +16,8 @@ import {
     User,
     FileText,
     Users,
-    Box
+    Box,
+    Send
 } from "lucide-react";
 export function AppShell({ children }: { children: React.ReactNode }) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -34,6 +35,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
     const v2NavItems = [
         { id: 'agents-v2', label: 'Agents', icon: Box, path: '/agents-v2' },
+        { id: 'requests-v2', label: 'Requests', icon: Send, path: '/requests-v2' },
         { id: 'committee', label: 'Committee', icon: Users, path: '/committee' },
     ];
 

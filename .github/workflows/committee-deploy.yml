@@ -1,0 +1,81 @@
+name: Deploy Committee
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'go-agent-host-2/**'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  ZONE: us-central1-a
+  REPO_NAME: agent-runner-repo
+  IMAGE_NAME: agent-runner
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Google Auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+
+      - name: Configure Docker
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+
+      - name: Build and Push Docker Image
+        working-directory: ./go-agent-host-2
+        run: |
+          IMAGE_TAG=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          IMAGE_LATEST=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPO_NAME }}/${{ env.IMAGE_NAME }}:latest
+
+          docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+          docker push $IMAGE_TAG
+          docker push $IMAGE_LATEST
+
+          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.6.0"
+
+      - name: Terraform Init
+        working-directory: ./go-agent-host-2/deploy/terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        working-directory: ./go-agent-host-2/deploy/terraform
+        run: |
+          terraform apply -auto-approve \
+            -var="container_image=${{ env.IMAGE_TAG }}"
+
+      - name: Restart Committee VMs
+        run: |
+          # Restart each VM to pick up the new container image
+          for i in 0 1 2 3 4; do
+            echo "Restarting somnia-committee-$i..."
+            gcloud compute instances reset somnia-committee-$i \
+              --zone=${{ env.ZONE }} \
+              --project=${{ env.PROJECT_ID }}
+          done
+
+      - name: Output Instance IPs
+        working-directory: ./go-agent-host-2/deploy/terraform
+        run: terraform output -json instance_ips

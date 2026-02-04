@@ -3,6 +3,7 @@ export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
 export const CONTRACT_ADDRESS = "0x58ade7Fe7633b54B0052F9006863c175b8a231bE" as const;
 export const COMMITTEE_CONTRACT_ADDRESS = "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB" as const;
 export const AGENT_REGISTRY_V2_ADDRESS = "0x0B4A083E482eFBE8537eE2265A62AB2E84Ac8DFa" as const;
+export const SOMNIA_AGENTS_V2_ADDRESS = "0x176B4C001C023f954B22D2083fbBF82C038cBC20" as const;
 
 // Contract ABI for SomniaAgents (ERC721 Enumerable)
 export const SOMNIA_AGENTS_ABI = [
@@ -858,6 +859,333 @@ export const AGENT_REGISTRY_V2_ABI = [
     "name": "totalSupply",
     "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
     "stateMutability": "view",
+    "type": "function"
+  }
+] as const;
+
+// SomniaAgents v2 ABI (request/response consensus contract)
+export const SOMNIA_AGENTS_V2_ABI = [
+  // Errors (from AgentRegistry that SomniaAgents calls)
+  {
+    "inputs": [{ "internalType": "uint256", "name": "agentId", "type": "uint256" }],
+    "name": "AgentNotFound",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "agentId", "type": "uint256" },
+      { "internalType": "address", "name": "caller", "type": "address" }
+    ],
+    "name": "NotAgentOwner",
+    "type": "error"
+  },
+  // Events
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
+      { "indexed": true, "internalType": "uint256", "name": "agentId", "type": "uint256" },
+      { "indexed": true, "internalType": "address", "name": "requester", "type": "address" },
+      { "indexed": false, "internalType": "uint256", "name": "maxCost", "type": "uint256" },
+      { "indexed": false, "internalType": "bytes", "name": "payload", "type": "bytes" },
+      { "indexed": false, "internalType": "address[]", "name": "subcommittee", "type": "address[]" }
+    ],
+    "name": "RequestCreated",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "finalCost", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "rebate", "type": "uint256" }
+    ],
+    "name": "RequestFinalized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" }
+    ],
+    "name": "RequestTimedOut",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
+      { "indexed": true, "internalType": "address", "name": "validator", "type": "address" }
+    ],
+    "name": "ResponseSubmitted",
+    "type": "event"
+  },
+  // Request Functions
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "agentId", "type": "uint256" },
+      { "internalType": "address", "name": "callbackAddress", "type": "address" },
+      { "internalType": "bytes4", "name": "callbackSelector", "type": "bytes4" },
+      { "internalType": "bytes", "name": "payload", "type": "bytes" }
+    ],
+    "name": "createRequest",
+    "outputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "agentId", "type": "uint256" },
+      { "internalType": "address", "name": "callbackAddress", "type": "address" },
+      { "internalType": "bytes4", "name": "callbackSelector", "type": "bytes4" },
+      { "internalType": "bytes", "name": "payload", "type": "bytes" },
+      { "internalType": "uint256", "name": "subcommitteeSize", "type": "uint256" },
+      { "internalType": "uint256", "name": "threshold", "type": "uint256" },
+      { "internalType": "enum ConsensusType", "name": "consensusType", "type": "uint8" }
+    ],
+    "name": "createRequestWithParams",
+    "outputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  // Response Functions
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "requestId", "type": "uint256" },
+      { "internalType": "bytes", "name": "result", "type": "bytes" },
+      { "internalType": "uint256", "name": "receipt", "type": "uint256" },
+      { "internalType": "uint256", "name": "price", "type": "uint256" }
+    ],
+    "name": "submitResponse",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256[]", "name": "requestIds", "type": "uint256[]" },
+      { "internalType": "bytes[]", "name": "results", "type": "bytes[]" },
+      { "internalType": "uint256[]", "name": "receipts", "type": "uint256[]" },
+      { "internalType": "uint256[]", "name": "prices", "type": "uint256[]" }
+    ],
+    "name": "submitResponseBatch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  // Timeout/Upkeep Functions
+  {
+    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "name": "timeoutRequest",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "upkeepRequests",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  // View Functions
+  {
+    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "name": "getRequest",
+    "outputs": [
+      { "internalType": "address", "name": "requester", "type": "address" },
+      { "internalType": "address", "name": "callbackAddress", "type": "address" },
+      { "internalType": "bytes4", "name": "callbackSelector", "type": "bytes4" },
+      { "internalType": "address[]", "name": "subcommittee", "type": "address[]" },
+      { "internalType": "uint256", "name": "threshold", "type": "uint256" },
+      { "internalType": "uint256", "name": "createdAt", "type": "uint256" },
+      { "internalType": "bool", "name": "finalized", "type": "bool" },
+      { "internalType": "uint256", "name": "responseCount", "type": "uint256" },
+      { "internalType": "enum ConsensusType", "name": "consensusType", "type": "uint8" },
+      { "internalType": "uint256", "name": "agentCost", "type": "uint256" },
+      { "internalType": "uint256", "name": "maxCost", "type": "uint256" },
+      { "internalType": "uint256", "name": "finalCost", "type": "uint256" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "name": "getResponses",
+    "outputs": [
+      {
+        "components": [
+          { "internalType": "address", "name": "validator", "type": "address" },
+          { "internalType": "bytes", "name": "result", "type": "bytes" },
+          { "internalType": "uint256", "name": "receipt", "type": "uint256" },
+          { "internalType": "uint256", "name": "price", "type": "uint256" },
+          { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
+        ],
+        "internalType": "struct Response[]",
+        "name": "",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "name": "getSubcommittee",
+    "outputs": [{ "internalType": "address[]", "name": "", "type": "address[]" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "requestId", "type": "uint256" },
+      { "internalType": "address", "name": "addr", "type": "address" }
+    ],
+    "name": "isSubcommitteeMember",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "name": "isRequestPending",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
+    "name": "isRequestValid",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  // State Variables
+  {
+    "inputs": [],
+    "name": "nextRequestId",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "oldestPendingId",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "defaultSubcommitteeSize",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "defaultThreshold",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "requestTimeout",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "callbackGasLimit",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxExecutionFee",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "agentRegistry",
+    "outputs": [{ "internalType": "contract IAgentRegistry", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "committee",
+    "outputs": [{ "internalType": "contract ICommittee", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  // Owner Functions
+  {
+    "inputs": [{ "internalType": "address", "name": "_agentRegistry", "type": "address" }],
+    "name": "setAgentRegistry",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "_committee", "type": "address" }],
+    "name": "setCommittee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "size", "type": "uint256" }],
+    "name": "setDefaultSubcommitteeSize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "threshold", "type": "uint256" }],
+    "name": "setDefaultThreshold",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "timeout", "type": "uint256" }],
+    "name": "setRequestTimeout",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "gasLimit", "type": "uint256" }],
+    "name": "setCallbackGasLimit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "maxFee", "type": "uint256" }],
+    "name": "setMaxExecutionFee",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "newOwner", "type": "address" }],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   }
 ] as const;
