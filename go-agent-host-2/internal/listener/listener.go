@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math/big"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +23,18 @@ import (
 	"github.com/somnia-chain/agent-runner/internal/agents"
 	"github.com/somnia-chain/agent-runner/internal/somniaagents"
 )
+
+// httpToWsURL converts an HTTP RPC URL to a WebSocket URL by adding /ws path.
+func httpToWsURL(httpURL string) string {
+	wsURL := httpURL
+	// Convert scheme
+	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+	// Add /ws path
+	wsURL = strings.TrimSuffix(wsURL, "/")
+	wsURL += "/ws"
+	return wsURL
+}
 
 // Config holds the configuration for the event listener.
 type Config struct {
@@ -40,6 +53,7 @@ type Listener struct {
 	privateKey     *ecdsa.PrivateKey
 	chainID        *big.Int
 	rpcURL         string
+	wsURL          string
 
 	// Resolved contract addresses
 	somniaAgentsAddr  common.Address
@@ -154,6 +168,7 @@ func New(cfg Config, agentManager *agents.Manager) (*Listener, error) {
 		privateKey:        privateKey,
 		chainID:           chainID,
 		rpcURL:            cfg.RPCURL,
+		wsURL:             httpToWsURL(cfg.RPCURL),
 		somniaAgentsAddr:  somniaAgentsAddr,
 		agentRegistryAddr: agentRegistryAddr,
 		committeeAddr:     committeeAddr,
@@ -197,6 +212,35 @@ func (l *Listener) Stop() {
 func (l *Listener) listenLoop() {
 	defer l.wg.Done()
 
+	for {
+		select {
+		case <-l.ctx.Done():
+			return
+		default:
+			l.subscribeAndListen()
+		}
+
+		// If we get here, the subscription ended - wait before reconnecting
+		select {
+		case <-l.ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+			slog.Info("Reconnecting WebSocket subscription...")
+		}
+	}
+}
+
+func (l *Listener) subscribeAndListen() {
+	// Connect to WebSocket endpoint for subscriptions
+	wsClient, err := ethclient.Dial(l.wsURL)
+	if err != nil {
+		slog.Error("Failed to connect to WebSocket RPC", "url", l.wsURL, "error", err)
+		return
+	}
+	defer wsClient.Close()
+
+	slog.Info("Connected to WebSocket RPC", "url", l.wsURL)
+
 	// Get the RequestCreated event signature
 	eventSignature := l.somniaAgents.ABI().Events["RequestCreated"].ID
 
@@ -206,58 +250,32 @@ func (l *Listener) listenLoop() {
 		Topics:    [][]common.Hash{{eventSignature}},
 	}
 
-	// Start from the current block
-	currentBlock, err := l.client.BlockNumber(l.ctx)
+	// Create a channel to receive logs
+	logs := make(chan types.Log)
+
+	// Subscribe to logs
+	sub, err := wsClient.SubscribeFilterLogs(l.ctx, query, logs)
 	if err != nil {
-		slog.Error("Failed to get current block number", "error", err)
+		slog.Error("Failed to subscribe to logs", "error", err)
 		return
 	}
-	slog.Info("Starting event listener from block", "block", currentBlock)
+	defer sub.Unsubscribe()
 
-	// Poll for new events (websocket subscriptions can be unreliable)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	lastProcessedBlock := currentBlock
+	slog.Info("Subscribed to RequestCreated events via WebSocket",
+		"contract", l.somniaAgents.Address().Hex(),
+	)
 
 	for {
 		select {
 		case <-l.ctx.Done():
 			return
-		case <-ticker.C:
-			l.pollEvents(query, &lastProcessedBlock)
+		case err := <-sub.Err():
+			slog.Error("Subscription error", "error", err)
+			return
+		case vLog := <-logs:
+			l.handleLog(vLog)
 		}
 	}
-}
-
-func (l *Listener) pollEvents(query ethereum.FilterQuery, lastProcessedBlock *uint64) {
-	// Get the latest block
-	latestBlock, err := l.client.BlockNumber(l.ctx)
-	if err != nil {
-		slog.Warn("Failed to get latest block number", "error", err)
-		return
-	}
-
-	// Skip if no new blocks
-	if latestBlock <= *lastProcessedBlock {
-		return
-	}
-
-	// Query from last processed block + 1 to latest
-	query.FromBlock = big.NewInt(int64(*lastProcessedBlock + 1))
-	query.ToBlock = big.NewInt(int64(latestBlock))
-
-	logs, err := l.client.FilterLogs(l.ctx, query)
-	if err != nil {
-		slog.Warn("Failed to filter logs", "error", err)
-		return
-	}
-
-	for _, vLog := range logs {
-		l.handleLog(vLog)
-	}
-
-	*lastProcessedBlock = latestBlock
 }
 
 func (l *Listener) handleLog(vLog types.Log) {
