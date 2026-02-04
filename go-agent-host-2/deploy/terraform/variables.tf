@@ -21,19 +21,19 @@ variable "committee_size" {
   default     = 5
 }
 
-variable "committee_contract" {
-  description = "Committee smart contract address"
+variable "somnia_agents_contract" {
+  description = "SomniaAgents smart contract address (AgentRegistry and Committee are resolved from it)"
   type        = string
 }
 
-variable "committee_rpc_url" {
-  description = "Ethereum RPC URL"
+variable "rpc_url" {
+  description = "Blockchain RPC URL"
   type        = string
   default     = "https://dream-rpc.somnia.network/"
 }
 
-variable "committee_interval" {
-  description = "Heartbeat interval"
+variable "heartbeat_interval" {
+  description = "Committee heartbeat interval"
   type        = string
   default     = "30s"
 }

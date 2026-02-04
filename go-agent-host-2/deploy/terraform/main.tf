@@ -112,14 +112,14 @@ resource "google_compute_instance" "committee" {
   metadata = {
     google-logging-enabled = "true"
 
-    # Explicit committee index - this is the key fix!
+    # Explicit committee index for private key lookup
     committee-index = count.index
 
     # Pass config as metadata so startup script can read it
-    container-image    = var.container_image
-    committee-contract = var.committee_contract
-    committee-rpc-url  = var.committee_rpc_url
-    committee-interval = var.committee_interval
+    container-image         = var.container_image
+    somnia-agents-contract  = var.somnia_agents_contract
+    rpc-url                 = var.rpc_url
+    heartbeat-interval      = var.heartbeat_interval
   }
 
   metadata_startup_script = file("${path.module}/startup.sh")

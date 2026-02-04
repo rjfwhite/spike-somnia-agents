@@ -33,13 +33,13 @@ fi
 
 # Get config from instance metadata
 CONTAINER_IMAGE=$(get_metadata "instance/attributes/container-image")
-COMMITTEE_CONTRACT=$(get_metadata "instance/attributes/committee-contract")
-COMMITTEE_RPC_URL=$(get_metadata "instance/attributes/committee-rpc-url")
-COMMITTEE_INTERVAL=$(get_metadata "instance/attributes/committee-interval")
+SOMNIA_AGENTS_CONTRACT=$(get_metadata "instance/attributes/somnia-agents-contract")
+RPC_URL=$(get_metadata "instance/attributes/rpc-url")
+HEARTBEAT_INTERVAL=$(get_metadata "instance/attributes/heartbeat-interval")
 PROJECT_ID=$(get_metadata "project/project-id")
 
 log "Container image: $CONTAINER_IMAGE"
-log "Committee contract: $COMMITTEE_CONTRACT"
+log "SomniaAgents contract: $SOMNIA_AGENTS_CONTRACT"
 
 # Wait for Docker to be ready
 log "Waiting for Docker..."
@@ -101,10 +101,11 @@ docker run -d \
   -e "PRIVATE_KEY=$PRIVATE_KEY" \
   "$CONTAINER_IMAGE" \
   ./agent-runner \
+  --somnia-agents-contract="$SOMNIA_AGENTS_CONTRACT" \
+  --rpc-url="$RPC_URL" \
   --committee-enabled \
-  --committee-contract="$COMMITTEE_CONTRACT" \
-  --committee-rpc-url="$COMMITTEE_RPC_URL" \
-  --committee-interval="$COMMITTEE_INTERVAL" \
+  --committee-interval="$HEARTBEAT_INTERVAL" \
+  --listener-enabled \
   --port=8080
 
 log "Container started successfully"

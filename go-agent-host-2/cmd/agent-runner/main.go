@@ -15,6 +15,7 @@ import (
 	"github.com/somnia-chain/agent-runner/internal/api"
 	"github.com/somnia-chain/agent-runner/internal/config"
 	"github.com/somnia-chain/agent-runner/internal/heartbeater"
+	"github.com/somnia-chain/agent-runner/internal/listener"
 	"github.com/somnia-chain/agent-runner/internal/logging"
 	"github.com/somnia-chain/agent-runner/internal/sandbox"
 	"github.com/somnia-chain/agent-runner/internal/startup"
@@ -175,28 +176,53 @@ func main() {
 		slog.Info("LLM proxy started", "addr", llmProxyAddr, "upstream", cfg.LLMUpstreamURL)
 	}
 
-	// Start the committee heartbeater if enabled
+	// Initialize blockchain components if needed (committee or listener)
+	var eventListener *listener.Listener
 	var hb *heartbeater.Heartbeater
-	if cfg.CommitteeEnabled {
-		if cfg.CommitteeContract == "" {
-			slog.Error("Committee enabled but --committee-contract not specified")
+
+	if cfg.CommitteeEnabled || cfg.ListenerEnabled {
+		if cfg.SomniaAgentsContract == "" {
+			slog.Error("--somnia-agents-contract is required when committee or listener is enabled")
 			os.Exit(1)
 		}
 
-		hbCfg := heartbeater.Config{
-			ContractAddress: cfg.CommitteeContract,
-			RPCURL:          cfg.CommitteeRPCURL,
-			Interval:        cfg.CommitteeInterval,
+		// Create listener to resolve contract addresses from SomniaAgents
+		listenerCfg := listener.Config{
+			SomniaAgentsContract: cfg.SomniaAgentsContract,
+			RPCURL:               cfg.RPCURL,
 		}
 
 		var err error
-		hb, err = heartbeater.New(hbCfg)
+		eventListener, err = listener.New(listenerCfg, agentManager)
 		if err != nil {
-			slog.Error("Failed to create heartbeater", "error", err)
+			slog.Error("Failed to create event listener", "error", err)
 			os.Exit(1)
 		}
 
-		hb.Start()
+		// Configure AgentRegistry address for containers
+		agentManager.SetAgentRegistryAddress(eventListener.AgentRegistryAddress())
+
+		// Start heartbeater if enabled (uses resolved committee address)
+		if cfg.CommitteeEnabled {
+			hbCfg := heartbeater.Config{
+				ContractAddress: eventListener.CommitteeAddress(),
+				RPCURL:          cfg.RPCURL,
+				Interval:        cfg.CommitteeInterval,
+			}
+
+			hb, err = heartbeater.New(hbCfg)
+			if err != nil {
+				slog.Error("Failed to create heartbeater", "error", err)
+				os.Exit(1)
+			}
+
+			hb.Start()
+		}
+
+		// Start event listener if enabled
+		if cfg.ListenerEnabled {
+			eventListener.Start()
+		}
 	}
 
 	// Create API server
@@ -215,7 +241,12 @@ func main() {
 		fmt.Println("")
 		slog.Info("Shutting down...")
 
-		// Stop the heartbeater first (sends leave transaction)
+		// Stop the event listener
+		if eventListener != nil {
+			eventListener.Stop()
+		}
+
+		// Stop the heartbeater (sends leave transaction)
 		if hb != nil {
 			hb.Stop()
 		}
@@ -258,8 +289,13 @@ func main() {
 	}
 
 	committeeStatus := "disabled"
-	if cfg.CommitteeEnabled {
-		committeeStatus = fmt.Sprintf("enabled (%s, interval=%s)", cfg.CommitteeContract, cfg.CommitteeInterval)
+	if cfg.CommitteeEnabled && eventListener != nil {
+		committeeStatus = fmt.Sprintf("enabled (%s, interval=%s)", eventListener.CommitteeAddress(), cfg.CommitteeInterval)
+	}
+
+	listenerStatus := "disabled"
+	if cfg.ListenerEnabled {
+		listenerStatus = fmt.Sprintf("enabled (%s)", cfg.SomniaAgentsContract)
 	}
 
 	slog.Info("Configuration",
@@ -275,6 +311,7 @@ func main() {
 		"firewall", firewallStatus,
 		"llm_proxy", llmProxyStatus,
 		"committee", committeeStatus,
+		"listener", listenerStatus,
 	)
 
 	// Print usage to stdout

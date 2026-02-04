@@ -14,7 +14,7 @@ env:
   ZONE: us-central1-a
   REPO_NAME: agent-runner-repo
   IMAGE_NAME: agent-runner
-  COMMITTEE_CONTRACT: "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB"
+  SOMNIA_AGENTS_CONTRACT: "0x176B4C001C023f954B22D2083fbBF82C038cBC20"
 
 jobs:
   build-and-deploy:
@@ -68,7 +68,7 @@ jobs:
             -var="project_id=${{ env.PROJECT_ID }}" \
             -var="region=${{ env.REGION }}" \
             -var="zone=${{ env.ZONE }}" \
-            -var="committee_contract=${{ env.COMMITTEE_CONTRACT }}" \
+            -var="somnia_agents_contract=${{ env.SOMNIA_AGENTS_CONTRACT }}" \
             -var="container_image=${{ env.IMAGE_TAG }}"
 
       - name: Restart Committee VMs

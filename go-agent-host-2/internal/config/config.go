@@ -37,11 +37,16 @@ type Config struct {
 	LLMUpstreamURL  string
 	LLMAPIKey       string
 
+	// Blockchain configuration
+	RPCURL               string
+	SomniaAgentsContract string
+
 	// Committee heartbeater configuration
 	CommitteeEnabled  bool
-	CommitteeContract string
-	CommitteeRPCURL   string
 	CommitteeInterval time.Duration
+
+	// Event listener configuration
+	ListenerEnabled bool
 }
 
 // Parse parses command-line flags and returns a Config.
@@ -70,11 +75,16 @@ func Parse() *Config {
 	flag.StringVar(&cfg.LLMUpstreamURL, "llm-upstream-url", "https://api.openai.com", "Upstream LLM service URL")
 	flag.StringVar(&cfg.LLMAPIKey, "llm-api-key", "", "API key for upstream LLM service")
 
+	// Blockchain configuration
+	flag.StringVar(&cfg.RPCURL, "rpc-url", "https://dream-rpc.somnia.network/", "Blockchain RPC URL")
+	flag.StringVar(&cfg.SomniaAgentsContract, "somnia-agents-contract", "", "SomniaAgents contract address (AgentRegistry and Committee are resolved from it)")
+
 	// Committee heartbeater configuration
 	flag.BoolVar(&cfg.CommitteeEnabled, "committee-enabled", false, "Enable committee membership heartbeater")
-	flag.StringVar(&cfg.CommitteeContract, "committee-contract", "", "Committee contract address")
-	flag.StringVar(&cfg.CommitteeRPCURL, "committee-rpc-url", "https://dream-rpc.somnia.network/", "Ethereum RPC URL for committee")
 	flag.DurationVar(&cfg.CommitteeInterval, "committee-interval", 30*time.Second, "Heartbeat interval")
+
+	// Event listener configuration
+	flag.BoolVar(&cfg.ListenerEnabled, "listener-enabled", false, "Enable blockchain event listener for agent requests")
 
 	flag.Parse()
 

@@ -70,6 +70,7 @@ type Manager struct {
 	versionCacheTTL   time.Duration
 	versionFetchMutex sync.Map              // Prevents concurrent HEAD requests for same URL
 	sandboxNetwork    *SandboxNetworkConfig // Sandbox network configuration (nil = no sandbox network)
+	agentRegistryAddr string                // AgentRegistry contract address for containers
 }
 
 // NewManager creates a new Manager with a pre-existing Docker client.
@@ -111,6 +112,12 @@ func (m *Manager) SetSandboxNetwork(networkName, gatewayIP string, proxyPort, ll
 		"proxy_port", proxyPort,
 		"llm_proxy_port", llmProxyPort,
 	)
+}
+
+// SetAgentRegistryAddress configures the AgentRegistry contract address for containers.
+func (m *Manager) SetAgentRegistryAddress(addr string) {
+	m.agentRegistryAddr = addr
+	slog.Info("AgentRegistry address configured for containers", "address", addr)
 }
 
 // getVersionHash fetches HEAD from URL and creates a version hash from the response headers.
@@ -546,6 +553,12 @@ func (m *Manager) EnsureRunning(agentURL string) (int, bool, error) {
 				"container", containerName,
 			)
 		}
+	}
+
+	// Inject AgentRegistry address if set
+	if m.agentRegistryAddr != "" {
+		envVars = append(envVars, "AGENT_REGISTRY_CONTRACT="+m.agentRegistryAddr)
+		slog.Debug("Injecting AgentRegistry address", "address", m.agentRegistryAddr, "container", containerName)
 	}
 
 	containerConfig := &container.Config{
