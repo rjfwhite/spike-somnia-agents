@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -11,12 +12,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
+
 	"github.com/somnia-chain/agent-runner/internal/agents"
 	"github.com/somnia-chain/agent-runner/internal/api"
 	"github.com/somnia-chain/agent-runner/internal/config"
 	"github.com/somnia-chain/agent-runner/internal/heartbeater"
 	"github.com/somnia-chain/agent-runner/internal/listener"
 	"github.com/somnia-chain/agent-runner/internal/logging"
+	"github.com/somnia-chain/agent-runner/internal/nonce"
 	"github.com/somnia-chain/agent-runner/internal/sandbox"
 	"github.com/somnia-chain/agent-runner/internal/startup"
 )
@@ -186,6 +190,31 @@ func main() {
 			os.Exit(1)
 		}
 
+		// Load private key to derive address for nonce manager
+		privateKeyHex := os.Getenv("PRIVATE_KEY")
+		if privateKeyHex == "" {
+			slog.Error("PRIVATE_KEY environment variable is required")
+			os.Exit(1)
+		}
+		if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
+			privateKeyHex = privateKeyHex[2:]
+		}
+		privateKey, err := crypto.HexToECDSA(privateKeyHex)
+		if err != nil {
+			slog.Error("Invalid private key", "error", err)
+			os.Exit(1)
+		}
+		publicKey := privateKey.Public().(*ecdsa.PublicKey)
+		address := crypto.PubkeyToAddress(*publicKey)
+
+		// Create shared nonce manager (fetches initial nonce once at startup)
+		nonceManager, err := nonce.NewManager(ctx, cfg.RPCURL, address)
+		if err != nil {
+			slog.Error("Failed to create nonce manager", "error", err)
+			os.Exit(1)
+		}
+		slog.Info("Nonce manager initialized", "address", address.Hex(), "nonce", nonceManager.Current())
+
 		// Create listener to resolve contract addresses from SomniaAgents
 		listenerCfg := listener.Config{
 			SomniaAgentsContract: cfg.SomniaAgentsContract,
@@ -193,8 +222,7 @@ func main() {
 			ReceiptsServiceURL:   cfg.ReceiptsServiceURL,
 		}
 
-		var err error
-		eventListener, err = listener.New(listenerCfg, agentManager)
+		eventListener, err = listener.New(listenerCfg, agentManager, nonceManager)
 		if err != nil {
 			slog.Error("Failed to create event listener", "error", err)
 			os.Exit(1)
@@ -211,7 +239,7 @@ func main() {
 				Interval:        cfg.CommitteeInterval,
 			}
 
-			hb, err = heartbeater.New(hbCfg)
+			hb, err = heartbeater.New(hbCfg, nonceManager)
 			if err != nil {
 				slog.Error("Failed to create heartbeater", "error", err)
 				os.Exit(1)

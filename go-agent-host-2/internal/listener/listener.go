@@ -28,6 +28,7 @@ import (
 
 	"github.com/somnia-chain/agent-runner/internal/agentregistry"
 	"github.com/somnia-chain/agent-runner/internal/agents"
+	"github.com/somnia-chain/agent-runner/internal/nonce"
 	"github.com/somnia-chain/agent-runner/internal/somniaagents"
 )
 
@@ -120,6 +121,7 @@ type Listener struct {
 	agentRegistry  *agentregistry.AgentRegistry
 	agentManager   *agents.Manager
 	auth           *bind.TransactOpts
+	nonce          *nonce.Manager
 	address        common.Address
 	privateKey     *ecdsa.PrivateKey
 	chainID        *big.Int
@@ -145,7 +147,7 @@ type Listener struct {
 
 // New creates a new Listener instance.
 // The private key is loaded from the PRIVATE_KEY environment variable.
-func New(cfg Config, agentManager *agents.Manager) (*Listener, error) {
+func New(cfg Config, agentManager *agents.Manager, nonceManager *nonce.Manager) (*Listener, error) {
 	// Get private key from environment
 	privateKeyHex := os.Getenv("PRIVATE_KEY")
 	if privateKeyHex == "" {
@@ -229,6 +231,8 @@ func New(cfg Config, agentManager *agents.Manager) (*Listener, error) {
 		client.Close()
 		return nil, fmt.Errorf("failed to create transactor: %w", err)
 	}
+	auth.GasLimit = 3000000                    // Set high gas limit; unused gas is refunded
+	auth.GasPrice = big.NewInt(10_000_000_000) // 10 gwei fixed gas price
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -238,6 +242,7 @@ func New(cfg Config, agentManager *agents.Manager) (*Listener, error) {
 		agentRegistry:      agentRegistryContract,
 		agentManager:       agentManager,
 		auth:               auth,
+		nonce:              nonceManager,
 		address:            address,
 		privateKey:         privateKey,
 		chainID:            chainID,
@@ -513,21 +518,8 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		return
 	}
 
-	// Get current nonce
-	nonce, err := l.client.PendingNonceAt(ctx, l.address)
-	if err != nil {
-		slog.Error("Failed to get nonce", "requestId", requestId, "error", err)
-		return
-	}
-	l.auth.Nonce = big.NewInt(int64(nonce))
-
-	// Get suggested gas price
-	gasPrice, err := l.client.SuggestGasPrice(ctx)
-	if err != nil {
-		slog.Error("Failed to get gas price", "requestId", requestId, "error", err)
-		return
-	}
-	l.auth.GasPrice = gasPrice
+	// Get next nonce from local manager
+	l.auth.Nonce = l.nonce.Next()
 
 	// For now, use 0 as receipt (CID) and agent cost as price
 	receipt := big.NewInt(0)
@@ -542,8 +534,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		"contract", l.somniaAgentsAddr.Hex(),
 		"resultSize", len(result),
 		"price", price,
-		"nonce", nonce,
-		"gasPrice", gasPrice,
+		"nonce", l.auth.Nonce,
 	)
 
 	tx, err := l.somniaAgents.SubmitResponse(l.auth, requestId, result, receipt, price)
@@ -552,7 +543,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 			"requestId", requestId,
 			"validator", l.address.Hex(),
 			"contract", l.somniaAgentsAddr.Hex(),
-			"nonce", nonce,
+			"nonce", l.auth.Nonce,
 			"error", err,
 			"revertReason", decodeRevertReason(err),
 		)
@@ -563,7 +554,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		"requestId", requestId,
 		"txHash", tx.Hash().Hex(),
 		"validator", l.address.Hex(),
-		"nonce", nonce,
+		"nonce", l.auth.Nonce,
 	)
 
 	// Wait for transaction receipt

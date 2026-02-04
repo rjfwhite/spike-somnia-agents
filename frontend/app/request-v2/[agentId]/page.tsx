@@ -702,6 +702,37 @@ export default function AgentRequestPage() {
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* Receipts during pending - allows checking execution progress */}
+                                    {trackedRequest.status === 'pending' && (
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between">
+                                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                                    Execution Receipts {trackedRequest.receipts && trackedRequest.receipts.length > 0 && `(${trackedRequest.receipts.length})`}
+                                                </h4>
+                                                <button
+                                                    onClick={handleRetryReceipts}
+                                                    disabled={trackedRequest.receiptsFetching}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors disabled:opacity-50"
+                                                >
+                                                    <RefreshCw className={`w-3.5 h-3.5 ${trackedRequest.receiptsFetching ? 'animate-spin' : ''}`} />
+                                                    {trackedRequest.receiptsFetching ? 'Loading...' : 'Check Receipts'}
+                                                </button>
+                                            </div>
+                                            {trackedRequest.receipts && trackedRequest.receipts.length > 0 ? (
+                                                <ReceiptViewer
+                                                    receipts={trackedRequest.receipts}
+                                                    abi={metadata?.abi}
+                                                />
+                                            ) : (
+                                                <p className="text-xs text-gray-500 p-3 bg-black/20 rounded-lg">
+                                                    {trackedRequest.receiptsFetching
+                                                        ? 'Fetching receipts...'
+                                                        : 'No receipts yet. Click "Check Receipts" to look for execution data.'}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

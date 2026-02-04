@@ -92,7 +92,7 @@ export default function RequestsV2Page() {
     const [showCreateForm, setShowCreateForm] = useState(false);
     const [showAgentBrowser, setShowAgentBrowser] = useState(false);
     const [lookupRequestId, setLookupRequestId] = useState("");
-    const [lookupResult, setLookupResult] = useState<{ details: RequestDetails; responses: Response[]; agentMetadata?: TokenMetadata | null; receipts?: any[] } | null>(null);
+    const [lookupResult, setLookupResult] = useState<{ details: RequestDetails; responses: Response[]; agentMetadata?: TokenMetadata | null; receipts?: any[]; receiptsOnly?: boolean } | null>(null);
     const [lookupLoading, setLookupLoading] = useState(false);
     const [lookupError, setLookupError] = useState<string | null>(null);
     const [receiptsLoading, setReceiptsLoading] = useState(false);
@@ -603,12 +603,35 @@ export default function RequestsV2Page() {
     };
 
     const handleRefreshReceipts = async () => {
-        if (!lookupRequestId || !lookupResult) return;
+        if (!lookupRequestId) return;
 
         setReceiptsLoading(true);
         try {
             const receipts = await fetchReceipts(lookupRequestId);
-            setLookupResult(prev => prev ? { ...prev, receipts } : null);
+            if (lookupResult) {
+                setLookupResult(prev => prev ? { ...prev, receipts } : null);
+            } else {
+                // Show receipts even without a full lookup
+                setLookupResult({
+                    details: {
+                        requester: '',
+                        callbackAddress: '',
+                        callbackSelector: '',
+                        subcommittee: [],
+                        threshold: BigInt(0),
+                        createdAt: BigInt(0),
+                        finalized: false,
+                        responseCount: BigInt(0),
+                        consensusType: 0,
+                        agentCost: BigInt(0),
+                        maxCost: BigInt(0),
+                        finalCost: BigInt(0),
+                    },
+                    responses: [],
+                    receipts,
+                    receiptsOnly: true,
+                });
+            }
         } catch (e) {
             // Ignore - receipts may not be available
         } finally {
@@ -977,6 +1000,15 @@ export default function RequestsV2Page() {
                         {lookupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                         Lookup
                     </button>
+                    <button
+                        onClick={handleRefreshReceipts}
+                        disabled={receiptsLoading || !lookupRequestId}
+                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-gray-300 transition-colors flex items-center gap-2 disabled:opacity-50"
+                        title="Check for receipts without full lookup"
+                    >
+                        {receiptsLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                        Receipts
+                    </button>
                 </div>
 
                 {lookupError && (
@@ -987,6 +1019,8 @@ export default function RequestsV2Page() {
 
                 {lookupResult && (
                     <div className="mt-4 space-y-4">
+                        {!lookupResult.receiptsOnly && (
+                        <>
                         <div className="p-4 bg-black/20 rounded-lg border border-white/5">
                             <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Request Details</h4>
                             <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
@@ -1077,6 +1111,8 @@ export default function RequestsV2Page() {
                                     })}
                                 </div>
                             </div>
+                        )}
+                        </>
                         )}
 
                         {/* Execution Receipts */}

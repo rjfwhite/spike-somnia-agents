@@ -17,6 +17,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/somnia-chain/agent-runner/internal/committee"
+	"github.com/somnia-chain/agent-runner/internal/nonce"
 )
 
 // Config holds the configuration for the heartbeater.
@@ -31,6 +32,7 @@ type Heartbeater struct {
 	client   *ethclient.Client
 	contract *committee.Committee
 	auth     *bind.TransactOpts
+	nonce    *nonce.Manager
 	address  common.Address
 	interval time.Duration
 
@@ -41,7 +43,7 @@ type Heartbeater struct {
 
 // New creates a new Heartbeater instance.
 // The private key is loaded from the PRIVATE_KEY environment variable.
-func New(cfg Config) (*Heartbeater, error) {
+func New(cfg Config, nonceManager *nonce.Manager) (*Heartbeater, error) {
 	// Get private key from environment
 	privateKeyHex := os.Getenv("PRIVATE_KEY")
 	if privateKeyHex == "" {
@@ -102,6 +104,8 @@ func New(cfg Config) (*Heartbeater, error) {
 		client.Close()
 		return nil, fmt.Errorf("failed to create transactor: %w", err)
 	}
+	auth.GasLimit = 3000000                    // Set high gas limit; unused gas is refunded
+	auth.GasPrice = big.NewInt(10_000_000_000) // 10 gwei fixed gas price
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -109,6 +113,7 @@ func New(cfg Config) (*Heartbeater, error) {
 		client:   client,
 		contract: committeeContract,
 		auth:     auth,
+		nonce:    nonceManager,
 		address:  address,
 		interval: cfg.Interval,
 		ctx:      ctx,
@@ -170,24 +175,11 @@ func (h *Heartbeater) sendHeartbeat() {
 		slog.Debug("Heartbeater current active status", "active", isActive)
 	}
 
-	// Get current nonce
-	nonce, err := h.client.PendingNonceAt(ctx, h.address)
-	if err != nil {
-		slog.Error("Heartbeater failed to get nonce", "error", err)
-		return
-	}
-	h.auth.Nonce = big.NewInt(int64(nonce))
-
-	// Get suggested gas price
-	gasPrice, err := h.client.SuggestGasPrice(ctx)
-	if err != nil {
-		slog.Error("Heartbeater failed to get gas price", "error", err)
-		return
-	}
-	h.auth.GasPrice = gasPrice
+	// Get next nonce from local manager
+	h.auth.Nonce = h.nonce.Next()
 
 	// Send heartbeat transaction
-	slog.Info("Sending heartbeat transaction", "nonce", nonce, "gasPrice", gasPrice)
+	slog.Info("Sending heartbeat transaction", "nonce", h.auth.Nonce)
 
 	tx, err := h.contract.HeartbeatMembership(h.auth)
 	if err != nil {
@@ -234,24 +226,11 @@ func (h *Heartbeater) sendLeaveMembership() {
 		return
 	}
 
-	// Get current nonce
-	nonce, err := h.client.PendingNonceAt(ctx, h.address)
-	if err != nil {
-		slog.Error("Heartbeater failed to get nonce", "error", err)
-		return
-	}
-	h.auth.Nonce = big.NewInt(int64(nonce))
-
-	// Get suggested gas price
-	gasPrice, err := h.client.SuggestGasPrice(ctx)
-	if err != nil {
-		slog.Error("Heartbeater failed to get gas price", "error", err)
-		return
-	}
-	h.auth.GasPrice = gasPrice
+	// Get next nonce from local manager
+	h.auth.Nonce = h.nonce.Next()
 
 	// Send leave transaction
-	slog.Info("Sending leave membership transaction", "nonce", nonce, "gasPrice", gasPrice)
+	slog.Info("Sending leave membership transaction", "nonce", h.auth.Nonce)
 
 	tx, err := h.contract.LeaveMembership(h.auth)
 	if err != nil {
