@@ -265,57 +265,8 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         uint256 receipt,
         uint256 price
     ) external override {
-        // Validate request exists
-        require(
-            requests.length > 0 && requests[requestId % requests.length].id == requestId,
-            "SomniaAgents: request not found or overwritten"
-        );
-
-        // Validate caller is subcommittee member
-        require(
-            _isSubcommitteeMember(requestId, msg.sender),
-            "SomniaAgents: not a subcommittee member"
-        );
-
-        Request storage req = requests[requestId % requests.length];
-
-        // Check not timed out
-        require(
-            block.timestamp <= req.createdAt + requestTimeout,
-            "SomniaAgents: request timed out"
-        );
-
-        // Check not already responded
-        require(
-            !_hasResponded(req.responses, msg.sender),
-            "SomniaAgents: already responded"
-        );
-
-        // If already finalized, just return - this is valid but a no-op
-        if (req.finalized) {
-            return;
-        }
-
-        req.responses.push(Response({
-            validator: msg.sender,
-            result: result,
-            receipt: receipt,
-            price: price,
-            timestamp: block.timestamp
-        }));
-
+        // DEBUG: Minimal implementation to isolate gas issue
         emit ResponseSubmitted(requestId, msg.sender);
-
-        // Check finalization based on consensus type
-        if (req.consensusType == ConsensusType.Majority) {
-            if (_checkMajorityConsensus(req.responses, req.threshold)) {
-                _finalizeRequest(requestId);
-            }
-        } else {
-            if (req.responses.length >= req.threshold) {
-                _finalizeRequest(requestId);
-            }
-        }
     }
 
     function _hasResponded(Response[] storage responses, address validator) internal view returns (bool) {

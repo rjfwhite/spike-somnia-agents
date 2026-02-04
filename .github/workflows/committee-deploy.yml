@@ -14,7 +14,6 @@ env:
   ZONE: us-central1-a
   REPO_NAME: agent-runner-repo
   IMAGE_NAME: agent-runner
-  SOMNIA_AGENTS_CONTRACT: "0x176B4C001C023f954B22D2083fbBF82C038cBC20"
 
 jobs:
   build-and-deploy:
@@ -26,6 +25,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Read contract address from terraform.tfvars
+        run: |
+          CONTRACT=$(grep somnia_agents_contract ./go-agent-host-2/deploy/terraform/terraform.tfvars | cut -d'"' -f2)
+          echo "SOMNIA_AGENTS_CONTRACT=$CONTRACT" >> $GITHUB_ENV
+          echo "Using SomniaAgents contract: $CONTRACT"
 
       - name: Google Auth
         uses: google-github-actions/auth@v2

@@ -41,6 +41,9 @@ func main() {
 		"commit", config.GitCommit,
 		"built", config.BuildTime,
 	)
+	if cfg.SomniaAgentsContract != "" {
+		slog.Info("SomniaAgents contract", "address", cfg.SomniaAgentsContract)
+	}
 	fmt.Println("")
 
 	// =========================================================================
