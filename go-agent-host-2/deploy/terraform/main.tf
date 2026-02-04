@@ -55,6 +55,22 @@ resource "google_secret_manager_secret" "committee_keys" {
   }
 }
 
+# Secret Manager secret for Grafana Alloy token
+resource "google_secret_manager_secret" "grafana_alloy_token" {
+  count     = var.grafana_alloy_token != "" ? 1 : 0
+  secret_id = "grafana-alloy-token"
+
+  replication {
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "grafana_alloy_token" {
+  count       = var.grafana_alloy_token != "" ? 1 : 0
+  secret      = google_secret_manager_secret.grafana_alloy_token[0].id
+  secret_data = var.grafana_alloy_token
+}
+
 # Firewall: allow HTTP on 8080
 resource "google_compute_firewall" "allow_http" {
   name    = "somnia-committee-allow-http"
@@ -120,6 +136,7 @@ resource "google_compute_instance" "committee" {
     somnia-agents-contract  = var.somnia_agents_contract
     rpc-url                 = var.rpc_url
     heartbeat-interval      = var.heartbeat_interval
+    grafana-alloy-enabled   = var.grafana_alloy_token != "" ? "true" : "false"
   }
 
   metadata_startup_script = file("${path.module}/startup.sh")

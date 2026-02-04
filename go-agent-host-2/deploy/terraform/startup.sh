@@ -110,6 +110,152 @@ docker run -d \
 
 log "Container started successfully"
 
+# =========================================================================
+# Grafana Alloy Setup (if enabled)
+# =========================================================================
+
+GRAFANA_ALLOY_ENABLED=$(get_metadata "instance/attributes/grafana-alloy-enabled")
+
+if [ "$GRAFANA_ALLOY_ENABLED" = "true" ]; then
+  log "Setting up Grafana Alloy..."
+
+  # Fetch Grafana Alloy token from Secret Manager
+  GRAFANA_ALLOY_TOKEN=$(curl -sf -H "$METADATA_HEADER" \
+    -H "Authorization: Bearer $ACCESS_TOKEN" \
+    "https://secretmanager.googleapis.com/v1/projects/$PROJECT_ID/secrets/grafana-alloy-token/versions/latest:access" \
+    | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['payload']['data']).decode())" 2>/dev/null || echo "")
+
+  if [ -z "$GRAFANA_ALLOY_TOKEN" ]; then
+    log "WARNING: Failed to fetch Grafana Alloy token, skipping Alloy setup"
+  else
+    log "Grafana Alloy token loaded"
+
+    # Create Alloy config directory
+    mkdir -p /var/lib/alloy
+
+    # Create Alloy config file
+    cat > /var/lib/alloy/config.alloy << 'ALLOY_CONFIG'
+// Grafana Alloy configuration for somnia-agents committee VMs
+
+logging {
+  level  = "info"
+  format = "logfmt"
+}
+
+// Prometheus remote write to Grafana Cloud
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = "https://prometheus-prod-36-prod-gb-south-1.grafana.net/api/prom/push"
+
+    basic_auth {
+      username = env("GRAFANA_CLOUD_PROMETHEUS_USER")
+      password = env("GRAFANA_ALLOY_TOKEN")
+    }
+  }
+}
+
+// Loki write to Grafana Cloud
+loki.write "grafana_cloud" {
+  endpoint {
+    url = "https://logs-prod-030.grafana.net/loki/api/v1/push"
+
+    basic_auth {
+      username = env("GRAFANA_CLOUD_LOKI_USER")
+      password = env("GRAFANA_ALLOY_TOKEN")
+    }
+  }
+}
+
+// Discover Docker containers
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+// Collect Docker container logs
+loki.source.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.docker.containers.targets
+  forward_to = [loki.process.containers.receiver]
+  relabel_rules = loki.relabel.containers.rules
+}
+
+loki.relabel "containers" {
+  forward_to = []
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_id"]
+    target_label  = "container_id"
+  }
+}
+
+loki.process "containers" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  stage.static_labels {
+    values = {
+      job = "docker",
+      instance = env("HOSTNAME"),
+    }
+  }
+}
+
+// Collect node metrics
+prometheus.exporter.unix "node" {
+  set_collectors = ["cpu", "meminfo", "diskstats", "filesystem", "loadavg", "netdev"]
+}
+
+prometheus.scrape "node" {
+  targets    = prometheus.exporter.unix.node.targets
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  scrape_interval = "30s"
+}
+
+// Scrape agent-runner metrics
+prometheus.scrape "agent_runner" {
+  targets = [
+    {"__address__" = "localhost:8080", "job" = "agent-runner"},
+  ]
+  metrics_path = "/metrics"
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+
+  scrape_interval = "15s"
+}
+ALLOY_CONFIG
+
+    # Stop existing Alloy container if running
+    docker stop grafana-alloy 2>/dev/null || true
+    docker rm grafana-alloy 2>/dev/null || true
+
+    # Pull and run Grafana Alloy
+    log "Starting Grafana Alloy container..."
+    docker run -d \
+      --name grafana-alloy \
+      --restart always \
+      --network host \
+      -v /var/run/docker.sock:/var/run/docker.sock:ro \
+      -v /var/lib/alloy/config.alloy:/etc/alloy/config.alloy:ro \
+      -v /proc:/host/proc:ro \
+      -v /sys:/host/sys:ro \
+      -v /:/host/root:ro \
+      -e "GRAFANA_ALLOY_TOKEN=$GRAFANA_ALLOY_TOKEN" \
+      -e "GRAFANA_CLOUD_PROMETHEUS_USER=1649652" \
+      -e "GRAFANA_CLOUD_LOKI_USER=1109653" \
+      -e "HOSTNAME=$INSTANCE_NAME" \
+      grafana/alloy:latest \
+      run --server.http.listen-addr=0.0.0.0:12345 /etc/alloy/config.alloy
+
+    log "Grafana Alloy started"
+  fi
+else
+  log "Grafana Alloy not enabled"
+fi
+
 # Keep the script running so the VM doesn't terminate
 # Container logs are captured by Google Cloud Logging via Docker's logging driver
 # No need for 'docker logs -f' which would duplicate log entries

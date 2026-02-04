@@ -48,3 +48,10 @@ variable "container_image" {
   description = "Container image to deploy"
   type        = string
 }
+
+variable "grafana_alloy_token" {
+  description = "Grafana Cloud Alloy token for observability"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
