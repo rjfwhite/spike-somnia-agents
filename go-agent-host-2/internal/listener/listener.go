@@ -470,6 +470,7 @@ func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
 
 	// Upload receipt asynchronously (don't block blockchain submission)
 	if response.Receipt != nil {
+		response.Receipt["agentId"] = agentId.String()
 		go l.uploadReceipt(requestIdStr, response.Receipt)
 	}
 

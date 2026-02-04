@@ -186,7 +186,7 @@ contract SomniaAgentsTest is Test {
         address nonMember = address(0x999);
 
         vm.prank(nonMember);
-        vm.expectRevert("SomniaAgents: submission failed");
+        vm.expectRevert("SomniaAgents: not a subcommittee member");
         agents.submitResponse(requestId, "response", TEST_RECEIPT, TEST_PRICE);
     }
 
@@ -205,7 +205,7 @@ contract SomniaAgentsTest is Test {
         agents.submitResponse(requestId, "response1", TEST_RECEIPT, TEST_PRICE);
 
         vm.prank(member);
-        vm.expectRevert("SomniaAgents: submission failed");
+        vm.expectRevert("SomniaAgents: already responded");
         agents.submitResponse(requestId, "response2", TEST_RECEIPT, TEST_PRICE);
     }
 
@@ -315,10 +315,13 @@ contract SomniaAgentsTest is Test {
         vm.prank(subcommittee[1]);
         agents.submitResponse(requestId, "result", TEST_RECEIPT, TEST_PRICE);
 
-        // Third member cannot submit
+        // Third member can call but it's a no-op (returns early)
         vm.prank(subcommittee[2]);
-        vm.expectRevert("SomniaAgents: submission failed");
         agents.submitResponse(requestId, "late response", TEST_RECEIPT, TEST_PRICE);
+
+        // Verify response count is still 2 (third wasn't stored)
+        Response[] memory responses = agents.getResponses(requestId);
+        assertEq(responses.length, 2);
     }
 
     function test_Timeout() public {
@@ -335,7 +338,7 @@ contract SomniaAgentsTest is Test {
         // Cannot submit after timeout
         address[] memory subcommittee = agents.getSubcommittee(requestId);
         vm.prank(subcommittee[0]);
-        vm.expectRevert("SomniaAgents: submission failed");
+        vm.expectRevert("SomniaAgents: request timed out");
         agents.submitResponse(requestId, "late", TEST_RECEIPT, TEST_PRICE);
     }
 
@@ -839,7 +842,7 @@ contract SomniaAgentsTest is Test {
         // Trying to submit response to overwritten request should fail
         address[] memory sub = smallAgent.getSubcommittee(2); // Get subcommittee for valid request
         vm.prank(sub[0]);
-        vm.expectRevert("SomniaAgents: submission failed");
+        vm.expectRevert("SomniaAgents: request not found or overwritten");
         smallAgent.submitResponse(req0, "late", TEST_RECEIPT, TEST_PRICE);
     }
 
