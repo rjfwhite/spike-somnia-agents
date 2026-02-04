@@ -2,11 +2,15 @@
 package listener
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -40,6 +44,7 @@ func httpToWsURL(httpURL string) string {
 type Config struct {
 	SomniaAgentsContract string
 	RPCURL               string
+	ReceiptsServiceURL   string
 }
 
 // Listener listens for RequestCreated events and executes agents.
@@ -59,6 +64,9 @@ type Listener struct {
 	somniaAgentsAddr  common.Address
 	agentRegistryAddr common.Address
 	committeeAddr     common.Address
+
+	// Receipts service configuration
+	receiptsServiceURL string
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -159,22 +167,23 @@ func New(cfg Config, agentManager *agents.Manager) (*Listener, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Listener{
-		client:            client,
-		somniaAgents:      somniaAgentsContract,
-		agentRegistry:     agentRegistryContract,
-		agentManager:      agentManager,
-		auth:              auth,
-		address:           address,
-		privateKey:        privateKey,
-		chainID:           chainID,
-		rpcURL:            cfg.RPCURL,
-		wsURL:             httpToWsURL(cfg.RPCURL),
-		somniaAgentsAddr:  somniaAgentsAddr,
-		agentRegistryAddr: agentRegistryAddr,
-		committeeAddr:     committeeAddr,
-		ctx:               ctx,
-		cancel:            cancel,
-		processed:         make(map[string]bool),
+		client:             client,
+		somniaAgents:       somniaAgentsContract,
+		agentRegistry:      agentRegistryContract,
+		agentManager:       agentManager,
+		auth:               auth,
+		address:            address,
+		privateKey:         privateKey,
+		chainID:            chainID,
+		rpcURL:             cfg.RPCURL,
+		wsURL:              httpToWsURL(cfg.RPCURL),
+		somniaAgentsAddr:   somniaAgentsAddr,
+		agentRegistryAddr:  agentRegistryAddr,
+		committeeAddr:      committeeAddr,
+		receiptsServiceURL: cfg.ReceiptsServiceURL,
+		ctx:                ctx,
+		cancel:             cancel,
+		processed:          make(map[string]bool),
 	}, nil
 }
 
@@ -388,8 +397,40 @@ func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
 		"responseSize", len(response.Body),
 	)
 
+	// Upload receipt asynchronously (don't block blockchain submission)
+	if response.Receipt != nil {
+		go l.uploadReceipt(requestIdStr, response.Receipt)
+	}
+
 	// Submit the response to the blockchain
 	l.submitResponse(requestId, response.Body, agent.Cost)
+}
+
+// uploadReceipt uploads a receipt to the receipts service asynchronously.
+func (l *Listener) uploadReceipt(requestID string, receipt map[string]interface{}) {
+	if l.receiptsServiceURL == "" {
+		return
+	}
+
+	receiptJSON, err := json.Marshal(receipt)
+	if err != nil {
+		slog.Error("Failed to marshal receipt", "request_id", requestID, "error", err)
+		return
+	}
+
+	receiptURL := fmt.Sprintf("%s/agent-receipts?requestId=%s", l.receiptsServiceURL, url.QueryEscape(requestID))
+	resp, err := http.Post(receiptURL, "application/json", bytes.NewReader(receiptJSON))
+	if err != nil {
+		slog.Error("Failed to upload receipt", "request_id", requestID, "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		slog.Error("Failed to upload receipt", "request_id", requestID, "status", resp.StatusCode)
+	} else {
+		slog.Info("Receipt uploaded", "request_id", requestID)
+	}
 }
 
 func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *big.Int) {

@@ -95,6 +95,7 @@ export default function RequestsV2Page() {
     const [lookupResult, setLookupResult] = useState<{ details: RequestDetails; responses: Response[]; agentMetadata?: TokenMetadata | null; receipts?: any[] } | null>(null);
     const [lookupLoading, setLookupLoading] = useState(false);
     const [lookupError, setLookupError] = useState<string | null>(null);
+    const [receiptsLoading, setReceiptsLoading] = useState(false);
 
     // Agent browser state
     const [allAgents, setAllAgents] = useState<AgentWithMetadata[]>([]);
@@ -600,6 +601,20 @@ export default function RequestsV2Page() {
         }
     };
 
+    const handleRefreshReceipts = async () => {
+        if (!lookupRequestId || !lookupResult) return;
+
+        setReceiptsLoading(true);
+        try {
+            const receipts = await fetchReceipts(lookupRequestId);
+            setLookupResult(prev => prev ? { ...prev, receipts } : null);
+        } catch (e) {
+            // Ignore - receipts may not be available
+        } finally {
+            setReceiptsLoading(false);
+        }
+    };
+
     const shortenAddress = (addr: string) => `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 
     // Convert events map to sorted list (by most recent activity)
@@ -1064,17 +1079,32 @@ export default function RequestsV2Page() {
                         )}
 
                         {/* Execution Receipts */}
-                        {lookupResult.receipts && lookupResult.receipts.length > 0 && (
-                            <div className="p-4 bg-black/20 rounded-lg border border-white/5">
-                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                                    Execution Receipts
+                        <div className="p-4 bg-black/20 rounded-lg border border-white/5">
+                            <div className="flex items-center justify-between mb-3">
+                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                                    Execution Receipts {lookupResult.receipts && lookupResult.receipts.length > 0 && `(${lookupResult.receipts.length})`}
                                 </h4>
+                                <button
+                                    onClick={handleRefreshReceipts}
+                                    disabled={receiptsLoading}
+                                    className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-white/5 rounded transition-colors disabled:opacity-50"
+                                    title="Refresh receipts"
+                                >
+                                    <RefreshCw className={`w-3 h-3 ${receiptsLoading ? 'animate-spin' : ''}`} />
+                                    Refresh
+                                </button>
+                            </div>
+                            {lookupResult.receipts && lookupResult.receipts.length > 0 ? (
                                 <ReceiptViewer
                                     receipts={lookupResult.receipts}
                                     abi={lookupResult.agentMetadata?.abi}
                                 />
-                            </div>
-                        )}
+                            ) : (
+                                <p className="text-sm text-gray-500">
+                                    {receiptsLoading ? 'Loading receipts...' : 'No receipts available yet. Try refreshing.'}
+                                </p>
+                            )}
+                        </div>
                     </div>
                 )}
             </div>

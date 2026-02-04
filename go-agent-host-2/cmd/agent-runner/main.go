@@ -190,6 +190,7 @@ func main() {
 		listenerCfg := listener.Config{
 			SomniaAgentsContract: cfg.SomniaAgentsContract,
 			RPCURL:               cfg.RPCURL,
+			ReceiptsServiceURL:   cfg.ReceiptsServiceURL,
 		}
 
 		var err error
@@ -225,8 +226,8 @@ func main() {
 		}
 	}
 
-	// Create API server
-	server := api.NewServer(agentManager, cfg.ReceiptsServiceURL, cfg.APIKey)
+	// Create API server (health, version, metrics only - agent requests handled via blockchain listener)
+	server := api.NewServer(cfg.APIKey)
 	http.HandleFunc("/", server.HandleRequest)
 
 	// =========================================================================
@@ -316,17 +317,12 @@ func main() {
 
 	// Print usage to stdout
 	fmt.Println("")
-	fmt.Println("Usage:")
-	fmt.Println("  GET or POST / with headers or query params:")
-	fmt.Println("    X-Agent-Url header or agentUrl query param: URL of the tarred container image")
-	fmt.Println("    X-Request-Id header or requestId query param: Request ID for receipts")
-	fmt.Println("  Body: Binary ABI-encoded function call (or base64-encoded in \"data\" query param)")
+	fmt.Println("Endpoints:")
+	fmt.Println("  GET /health  - Health check")
+	fmt.Println("  GET /version - Version info")
+	fmt.Println("  GET /metrics - Prometheus metrics")
 	fmt.Println("")
-	fmt.Println("  Example GET with query params:")
-	fmt.Println("    GET /?agentUrl=<url>&requestId=<id>&data=<base64-encoded-body>")
-	fmt.Println("")
-	fmt.Println("Response:")
-	fmt.Println("  Body: Binary ABI-encoded result")
+	fmt.Println("Agent requests are handled via blockchain event listener (--listener-enabled)")
 	fmt.Println("")
 
 	addr := fmt.Sprintf(":%d", cfg.Port)

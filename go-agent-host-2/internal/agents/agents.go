@@ -688,6 +688,8 @@ func (m *Manager) Forward(agentURL string, body []byte, headers map[string]strin
 		}
 
 		if _, hasSteps := jsonResponse["steps"]; hasSteps {
+			// Include the request hex in the receipt
+			jsonResponse["request"] = requestHex
 			receipt = jsonResponse
 		}
 	} else {
