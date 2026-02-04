@@ -42,34 +42,44 @@ func decodeRevertReason(err error) string {
 	var dataErr rpc.DataError
 	if errors.As(err, &dataErr) {
 		if data := dataErr.ErrorData(); data != nil {
-			if hexStr, ok := data.(string); ok {
-				return decodeRevertData(hexStr)
+			if hexStr, ok := data.(string); ok && len(hexStr) > 0 {
+				decoded := decodeRevertData(hexStr)
+				if decoded != "" {
+					return decoded
+				}
 			}
 		}
 	}
 
+	// Fall back to error message
 	return err.Error()
 }
 
 // decodeRevertData decodes ABI-encoded revert data (Error(string) format).
+// Returns empty string if decoding fails, so caller can fall back to raw error.
 func decodeRevertData(hexData string) string {
 	// Remove 0x prefix if present
 	hexData = strings.TrimPrefix(hexData, "0x")
 
+	if len(hexData) == 0 {
+		return ""
+	}
+
 	data, err := hex.DecodeString(hexData)
 	if err != nil || len(data) < 4 {
-		return "failed to decode: " + hexData
+		return ""
 	}
 
 	// Check for Error(string) selector: 0x08c379a0
 	errorSelector := []byte{0x08, 0xc3, 0x79, 0xa0}
 	if !bytes.Equal(data[:4], errorSelector) {
-		return "unknown error format: 0x" + hexData
+		// Return the raw hex for non-standard errors
+		return "0x" + hexData
 	}
 
 	// Need at least selector (4) + offset (32) + length (32) = 68 bytes
 	if len(data) < 68 {
-		return "revert data too short: 0x" + hexData
+		return "0x" + hexData
 	}
 
 	// Get string length from bytes 36-68 (after selector and offset)
@@ -77,7 +87,7 @@ func decodeRevertData(hexData string) string {
 
 	// Check we have enough data for the string
 	if uint64(len(data)) < 68+length {
-		return "revert data truncated: 0x" + hexData
+		return "0x" + hexData
 	}
 
 	// Extract the string
@@ -430,7 +440,7 @@ func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
 	}
 
 	// Generate a request ID string for the agent
-	requestIdStr := fmt.Sprintf("blockchain-%d", requestId.Uint64())
+	requestIdStr := fmt.Sprintf("%d", requestId.Uint64())
 
 	// Forward the request to the agent
 	slog.Info("Forwarding request to agent",
@@ -578,7 +588,8 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		)
 	} else {
 		// Try to get the revert reason by calling the same method
-		revertReason := "unknown"
+		revertReason := "unknown (replay succeeded - state may have changed)"
+		var rawError string
 		callMsg := ethereum.CallMsg{
 			From:     l.address,
 			To:       tx.To(),
@@ -590,6 +601,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		// Replay the call at the block where it failed to get revert data
 		_, callErr := l.client.CallContract(ctx, callMsg, txReceipt.BlockNumber)
 		if callErr != nil {
+			rawError = callErr.Error()
 			revertReason = decodeRevertReason(callErr)
 		}
 		slog.Error("Response transaction failed",
@@ -601,6 +613,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 			"status", txReceipt.Status,
 			"gasUsed", txReceipt.GasUsed,
 			"revertReason", revertReason,
+			"rawError", rawError,
 		)
 	}
 }
