@@ -14,6 +14,7 @@ env:
   ZONE: us-central1-a
   REPO_NAME: agent-runner-repo
   IMAGE_NAME: agent-runner
+  COMMITTEE_CONTRACT: "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB"
 
 jobs:
   build-and-deploy:
@@ -64,6 +65,10 @@ jobs:
         working-directory: ./go-agent-host-2/deploy/terraform
         run: |
           terraform apply -auto-approve \
+            -var="project_id=${{ env.PROJECT_ID }}" \
+            -var="region=${{ env.REGION }}" \
+            -var="zone=${{ env.ZONE }}" \
+            -var="committee_contract=${{ env.COMMITTEE_CONTRACT }}" \
             -var="container_image=${{ env.IMAGE_TAG }}"
 
       - name: Restart Committee VMs
