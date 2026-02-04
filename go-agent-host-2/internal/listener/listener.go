@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/ecdsa"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -22,11 +24,65 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/somnia-chain/agent-runner/internal/agentregistry"
 	"github.com/somnia-chain/agent-runner/internal/agents"
 	"github.com/somnia-chain/agent-runner/internal/somniaagents"
 )
+
+// decodeRevertReason extracts a human-readable revert reason from an error.
+// It handles both rpc.DataError (which contains revert data) and standard errors.
+func decodeRevertReason(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	// Try to extract data from rpc.DataError
+	var dataErr rpc.DataError
+	if errors.As(err, &dataErr) {
+		if data := dataErr.ErrorData(); data != nil {
+			if hexStr, ok := data.(string); ok {
+				return decodeRevertData(hexStr)
+			}
+		}
+	}
+
+	return err.Error()
+}
+
+// decodeRevertData decodes ABI-encoded revert data (Error(string) format).
+func decodeRevertData(hexData string) string {
+	// Remove 0x prefix if present
+	hexData = strings.TrimPrefix(hexData, "0x")
+
+	data, err := hex.DecodeString(hexData)
+	if err != nil || len(data) < 4 {
+		return "failed to decode: " + hexData
+	}
+
+	// Check for Error(string) selector: 0x08c379a0
+	errorSelector := []byte{0x08, 0xc3, 0x79, 0xa0}
+	if !bytes.Equal(data[:4], errorSelector) {
+		return "unknown error format: 0x" + hexData
+	}
+
+	// Need at least selector (4) + offset (32) + length (32) = 68 bytes
+	if len(data) < 68 {
+		return "revert data too short: 0x" + hexData
+	}
+
+	// Get string length from bytes 36-68 (after selector and offset)
+	length := new(big.Int).SetBytes(data[36:68]).Uint64()
+
+	// Check we have enough data for the string
+	if uint64(len(data)) < 68+length {
+		return "revert data truncated: 0x" + hexData
+	}
+
+	// Extract the string
+	return string(data[68 : 68+length])
+}
 
 // httpToWsURL converts an HTTP RPC URL to a WebSocket URL by adding /ws path.
 func httpToWsURL(httpURL string) string {
@@ -482,8 +538,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		slog.Error("Failed to submit response",
 			"requestId", requestId,
 			"error", err,
-			"errorType", fmt.Sprintf("%T", err),
-			"errorDetail", fmt.Sprintf("%+v", err),
+			"revertReason", decodeRevertReason(err),
 		)
 		return
 	}
