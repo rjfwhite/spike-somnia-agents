@@ -3,7 +3,7 @@ export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
 export const CONTRACT_ADDRESS = "0x58ade7Fe7633b54B0052F9006863c175b8a231bE" as const;
 export const COMMITTEE_CONTRACT_ADDRESS = "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB" as const;
 export const AGENT_REGISTRY_V2_ADDRESS = "0x0B4A083E482eFBE8537eE2265A62AB2E84Ac8DFa" as const;
-export const SOMNIA_AGENTS_V2_ADDRESS = "0x4082C6A26681943c9C77DDa12d901dDDce7A6749" as const;
+export const SOMNIA_AGENTS_V2_ADDRESS = "0x69F6E6AE99De3B4Bc5a86EBb02B32E1a583380Bb" as const;
 
 // Contract ABI for SomniaAgents (ERC721 Enumerable)
 export const SOMNIA_AGENTS_ABI = [

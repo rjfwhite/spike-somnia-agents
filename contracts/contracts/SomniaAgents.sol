@@ -265,8 +265,50 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         uint256 receipt,
         uint256 price
     ) external override {
-        // DEBUG: Minimal implementation to isolate gas issue
+        // Validate request exists
+        require(
+            requests.length > 0 && requests[requestId % requests.length].id == requestId,
+            "SomniaAgents: request not found or overwritten"
+        );
+
+        // Validate caller is subcommittee member
+        require(
+            _isSubcommitteeMember(requestId, msg.sender),
+            "SomniaAgents: not a subcommittee member"
+        );
+
+        Request storage req = requests[requestId % requests.length];
+
+        // Check not timed out
+        require(
+            block.timestamp <= req.createdAt + requestTimeout,
+            "SomniaAgents: request timed out"
+        );
+
+        // Check not already responded
+        require(
+            !_hasResponded(req.responses, msg.sender),
+            "SomniaAgents: already responded"
+        );
+
+        // If already finalized, just return
+        if (req.finalized) {
+            return;
+        }
+
+        // Store the response
+        req.responses.push(Response({
+            validator: msg.sender,
+            result: result,
+            receipt: receipt,
+            price: price,
+            timestamp: block.timestamp
+        }));
+
         emit ResponseSubmitted(requestId, msg.sender);
+
+        // DEBUG: Skip finalization to isolate gas issue
+        // TODO: Re-enable after debugging
     }
 
     function _hasResponded(Response[] storage responses, address validator) internal view returns (bool) {
