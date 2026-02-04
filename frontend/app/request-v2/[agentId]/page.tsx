@@ -30,7 +30,8 @@ import {
     Code,
     FileJson,
     Copy,
-    Check
+    Check,
+    RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 
@@ -330,6 +331,22 @@ export default function AgentRequestPage() {
 
             setSimulationError(errorMessage);
         }
+    };
+
+    const handleRetryReceipts = async () => {
+        if (!trackedRequest) return;
+
+        setTrackedRequest(prev => prev ? {
+            ...prev,
+            receiptsFetching: true,
+        } : null);
+
+        const receipts = await fetchReceipts(trackedRequest.id.toString());
+        setTrackedRequest(prev => prev ? {
+            ...prev,
+            receipts,
+            receiptsFetching: false,
+        } : null);
     };
 
     const methods = metadata ? getAbiFunctions(metadata) : [];
@@ -660,8 +677,15 @@ export default function AgentRequestPage() {
                                                 />
                                             </div>
                                         ) : (
-                                            <div className="p-4 bg-black/30 rounded-lg border border-white/10">
+                                            <div className="p-4 bg-black/30 rounded-lg border border-white/10 flex items-center justify-between">
                                                 <span className="text-sm text-gray-500">No execution receipts available yet</span>
+                                                <button
+                                                    onClick={handleRetryReceipts}
+                                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
+                                                >
+                                                    <RefreshCw className="w-3.5 h-3.5" />
+                                                    Retry
+                                                </button>
                                             </div>
                                         )
                                     )}

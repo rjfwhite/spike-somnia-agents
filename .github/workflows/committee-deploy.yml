@@ -69,17 +69,19 @@ jobs:
             -var="region=${{ env.REGION }}" \
             -var="zone=${{ env.ZONE }}" \
             -var="somnia_agents_contract=${{ env.SOMNIA_AGENTS_CONTRACT }}" \
-            -var="container_image=${{ env.IMAGE_TAG }}"
+            -var="container_image=${{ env.IMAGE_TAG }}" \
+            -var="grafana_alloy_token=${{ secrets.GRAFANA_ALLOY_TOKEN }}"
 
       - name: Restart Committee VMs
         run: |
-          # Restart each VM to pick up the new container image
+          # Restart all VMs in parallel to pick up the new container image
           for i in 0 1 2 3 4; do
             echo "Restarting somnia-committee-$i..."
             gcloud compute instances reset somnia-committee-$i \
               --zone=${{ env.ZONE }} \
-              --project=${{ env.PROJECT_ID }}
+              --project=${{ env.PROJECT_ID }} &
           done
+          wait
 
       - name: Output Instance IPs
         working-directory: ./go-agent-host-2/deploy/terraform
