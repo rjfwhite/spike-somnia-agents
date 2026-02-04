@@ -479,7 +479,12 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 
 	tx, err := l.somniaAgents.SubmitResponse(l.auth, requestId, result, receipt, price)
 	if err != nil {
-		slog.Error("Failed to submit response", "requestId", requestId, "error", err)
+		slog.Error("Failed to submit response",
+			"requestId", requestId,
+			"error", err,
+			"errorType", fmt.Sprintf("%T", err),
+			"errorDetail", fmt.Sprintf("%+v", err),
+		)
 		return
 	}
 
@@ -500,10 +505,27 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 			"gasUsed", txReceipt.GasUsed,
 		)
 	} else {
+		// Try to get the revert reason by calling the same method
+		revertReason := "unknown"
+		callMsg := ethereum.CallMsg{
+			From:     l.address,
+			To:       tx.To(),
+			Gas:      tx.Gas(),
+			GasPrice: tx.GasPrice(),
+			Value:    tx.Value(),
+			Data:     tx.Data(),
+		}
+		// Replay the call at the block where it failed to get revert data
+		_, callErr := l.client.CallContract(ctx, callMsg, txReceipt.BlockNumber)
+		if callErr != nil {
+			revertReason = callErr.Error()
+		}
 		slog.Error("Response transaction failed",
 			"requestId", requestId,
 			"txHash", tx.Hash().Hex(),
 			"status", txReceipt.Status,
+			"gasUsed", txReceipt.GasUsed,
+			"revertReason", revertReason,
 		)
 	}
 }

@@ -110,5 +110,9 @@ docker run -d \
 
 log "Container started successfully"
 
-# Follow logs (this keeps the script running and logs visible in serial console)
-docker logs -f agent-runner
+# Keep the script running so the VM doesn't terminate
+# Container logs are captured by Google Cloud Logging via Docker's logging driver
+# No need for 'docker logs -f' which would duplicate log entries
+while true; do
+  sleep 3600
+done
