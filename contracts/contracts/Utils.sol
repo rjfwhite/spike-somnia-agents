@@ -3,15 +3,7 @@ pragma solidity ^0.8.28;
 
 library BytesLib {
     function equal(bytes storage a, bytes storage b) internal view returns (bool) {
-        if (a.length != b.length) {
-            return false;
-        }
-        for (uint256 i = 0; i < a.length; i++) {
-            if (a[i] != b[i]) {
-                return false;
-            }
-        }
-        return true;
+        return keccak256(a) == keccak256(b);
     }
 }
 

@@ -353,19 +353,15 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         uint256[] memory consensusPrices;
 
         if (req.consensusType == ConsensusType.Majority) {
-            // Return the result that reached threshold and get prices from agreeing validators
             (callbackData, consensusPrices) = _getMajorityResultAndPrices(req.responses, req.threshold);
         } else {
-            // Threshold consensus: return all response data for off-chain aggregation (median, xor, etc.)
             callbackData = _encodeAllResponses(req.responses);
             consensusPrices = _getAllPrices(req.responses);
         }
 
-        // Calculate validator costs: median price * subcommittee size (pay all elected validators)
         uint256 medianPrice = MathLib.median(consensusPrices);
         uint256 validatorCosts = medianPrice * req.subcommittee.length;
 
-        // Call the callback if one was provided, tracking gas used
         uint256 callbackGasCost = 0;
         if (req.callbackAddress != address(0)) {
             uint256 gasBefore = gasleft();
@@ -376,15 +372,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             callbackGasCost = gasUsed * tx.gasprice;
         }
 
-        // Calculate final cost: agent fee + validator costs + callback gas
         req.finalCost = req.agentCost + validatorCosts + callbackGasCost;
 
-        // Send rebate to requester if final cost < max cost
         uint256 rebate = 0;
         if (req.finalCost < req.maxCost) {
             rebate = req.maxCost - req.finalCost;
             (bool sent, ) = req.requester.call{value: rebate}("");
-            // Rebate failure is not fatal - funds stay in contract
         }
 
         emit RequestFinalized(requestId, req.finalCost, rebate);
