@@ -398,6 +398,7 @@ export default function RequestsV2Page() {
         }
     }, [isConfirmed, refetchNextId, resetWrite]);
 
+
     const handleCreateRequest = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!agentId || !maxCost || !publicClient || !address) return;
