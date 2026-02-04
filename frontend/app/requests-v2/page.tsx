@@ -13,7 +13,11 @@ import {
     SOMNIA_RPC_URL,
     Agent
 } from "@/lib/contract";
-import { TokenMetadata, getAbiFunctions } from "@/lib/types";
+import { TokenMetadata, AbiFunction, getAbiFunctions } from "@/lib/types";
+import { DecodedData } from "@/components/DecodedData";
+import { ReceiptViewer } from "@/components/ReceiptViewer";
+import { fetchReceipts } from "@/lib/receipts";
+import Link from "next/link";
 import {
     Activity,
     Send,
@@ -28,7 +32,10 @@ import {
     RefreshCw,
     Users,
     Zap,
-    ExternalLink
+    ExternalLink,
+    Bot,
+    Play,
+    List
 } from "lucide-react";
 
 interface RequestEvent {
@@ -70,16 +77,28 @@ interface Response {
     timestamp: bigint;
 }
 
+interface AgentWithMetadata {
+    id: string;
+    agent: Agent;
+    metadata: TokenMetadata | null;
+    loading: boolean;
+}
+
 export default function RequestsV2Page() {
     const { address, isConnected } = useAccount();
     const publicClient = usePublicClient();
     const [events, setEvents] = useState<Map<string, RequestEvent[]>>(new Map());
     const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
     const [showCreateForm, setShowCreateForm] = useState(false);
+    const [showAgentBrowser, setShowAgentBrowser] = useState(false);
     const [lookupRequestId, setLookupRequestId] = useState("");
-    const [lookupResult, setLookupResult] = useState<{ details: RequestDetails; responses: Response[] } | null>(null);
+    const [lookupResult, setLookupResult] = useState<{ details: RequestDetails; responses: Response[]; agentMetadata?: TokenMetadata | null; receipts?: any[] } | null>(null);
     const [lookupLoading, setLookupLoading] = useState(false);
     const [lookupError, setLookupError] = useState<string | null>(null);
+
+    // Agent browser state
+    const [allAgents, setAllAgents] = useState<AgentWithMetadata[]>([]);
+    const [agentsLoading, setAgentsLoading] = useState(false);
 
     // Create request form state
     const [agentId, setAgentId] = useState("");
@@ -137,6 +156,73 @@ export default function RequestsV2Page() {
     // Write contract for creating requests
     const { writeContract, data: txHash, isPending, error: writeError, reset: resetWrite } = useWriteContract();
     const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash: txHash });
+
+    // Fetch all agents from registry
+    const fetchAllAgents = useCallback(async () => {
+        if (!publicClient) return;
+
+        setAgentsLoading(true);
+        try {
+            const agentIds = await publicClient.readContract({
+                address: AGENT_REGISTRY_V2_ADDRESS,
+                abi: AGENT_REGISTRY_V2_ABI,
+                functionName: "getAllAgents",
+            }) as bigint[];
+
+            // Fetch each agent's details
+            const agentsWithMetadata: AgentWithMetadata[] = await Promise.all(
+                agentIds.map(async (id) => {
+                    try {
+                        const agent = await publicClient.readContract({
+                            address: AGENT_REGISTRY_V2_ADDRESS,
+                            abi: AGENT_REGISTRY_V2_ABI,
+                            functionName: "getAgent",
+                            args: [id],
+                        }) as Agent;
+
+                        let metadata: TokenMetadata | null = null;
+                        if (agent.metadataUri && (agent.metadataUri.startsWith('http://') || agent.metadataUri.startsWith('https://'))) {
+                            try {
+                                const res = await fetch(agent.metadataUri);
+                                if (res.ok) {
+                                    metadata = await res.json();
+                                }
+                            } catch (e) {
+                                // Ignore metadata fetch errors
+                            }
+                        }
+
+                        return {
+                            id: id.toString(),
+                            agent,
+                            metadata,
+                            loading: false,
+                        };
+                    } catch (e) {
+                        return {
+                            id: id.toString(),
+                            agent: { agentId: id, owner: '', metadataUri: '', containerImageUri: '', cost: BigInt(0) },
+                            metadata: null,
+                            loading: false,
+                        };
+                    }
+                })
+            );
+
+            setAllAgents(agentsWithMetadata);
+        } catch (e) {
+            console.error("Failed to fetch agents:", e);
+        } finally {
+            setAgentsLoading(false);
+        }
+    }, [publicClient]);
+
+    // Load agents when browser is opened
+    useEffect(() => {
+        if (showAgentBrowser && allAgents.length === 0 && !agentsLoading) {
+            fetchAllAgents();
+        }
+    }, [showAgentBrowser, allAgents.length, agentsLoading, fetchAllAgents]);
 
     // Watch for events via WebSocket
     useEffect(() => {
@@ -452,6 +538,41 @@ export default function RequestsV2Page() {
                 args: [BigInt(lookupRequestId)],
             }) as Response[];
 
+            // Try to get the agent metadata for response decoding
+            // First, we need to find the agentId from the events
+            let agentMetadata: TokenMetadata | null = null;
+
+            // Check if we have a RequestCreated event in our cache with this request ID
+            const requestEvents = events.get(lookupRequestId);
+            const createdEvent = requestEvents?.find(e => e.type === 'created');
+            if (createdEvent?.agentId) {
+                try {
+                    const agent = await publicClient.readContract({
+                        address: AGENT_REGISTRY_V2_ADDRESS,
+                        abi: AGENT_REGISTRY_V2_ABI,
+                        functionName: "getAgent",
+                        args: [createdEvent.agentId],
+                    }) as Agent;
+
+                    if (agent.metadataUri && (agent.metadataUri.startsWith('http://') || agent.metadataUri.startsWith('https://'))) {
+                        const res = await fetch(agent.metadataUri);
+                        if (res.ok) {
+                            agentMetadata = await res.json();
+                        }
+                    }
+                } catch (e) {
+                    // Ignore - we just won't be able to decode responses
+                }
+            }
+
+            // Fetch receipts for execution details
+            let receipts: any[] = [];
+            try {
+                receipts = await fetchReceipts(lookupRequestId);
+            } catch (e) {
+                // Ignore - receipts may not be available
+            }
+
             setLookupResult({
                 details: {
                     requester: details[0],
@@ -468,6 +589,8 @@ export default function RequestsV2Page() {
                     finalCost: details[11],
                 },
                 responses,
+                agentMetadata,
+                receipts,
             });
         } catch (err) {
             console.error("Failed to lookup request:", err);
@@ -531,6 +654,122 @@ export default function RequestsV2Page() {
                 />
             </div>
 
+            {/* Agent Browser */}
+            <div className="bg-slate-900/50 border border-white/10 rounded-lg overflow-hidden">
+                <button
+                    onClick={() => setShowAgentBrowser(!showAgentBrowser)}
+                    className="w-full px-4 py-3 flex items-center justify-between hover:bg-white/5 transition-colors"
+                >
+                    <div className="flex items-center gap-3">
+                        <Bot className="w-5 h-5 text-purple-400" />
+                        <div className="text-left">
+                            <h3 className="text-sm font-semibold text-white">Browse Agents</h3>
+                            <p className="text-xs text-gray-500">Select an agent to make a request with automatic encoding</p>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {allAgents.length > 0 && (
+                            <span className="text-xs text-gray-500">{allAgents.length} agents</span>
+                        )}
+                        {showAgentBrowser ? (
+                            <ChevronUp className="w-5 h-5 text-gray-400" />
+                        ) : (
+                            <ChevronDown className="w-5 h-5 text-gray-400" />
+                        )}
+                    </div>
+                </button>
+
+                {showAgentBrowser && (
+                    <div className="border-t border-white/10 p-4">
+                        {agentsLoading ? (
+                            <div className="flex items-center justify-center py-8 gap-3">
+                                <Loader2 className="w-5 h-5 text-purple-400 animate-spin" />
+                                <span className="text-gray-400">Loading agents...</span>
+                            </div>
+                        ) : allAgents.length === 0 ? (
+                            <div className="text-center py-8">
+                                <Bot className="w-12 h-12 mx-auto text-gray-600 mb-3" />
+                                <p className="text-gray-500">No agents found in the registry</p>
+                                <Link
+                                    href="/agents-v2"
+                                    className="inline-flex items-center gap-2 mt-3 text-sm text-purple-400 hover:text-purple-300"
+                                >
+                                    Create an agent
+                                    <ExternalLink className="w-4 h-4" />
+                                </Link>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {allAgents.map((agentData) => {
+                                    const methods = agentData.metadata ? getAbiFunctions(agentData.metadata) : [];
+                                    return (
+                                        <Link
+                                            key={agentData.id}
+                                            href={`/request-v2/${agentData.id}`}
+                                            className="block p-4 bg-black/30 hover:bg-black/40 border border-white/5 hover:border-purple-500/30 rounded-lg transition-all group"
+                                        >
+                                            <div className="flex items-start gap-3">
+                                                {agentData.metadata?.image ? (
+                                                    <img
+                                                        src={agentData.metadata.image}
+                                                        alt={agentData.metadata.name || 'Agent'}
+                                                        className="w-10 h-10 rounded-lg object-cover flex-shrink-0"
+                                                    />
+                                                ) : (
+                                                    <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center flex-shrink-0">
+                                                        <Bot className="w-5 h-5 text-purple-400" />
+                                                    </div>
+                                                )}
+                                                <div className="flex-1 min-w-0">
+                                                    <h4 className="text-sm font-semibold text-white truncate group-hover:text-purple-300 transition-colors">
+                                                        {agentData.metadata?.name || `Agent ${agentData.id}`}
+                                                    </h4>
+                                                    <p className="text-xs text-gray-500 font-mono">ID: {agentData.id}</p>
+                                                    <div className="flex items-center gap-2 mt-1">
+                                                        <span className="text-xs text-green-400 font-mono">
+                                                            {formatEther(agentData.agent.cost)} STT
+                                                        </span>
+                                                        {methods.length > 0 && (
+                                                            <span className="text-xs text-gray-500">
+                                                                {methods.length} method{methods.length !== 1 ? 's' : ''}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <Play className="w-4 h-4 text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+                                            </div>
+                                            {agentData.metadata?.description && (
+                                                <p className="text-xs text-gray-500 mt-2 line-clamp-2">
+                                                    {agentData.metadata.description}
+                                                </p>
+                                            )}
+                                        </Link>
+                                    );
+                                })}
+                            </div>
+                        )}
+
+                        <div className="mt-4 flex items-center justify-between pt-4 border-t border-white/5">
+                            <button
+                                onClick={() => fetchAllAgents()}
+                                disabled={agentsLoading}
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors disabled:opacity-50"
+                            >
+                                <RefreshCw className={`w-3 h-3 ${agentsLoading ? 'animate-spin' : ''}`} />
+                                Refresh
+                            </button>
+                            <Link
+                                href="/agents-v2"
+                                className="flex items-center gap-2 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
+                            >
+                                <List className="w-3 h-3" />
+                                Manage Agents
+                            </Link>
+                        </div>
+                    </div>
+                )}
+            </div>
+
             {/* Warning if not enough members */}
             {activeMemberCount < requiredMembers && (
                 <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
@@ -550,21 +789,60 @@ export default function RequestsV2Page() {
             {/* Create Request Form */}
             {showCreateForm && (
                 <div className="bg-slate-900/50 border border-purple-500/20 rounded-lg p-6">
-                    <h2 className="text-lg font-bold text-white mb-4">Create New Request</h2>
+                    <h2 className="text-lg font-bold text-white mb-2">Create New Request (Advanced)</h2>
+                    <p className="text-sm text-gray-400 mb-4">
+                        For automatic payload encoding, use the{' '}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setShowCreateForm(false);
+                                setShowAgentBrowser(true);
+                            }}
+                            className="text-purple-400 hover:text-purple-300 underline"
+                        >
+                            Agent Browser
+                        </button>{' '}
+                        above to select an agent and its methods.
+                    </p>
                     <form onSubmit={handleCreateRequest} className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
                                     Agent ID
                                 </label>
-                                <input
-                                    type="text"
-                                    value={agentId}
-                                    onChange={(e) => setAgentId(e.target.value)}
-                                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
-                                    placeholder="Agent ID from registry"
-                                    required
-                                />
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={agentId}
+                                        onChange={(e) => setAgentId(e.target.value)}
+                                        className="flex-1 px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
+                                        placeholder="Agent ID from registry"
+                                        required
+                                    />
+                                    {allAgents.length > 0 && (
+                                        <select
+                                            value=""
+                                            onChange={(e) => setAgentId(e.target.value)}
+                                            className="px-2 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-gray-400 focus:outline-none focus:ring-1 focus:ring-purple-500/50"
+                                        >
+                                            <option value="">Select...</option>
+                                            {allAgents.map((a) => (
+                                                <option key={a.id} value={a.id}>
+                                                    {a.metadata?.name || `Agent ${a.id}`}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </div>
+                                {agentId && allAgents.length > 0 && (
+                                    <Link
+                                        href={`/request-v2/${agentId}`}
+                                        className="inline-flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 mt-1"
+                                    >
+                                        <Play className="w-3 h-3" />
+                                        Use automatic encoding for this agent
+                                    </Link>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
@@ -740,28 +1018,61 @@ export default function RequestsV2Page() {
                             <div className="p-4 bg-black/20 rounded-lg border border-white/5">
                                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
                                     Responses ({lookupResult.responses.length})
+                                    {lookupResult.agentMetadata && (
+                                        <span className="ml-2 text-green-400 font-normal normal-case">
+                                            - decoded using {lookupResult.agentMetadata.name} ABI
+                                        </span>
+                                    )}
                                 </h4>
-                                <div className="space-y-2">
-                                    {lookupResult.responses.map((response, i) => (
-                                        <div key={i} className="p-3 bg-black/30 rounded-lg border border-white/5">
-                                            <div className="flex items-center justify-between mb-2">
-                                                <span className="font-mono text-sm text-blue-400">{shortenAddress(response.validator)}</span>
-                                                <span className="text-xs text-gray-500">
-                                                    Price: {formatEther(response.price)} STT
-                                                </span>
+                                <div className="space-y-3">
+                                    {lookupResult.responses.map((response, i) => {
+                                        const methods = lookupResult.agentMetadata ? getAbiFunctions(lookupResult.agentMetadata) : [];
+                                        const firstMethod = methods.length > 0 ? methods[0] : undefined;
+
+                                        return (
+                                            <div key={i} className="p-3 bg-black/30 rounded-lg border border-white/5">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <span className="font-mono text-sm text-blue-400">{shortenAddress(response.validator)}</span>
+                                                    <span className="text-xs text-gray-500">
+                                                        Price: {formatEther(response.price)} STT
+                                                    </span>
+                                                </div>
+
+                                                {/* Try to decode response using agent ABI */}
+                                                {lookupResult.agentMetadata && firstMethod ? (
+                                                    <DecodedData
+                                                        data={response.result}
+                                                        label="Result"
+                                                        method={firstMethod}
+                                                    />
+                                                ) : (
+                                                    <div className="text-xs">
+                                                        <span className="text-gray-500">Result (raw): </span>
+                                                        <span className="font-mono text-green-400 break-all">
+                                                            {response.result.length > 66
+                                                                ? `${response.result.slice(0, 34)}...${response.result.slice(-32)}`
+                                                                : response.result
+                                                            }
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="text-xs">
-                                                <span className="text-gray-500">Result: </span>
-                                                <span className="font-mono text-green-400 break-all">
-                                                    {response.result.length > 66
-                                                        ? `${response.result.slice(0, 34)}...${response.result.slice(-32)}`
-                                                        : response.result
-                                                    }
-                                                </span>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
+                            </div>
+                        )}
+
+                        {/* Execution Receipts */}
+                        {lookupResult.receipts && lookupResult.receipts.length > 0 && (
+                            <div className="p-4 bg-black/20 rounded-lg border border-white/5">
+                                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                                    Execution Receipts
+                                </h4>
+                                <ReceiptViewer
+                                    receipts={lookupResult.receipts}
+                                    abi={lookupResult.agentMetadata?.abi}
+                                />
                             </div>
                         )}
                     </div>

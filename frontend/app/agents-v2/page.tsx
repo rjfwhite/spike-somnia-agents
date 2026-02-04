@@ -21,8 +21,10 @@ import {
     ChevronUp,
     Trash2,
     Edit3,
-    Eye
+    Eye,
+    Play
 } from "lucide-react";
+import Link from "next/link";
 
 type InputMode = 'upload' | 'url';
 
@@ -824,6 +826,13 @@ function AgentCardV2({
                     </div>
 
                     <div className="flex gap-2 pt-2">
+                        <Link
+                            href={`/request-v2/${agent.id}`}
+                            className="flex items-center gap-2 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-sm font-medium rounded-lg transition-colors"
+                        >
+                            <Play className="w-4 h-4" />
+                            Make Request
+                        </Link>
                         <button
                             onClick={() => onEdit(agent)}
                             className="flex items-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 text-gray-300 text-sm font-medium rounded-lg transition-colors"
