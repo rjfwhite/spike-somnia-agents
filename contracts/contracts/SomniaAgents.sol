@@ -307,8 +307,16 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         emit ResponseSubmitted(requestId, msg.sender);
 
-        // DEBUG: Skip finalization to isolate gas issue
-        // TODO: Re-enable after debugging
+        // Check finalization based on consensus type
+        if (req.consensusType == ConsensusType.Majority) {
+            if (_checkMajorityConsensus(req.responses, req.threshold)) {
+                _finalizeRequest(requestId);
+            }
+        } else {
+            if (req.responses.length >= req.threshold) {
+                _finalizeRequest(requestId);
+            }
+        }
     }
 
     function _hasResponded(Response[] storage responses, address validator) internal view returns (bool) {
