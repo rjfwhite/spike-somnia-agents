@@ -27,7 +27,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         { id: 'agents', label: 'Agents', icon: LayoutGrid, path: '/' },
         { id: 'my-agents', label: 'My Agents', icon: User, path: '/my-agents' },
         { id: 'live', label: 'Live Feed', icon: Activity, path: '/live' },
-        { id: 'receipts', label: 'Receipts', icon: FileText, path: '/receipts' },
         { id: 'admin', label: 'Admin', icon: Settings, path: '/admin' },
         { id: 'invoke', label: 'Direct Invoke', icon: Zap, path: '/invoke' },
         { id: 'docs', label: 'Documentation', icon: BookOpen, path: 'https://metaversal.gitbook.io/agents/s8KLL5NzoS6LwJVIQCiT/', external: true },
@@ -36,6 +35,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const v2NavItems = [
         { id: 'agents-v2', label: 'Agents', icon: Box, path: '/agents-v2' },
         { id: 'requests-v2', label: 'Requests', icon: Send, path: '/requests-v2' },
+        { id: 'receipts', label: 'Receipts', icon: FileText, path: '/receipts' },
         { id: 'committee', label: 'Committee', icon: Users, path: '/committee' },
     ];
 

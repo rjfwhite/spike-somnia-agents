@@ -30,7 +30,8 @@ const SomniaAgentsABI = `[
 		"anonymous": false,
 		"inputs": [
 			{"indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256"},
-			{"indexed": true, "internalType": "address", "name": "validator", "type": "address"}
+			{"indexed": true, "internalType": "address", "name": "validator", "type": "address"},
+			{"indexed": false, "internalType": "uint256", "name": "receipt", "type": "uint256"}
 		],
 		"name": "ResponseSubmitted",
 		"type": "event"

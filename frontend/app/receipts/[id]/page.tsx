@@ -2,8 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { ReceiptViewer } from "@/components/ReceiptViewer";
+import { createPublicClient, http } from "viem";
+import { ReceiptViewer, RequestDisplay } from "@/components/ReceiptViewer";
 import { fetchReceipts } from "@/lib/receipts";
+import {
+    AGENT_REGISTRY_V2_ADDRESS,
+    AGENT_REGISTRY_V2_ABI,
+    SOMNIA_RPC_URL,
+    Agent
+} from "@/lib/contract";
+import { Loader2, ExternalLink } from "lucide-react";
+import Link from "next/link";
 
 export default function ReceiptPage() {
     const params = useParams();
@@ -12,6 +21,12 @@ export default function ReceiptPage() {
     const [receipts, setReceipts] = useState<any[] | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    // Agent resolution state
+    const [agentId, setAgentId] = useState<string | null>(null);
+    const [agent, setAgent] = useState<Agent | null>(null);
+    const [metadata, setMetadata] = useState<any | null>(null);
+    const [agentLoading, setAgentLoading] = useState(false);
 
     useEffect(() => {
         if (!requestId) return;
@@ -25,6 +40,12 @@ export default function ReceiptPage() {
                 setReceipts(data);
                 if (data.length === 0) {
                     setError("No receipts found for this request ID");
+                } else {
+                    // Check if any receipt has an agentId
+                    const receiptWithAgent = data.find(r => r.agentId);
+                    if (receiptWithAgent?.agentId) {
+                        setAgentId(receiptWithAgent.agentId);
+                    }
                 }
             } catch (err: any) {
                 setError(err.message || "Failed to fetch receipts");
@@ -35,6 +56,52 @@ export default function ReceiptPage() {
 
         loadReceipts();
     }, [requestId]);
+
+    // Fetch agent data when agentId is available
+    useEffect(() => {
+        if (!agentId) return;
+
+        async function loadAgent() {
+            setAgentLoading(true);
+
+            try {
+                const client = createPublicClient({
+                    transport: http(SOMNIA_RPC_URL),
+                });
+
+                const agentData = await client.readContract({
+                    address: AGENT_REGISTRY_V2_ADDRESS,
+                    abi: AGENT_REGISTRY_V2_ABI,
+                    functionName: "getAgent",
+                    args: [BigInt(agentId)],
+                }) as Agent;
+
+                setAgent(agentData);
+
+                // Fetch metadata/agent.json
+                if (agentData.metadataUri && (agentData.metadataUri.startsWith('http://') || agentData.metadataUri.startsWith('https://'))) {
+                    try {
+                        const res = await fetch(agentData.metadataUri);
+                        if (res.ok) {
+                            const meta = await res.json();
+                            setMetadata(meta);
+                        }
+                    } catch (e) {
+                        console.error("Failed to fetch agent metadata:", e);
+                    }
+                }
+            } catch (err: any) {
+                console.error("Failed to fetch agent:", err);
+            } finally {
+                setAgentLoading(false);
+            }
+        }
+
+        loadAgent();
+    }, [agentId]);
+
+    // Get the request hex from the first receipt if available
+    const requestHex = receipts?.[0]?.request;
 
     return (
         <div className="space-y-8">
@@ -51,6 +118,47 @@ export default function ReceiptPage() {
                             {requestId}
                         </div>
                     </div>
+
+                    {/* Agent Info */}
+                    {agentId && (
+                        <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-4">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    {metadata?.image && (
+                                        <img
+                                            src={metadata.image}
+                                            alt={metadata.name}
+                                            className="w-10 h-10 rounded-lg object-cover border border-white/10"
+                                        />
+                                    )}
+                                    <div>
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-xs text-gray-500">Agent:</span>
+                                            {agentLoading ? (
+                                                <Loader2 className="w-3 h-3 text-purple-400 animate-spin" />
+                                            ) : (
+                                                <span className="text-sm font-medium text-purple-400">
+                                                    {metadata?.name || `Agent #${agentId}`}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {metadata?.description && (
+                                            <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">
+                                                {metadata.description}
+                                            </p>
+                                        )}
+                                    </div>
+                                </div>
+                                <Link
+                                    href={`/request-v2/${agentId}`}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
+                                >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    View Agent
+                                </Link>
+                            </div>
+                        </div>
+                    )}
 
                     {loading && (
                         <div className="flex items-center justify-center py-12">
@@ -83,7 +191,22 @@ export default function ReceiptPage() {
                     )}
 
                     {receipts && receipts.length > 0 && !loading && (
-                        <ReceiptViewer receipts={receipts} />
+                        <div className="space-y-4">
+                            {/* Decoded Request */}
+                            {requestHex && metadata?.abi && (
+                                <RequestDisplay
+                                    request={requestHex}
+                                    abi={metadata.abi}
+                                    label="Request Payload"
+                                />
+                            )}
+
+                            {/* Receipt Viewer with ABI for result decoding */}
+                            <ReceiptViewer
+                                receipts={receipts}
+                                abi={metadata?.abi}
+                            />
+                        </div>
                     )}
                 </div>
             </section>

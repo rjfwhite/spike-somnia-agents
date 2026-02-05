@@ -41,9 +41,11 @@ func main() {
 		"commit", config.GitCommit,
 		"built", config.BuildTime,
 	)
-	if cfg.SomniaAgentsContract != "" {
-		slog.Info("SomniaAgents contract", "address", cfg.SomniaAgentsContract)
+	if cfg.SomniaAgentsContract == "" {
+		slog.Error("--somnia-agents-contract is required")
+		os.Exit(1)
 	}
+	slog.Info("SomniaAgents contract", "address", cfg.SomniaAgentsContract)
 	fmt.Println("")
 
 	// =========================================================================
@@ -183,79 +185,64 @@ func main() {
 		slog.Info("LLM proxy started", "addr", llmProxyAddr, "upstream", cfg.LLMUpstreamURL)
 	}
 
-	// Initialize blockchain components if needed (committee or listener)
-	var eventListener *listener.Listener
-	var hb *heartbeater.Heartbeater
-
-	if cfg.CommitteeEnabled || cfg.ListenerEnabled {
-		if cfg.SomniaAgentsContract == "" {
-			slog.Error("--somnia-agents-contract is required when committee or listener is enabled")
-			os.Exit(1)
-		}
-
-		// Load private key to derive address for nonce manager
-		privateKeyHex := os.Getenv("PRIVATE_KEY")
-		if privateKeyHex == "" {
-			slog.Error("PRIVATE_KEY environment variable is required")
-			os.Exit(1)
-		}
-		if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
-			privateKeyHex = privateKeyHex[2:]
-		}
-		privateKey, err := crypto.HexToECDSA(privateKeyHex)
-		if err != nil {
-			slog.Error("Invalid private key", "error", err)
-			os.Exit(1)
-		}
-		publicKey := privateKey.Public().(*ecdsa.PublicKey)
-		address := crypto.PubkeyToAddress(*publicKey)
-
-		// Create shared nonce manager (fetches initial nonce once at startup)
-		nonceManager, err := nonce.NewManager(ctx, cfg.RPCURL, address)
-		if err != nil {
-			slog.Error("Failed to create nonce manager", "error", err)
-			os.Exit(1)
-		}
-		slog.Info("Nonce manager initialized", "address", address.Hex(), "nonce", nonceManager.Current())
-
-		// Create listener to resolve contract addresses from SomniaAgents
-		listenerCfg := listener.Config{
-			SomniaAgentsContract: cfg.SomniaAgentsContract,
-			RPCURL:               cfg.RPCURL,
-			ReceiptsServiceURL:   cfg.ReceiptsServiceURL,
-		}
-
-		eventListener, err = listener.New(listenerCfg, agentManager, nonceManager)
-		if err != nil {
-			slog.Error("Failed to create event listener", "error", err)
-			os.Exit(1)
-		}
-
-		// Configure AgentRegistry address for containers
-		agentManager.SetAgentRegistryAddress(eventListener.AgentRegistryAddress())
-
-		// Start heartbeater if enabled (uses resolved committee address)
-		if cfg.CommitteeEnabled {
-			hbCfg := heartbeater.Config{
-				ContractAddress: eventListener.CommitteeAddress(),
-				RPCURL:          cfg.RPCURL,
-				Interval:        cfg.CommitteeInterval,
-			}
-
-			hb, err = heartbeater.New(hbCfg, nonceManager)
-			if err != nil {
-				slog.Error("Failed to create heartbeater", "error", err)
-				os.Exit(1)
-			}
-
-			hb.Start()
-		}
-
-		// Start event listener if enabled
-		if cfg.ListenerEnabled {
-			eventListener.Start()
-		}
+	// Initialize blockchain components
+	// Load private key to derive address for nonce manager
+	privateKeyHex := os.Getenv("PRIVATE_KEY")
+	if privateKeyHex == "" {
+		slog.Error("PRIVATE_KEY environment variable is required")
+		os.Exit(1)
 	}
+	if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
+		privateKeyHex = privateKeyHex[2:]
+	}
+	privateKey, err := crypto.HexToECDSA(privateKeyHex)
+	if err != nil {
+		slog.Error("Invalid private key", "error", err)
+		os.Exit(1)
+	}
+	publicKey := privateKey.Public().(*ecdsa.PublicKey)
+	address := crypto.PubkeyToAddress(*publicKey)
+
+	// Create shared nonce manager (fetches initial nonce once at startup)
+	nonceManager, err := nonce.NewManager(ctx, cfg.RPCURL, address)
+	if err != nil {
+		slog.Error("Failed to create nonce manager", "error", err)
+		os.Exit(1)
+	}
+	slog.Info("Nonce manager initialized", "address", address.Hex(), "nonce", nonceManager.Current())
+
+	// Create listener to resolve contract addresses from SomniaAgents
+	listenerCfg := listener.Config{
+		SomniaAgentsContract: cfg.SomniaAgentsContract,
+		RPCURL:               cfg.RPCURL,
+		ReceiptsServiceURL:   cfg.ReceiptsServiceURL,
+	}
+
+	eventListener, err := listener.New(listenerCfg, agentManager, nonceManager)
+	if err != nil {
+		slog.Error("Failed to create event listener", "error", err)
+		os.Exit(1)
+	}
+
+	// Configure AgentRegistry address for containers
+	agentManager.SetAgentRegistryAddress(eventListener.AgentRegistryAddress())
+
+	// Start heartbeater (uses resolved committee address)
+	hbCfg := heartbeater.Config{
+		ContractAddress: eventListener.CommitteeAddress(),
+		RPCURL:          cfg.RPCURL,
+		Interval:        cfg.CommitteeInterval,
+	}
+
+	hb, err := heartbeater.New(hbCfg, nonceManager)
+	if err != nil {
+		slog.Error("Failed to create heartbeater", "error", err)
+		os.Exit(1)
+	}
+	hb.Start()
+
+	// Start event listener
+	eventListener.Start()
 
 	// Create API server (health, version, metrics only - agent requests handled via blockchain listener)
 	server := api.NewServer(cfg.APIKey)
@@ -274,14 +261,10 @@ func main() {
 		slog.Info("Shutting down...")
 
 		// Stop the event listener
-		if eventListener != nil {
-			eventListener.Stop()
-		}
+		eventListener.Stop()
 
 		// Stop the heartbeater (sends leave transaction)
-		if hb != nil {
-			hb.Stop()
-		}
+		hb.Stop()
 
 		// Stop the sandbox proxy
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -320,15 +303,8 @@ func main() {
 		llmProxyStatus = fmt.Sprintf("enabled (%s:%d -> %s)", sandboxNet.Gateway, cfg.LLMProxyPort, cfg.LLMUpstreamURL)
 	}
 
-	committeeStatus := "disabled"
-	if cfg.CommitteeEnabled && eventListener != nil {
-		committeeStatus = fmt.Sprintf("enabled (%s, interval=%s)", eventListener.CommitteeAddress(), cfg.CommitteeInterval)
-	}
-
-	listenerStatus := "disabled"
-	if cfg.ListenerEnabled {
-		listenerStatus = fmt.Sprintf("enabled (%s)", cfg.SomniaAgentsContract)
-	}
+	committeeStatus := fmt.Sprintf("%s, interval=%s", eventListener.CommitteeAddress(), cfg.CommitteeInterval)
+	listenerStatus := cfg.SomniaAgentsContract
 
 	slog.Info("Configuration",
 		"port", cfg.Port,
@@ -353,7 +329,7 @@ func main() {
 	fmt.Println("  GET /version - Version info")
 	fmt.Println("  GET /metrics - Prometheus metrics")
 	fmt.Println("")
-	fmt.Println("Agent requests are handled via blockchain event listener (--listener-enabled)")
+	fmt.Println("Agent requests are handled via blockchain event listener")
 	fmt.Println("")
 
 	addr := fmt.Sprintf(":%d", cfg.Port)

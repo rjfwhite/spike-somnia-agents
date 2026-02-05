@@ -48,6 +48,7 @@ interface RequestEvent {
     finalCost?: bigint;
     rebate?: bigint;
     validator?: string;
+    receipt?: bigint;
     timestamp: number;
     txHash?: string;
     blockNumber?: bigint;
@@ -283,14 +284,16 @@ export default function RequestsV2Page() {
             eventName: "ResponseSubmitted",
             onLogs: (logs) => {
                 logs.forEach((log) => {
-                    const { requestId, validator } = log.args as {
+                    const { requestId, validator, receipt } = log.args as {
                         requestId: bigint;
                         validator: string;
+                        receipt: bigint;
                     };
 
                     const event: RequestEvent = {
                         requestId,
                         validator,
+                        receipt,
                         timestamp: Date.now(),
                         txHash: log.transactionHash,
                         blockNumber: log.blockNumber,

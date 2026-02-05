@@ -3,7 +3,7 @@ export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
 export const CONTRACT_ADDRESS = "0x58ade7Fe7633b54B0052F9006863c175b8a231bE" as const;
 export const COMMITTEE_CONTRACT_ADDRESS = "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB" as const;
 export const AGENT_REGISTRY_V2_ADDRESS = "0x0B4A083E482eFBE8537eE2265A62AB2E84Ac8DFa" as const;
-export const SOMNIA_AGENTS_V2_ADDRESS = "0x8Ef7AEDB064456c47F9603910Ae682C387f8aa1a" as const;
+export const SOMNIA_AGENTS_V2_ADDRESS = "0xd4852cbabb39dc1e7b1b2ab522acfe9d6fa426a6" as const;
 
 // Contract ABI for SomniaAgents (ERC721 Enumerable)
 export const SOMNIA_AGENTS_ABI = [
@@ -915,7 +915,8 @@ export const SOMNIA_AGENTS_V2_ABI = [
     "anonymous": false,
     "inputs": [
       { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "validator", "type": "address" }
+      { "indexed": true, "internalType": "address", "name": "validator", "type": "address" },
+      { "indexed": false, "internalType": "uint256", "name": "receipt", "type": "uint256" }
     ],
     "name": "ResponseSubmitted",
     "type": "event"

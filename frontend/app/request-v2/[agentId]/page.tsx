@@ -195,7 +195,7 @@ export default function AgentRequestPage() {
             eventName: "ResponseSubmitted",
             onLogs: async (logs) => {
                 for (const log of logs) {
-                    const { requestId } = log.args as { requestId: bigint };
+                    const { requestId, receipt } = log.args as { requestId: bigint; receipt: bigint };
                     if (requestId === trackedRequest.id) {
                         // Fetch updated responses
                         const responses = await publicClient.readContract({
@@ -209,6 +209,15 @@ export default function AgentRequestPage() {
                             ...prev,
                             responses,
                         } : null);
+
+                        // Fetch receipts as they come in (if receipt is non-zero)
+                        if (receipt !== 0n) {
+                            const receipts = await fetchReceipts(requestId.toString());
+                            setTrackedRequest(prev => prev ? {
+                                ...prev,
+                                receipts,
+                            } : null);
+                        }
                     }
                 }
             },

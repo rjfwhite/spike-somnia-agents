@@ -42,11 +42,7 @@ type Config struct {
 	SomniaAgentsContract string
 
 	// Committee heartbeater configuration
-	CommitteeEnabled  bool
 	CommitteeInterval time.Duration
-
-	// Event listener configuration
-	ListenerEnabled bool
 }
 
 // Parse parses command-line flags and returns a Config.
@@ -77,14 +73,10 @@ func Parse() *Config {
 
 	// Blockchain configuration
 	flag.StringVar(&cfg.RPCURL, "rpc-url", "https://dream-rpc.somnia.network/", "Blockchain RPC URL")
-	flag.StringVar(&cfg.SomniaAgentsContract, "somnia-agents-contract", "", "SomniaAgents contract address (AgentRegistry and Committee are resolved from it)")
+	flag.StringVar(&cfg.SomniaAgentsContract, "somnia-agents-contract", "", "SomniaAgents contract address (required)")
 
 	// Committee heartbeater configuration
-	flag.BoolVar(&cfg.CommitteeEnabled, "committee-enabled", false, "Enable committee membership heartbeater")
 	flag.DurationVar(&cfg.CommitteeInterval, "committee-interval", 30*time.Second, "Heartbeat interval")
-
-	// Event listener configuration
-	flag.BoolVar(&cfg.ListenerEnabled, "listener-enabled", false, "Enable blockchain event listener for agent requests")
 
 	flag.Parse()
 

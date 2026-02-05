@@ -84,7 +84,7 @@ interface ISomniaAgents {
 /// @notice Validator interface for agent runners participating in consensus
 interface ISomniaAgentsRunner {
     // Events
-    event ResponseSubmitted(uint256 indexed requestId, address indexed validator);
+    event ResponseSubmitted(uint256 indexed requestId, address indexed validator, uint256 receipt);
 
     // Response Submission
     function submitResponse(
@@ -305,7 +305,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             timestamp: block.timestamp
         }));
 
-        emit ResponseSubmitted(requestId, msg.sender);
+        emit ResponseSubmitted(requestId, msg.sender, receipt);
 
         // Check finalization based on consensus type
         if (req.consensusType == ConsensusType.Majority) {
@@ -349,17 +349,11 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         req.finalized = true;
 
-        bytes memory callbackData;
-        uint256[] memory consensusPrices;
-
-        if (req.consensusType == ConsensusType.Majority) {
-            (callbackData, consensusPrices) = _getMajorityResultAndPrices(req.responses, req.threshold);
-        } else {
-            callbackData = _encodeAllResponses(req.responses);
-            consensusPrices = _getAllPrices(req.responses);
-        }
-
-        uint256 medianPrice = MathLib.median(consensusPrices);
+        (bytes memory callbackData, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
+            req.responses, 
+            req.consensusType, 
+            req.threshold
+        );
         uint256 validatorCosts = medianPrice * req.subcommittee.length;
 
         uint256 callbackGasCost = 0;
@@ -383,11 +377,11 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         emit RequestFinalized(requestId, req.finalCost, rebate);
     }
 
-    function _getMajorityResultAndPrices(
+    function _getMajorityResult(
         Response[] storage responses,
         uint256 threshold
-    ) internal view returns (bytes memory result, uint256[] memory prices) {
-        // Find the first result that reached threshold agreement and collect prices from agreeing validators
+    ) internal view returns (bytes memory result) {
+        // Find the first result that reached threshold agreement
         for (uint256 i = 0; i < responses.length; i++) {
             uint256 count = 0;
             for (uint256 j = 0; j < responses.length; j++) {
@@ -396,24 +390,14 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
                 }
             }
             if (count >= threshold) {
-                // Found consensus - collect prices from all agreeing validators
-                prices = new uint256[](count);
-                uint256 priceIndex = 0;
-                for (uint256 j = 0; j < responses.length; j++) {
-                    if (BytesLib.equal(responses[i].result, responses[j].result)) {
-                        prices[priceIndex++] = responses[j].price;
-                    }
-                }
-                return (responses[i].result, prices);
+                return responses[i].result;
             }
         }
         // Fallback: return first response (shouldn't reach here if properly finalized)
         if (responses.length > 0) {
-            prices = new uint256[](1);
-            prices[0] = responses[0].price;
-            return (responses[0].result, prices);
+            return responses[0].result;
         }
-        return (bytes(""), new uint256[](0));
+        return bytes("");
     }
 
     function _encodeAllResponses(Response[] storage responses) internal view returns (bytes memory) {
@@ -425,6 +409,19 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         return abi.encode(results);
     }
 
+    function _getConsensusResultAndMedianPrice(
+        Response[] storage responses,
+        ConsensusType consensusType,
+        uint256 threshold
+    ) internal view returns (bytes memory result, uint256 medianPrice) {
+        if (consensusType == ConsensusType.Majority) {
+            result = _getMajorityResult(responses, threshold);
+        } else {
+            result = _encodeAllResponses(responses);
+        }
+        medianPrice = _getMedianPrice(responses);
+    }
+
     function _getAllPrices(Response[] storage responses) internal view returns (uint256[] memory) {
         uint256[] memory prices = new uint256[](responses.length);
         for (uint256 i = 0; i < responses.length; i++) {
@@ -433,16 +430,11 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         return prices;
     }
 
-    function _aggregateResponses(Response[] storage responses, ConsensusType consensusType, uint256 threshold) internal view returns (bytes memory result, uint256[] memory prices) {
+    function _getMedianPrice(Response[] storage responses) internal view returns (uint256) {
         if (responses.length == 0) {
-            return (bytes(""), new uint256[](0));
+            return 0;
         }
-
-        if (consensusType == ConsensusType.Majority) {
-            return _getMajorityResultAndPrices(responses, threshold);
-        } else {
-            return (_encodeAllResponses(responses), _getAllPrices(responses));
-        }
+        return MathLib.median(_getAllPrices(responses));
     }
 
     // ============ Timeout Functions ============
@@ -462,14 +454,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         emit RequestTimedOut(requestId);
 
         // Calculate validator costs from any responses we have
-        bytes memory aggregatedResult;
-        uint256 validatorCosts = 0;
-        if (req.responses.length > 0) {
-            uint256[] memory prices;
-            (aggregatedResult, prices) = _aggregateResponses(req.responses, req.consensusType, req.threshold);
-            uint256 medianPrice = MathLib.median(prices);
-            validatorCosts = medianPrice * req.subcommittee.length;
-        }
+        (bytes memory aggregatedResult, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
+            req.responses, 
+            req.consensusType, 
+            req.threshold
+        );
+        uint256 validatorCosts = medianPrice * req.subcommittee.length;
 
         // Call callback and track gas
         uint256 callbackGasCost = 0;
@@ -535,14 +525,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         emit RequestTimedOut(requestId);
 
         // Calculate validator costs from any responses we have
-        bytes memory aggregatedResult;
-        uint256 validatorCosts = 0;
-        if (req.responses.length > 0) {
-            uint256[] memory prices;
-            (aggregatedResult, prices) = _aggregateResponses(req.responses, req.consensusType, req.threshold);
-            uint256 medianPrice = MathLib.median(prices);
-            validatorCosts = medianPrice * req.subcommittee.length;
-        }
+        (bytes memory aggregatedResult, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
+            req.responses, 
+            req.consensusType, 
+            req.threshold
+        );
+        uint256 validatorCosts = medianPrice * req.subcommittee.length;
 
         // Call callback and track gas
         uint256 callbackGasCost = 0;

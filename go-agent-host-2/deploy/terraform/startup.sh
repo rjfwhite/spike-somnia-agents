@@ -103,9 +103,7 @@ docker run -d \
   ./agent-runner \
   --somnia-agents-contract="$SOMNIA_AGENTS_CONTRACT" \
   --rpc-url="$RPC_URL" \
-  --committee-enabled \
   --committee-interval="$HEARTBEAT_INTERVAL" \
-  --listener-enabled \
   --port=8080
 
 log "Container started successfully"
