@@ -60,6 +60,7 @@ export default function ReceiptPage() {
     // Fetch agent data when agentId is available
     useEffect(() => {
         if (!agentId) return;
+        const currentAgentId = agentId;
 
         async function loadAgent() {
             setAgentLoading(true);
@@ -73,7 +74,7 @@ export default function ReceiptPage() {
                     address: AGENT_REGISTRY_V2_ADDRESS,
                     abi: AGENT_REGISTRY_V2_ABI,
                     functionName: "getAgent",
-                    args: [BigInt(agentId)],
+                    args: [BigInt(currentAgentId)],
                 }) as Agent;
 
                 setAgent(agentData);
