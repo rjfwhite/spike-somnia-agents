@@ -17,6 +17,7 @@ struct Request {
     bytes4 callbackSelector;
     address[] subcommittee;
     Response[] responses;
+    uint256 responseCount;
     uint256 threshold;
     uint256 createdAt;
     bool finalized;
@@ -117,8 +118,8 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
     uint256 public nextRequestId;
     uint256 public oldestPendingId;  // Tracks oldest request that may need timeout
-    uint256 public defaultSubcommitteeSize = 3;
-    uint256 public defaultThreshold = 2;
+    uint256 public defaultSubcommitteeSize = 5;
+    uint256 public defaultThreshold = 3;
     uint256 public requestTimeout = 1 minutes;
     uint256 public callbackGasLimit = 500_000;
     uint256 public maxExecutionFee = 1 ether;  // Maximum allowed prepaid cost per request
@@ -145,9 +146,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         owner = msg.sender;
         agentRegistry = IAgentRegistry(_agentRegistry);
         committee = ICommittee(_committee);
-        // Initialize circular buffer
+        // Initialize circular buffer with pre-allocated response slots
         for (uint256 i = 0; i < bufferSize; i++) {
             requests.push();
+            for (uint256 j = 0; j < 3; j++) {
+                requests[i].responses.push();
+            }
         }
     }
 
@@ -236,10 +240,8 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         // Use circular buffer
         Request storage req = requests[requestId % requests.length];
 
-        // Clear responses array for reuse
-        while (req.responses.length > 0) {
-            req.responses.pop();
-        }
+        // Reset response count (pre-allocated slots are reused)
+        req.responseCount = 0;
 
         req.id = requestId;
         req.requester = msg.sender;
@@ -287,7 +289,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         // Check not already responded
         require(
-            !_hasResponded(req.responses, msg.sender),
+            !_hasResponded(req.responses, req.responseCount, msg.sender),
             "SomniaAgents: already responded"
         );
 
@@ -296,31 +298,42 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             return;
         }
 
-        // Store the response
-        req.responses.push(Response({
-            validator: msg.sender,
-            result: result,
-            receipt: receipt,
-            price: price,
-            timestamp: block.timestamp
-        }));
+        // Store the response in pre-allocated slot
+        uint256 idx = req.responseCount;
+        if (idx < req.responses.length) {
+            Response storage resp = req.responses[idx];
+            resp.validator = msg.sender;
+            resp.result = result;
+            resp.receipt = receipt;
+            resp.price = price;
+            resp.timestamp = block.timestamp;
+        } else {
+            req.responses.push(Response({
+                validator: msg.sender,
+                result: result,
+                receipt: receipt,
+                price: price,
+                timestamp: block.timestamp
+            }));
+        }
+        req.responseCount++;
 
         emit ResponseSubmitted(requestId, msg.sender, receipt);
 
         // Check finalization based on consensus type
         if (req.consensusType == ConsensusType.Majority) {
-            if (_checkMajorityConsensus(req.responses, req.threshold)) {
+            if (_checkMajorityConsensus(req.responses, req.responseCount, req.threshold)) {
                 _finalizeRequest(requestId);
             }
         } else {
-            if (req.responses.length >= req.threshold) {
+            if (req.responseCount >= req.threshold) {
                 _finalizeRequest(requestId);
             }
         }
     }
 
-    function _hasResponded(Response[] storage responses, address validator) internal view returns (bool) {
-        for (uint256 i = 0; i < responses.length; i++) {
+    function _hasResponded(Response[] storage responses, uint256 count, address validator) internal view returns (bool) {
+        for (uint256 i = 0; i < count; i++) {
             if (responses[i].validator == validator) {
                 return true;
             }
@@ -328,10 +341,10 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         return false;
     }
 
-    function _checkMajorityConsensus(Response[] storage responses, uint256 threshold) internal view returns (bool) {
-        for (uint256 i = 0; i < responses.length; i++) {
+    function _checkMajorityConsensus(Response[] storage responses, uint256 responseCount, uint256 threshold) internal view returns (bool) {
+        for (uint256 i = 0; i < responseCount; i++) {
             uint256 count = 0;
-            for (uint256 j = 0; j < responses.length; j++) {
+            for (uint256 j = 0; j < responseCount; j++) {
                 if (BytesLib.equal(responses[i].result, responses[j].result)) {
                     count++;
                 }
@@ -350,8 +363,9 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         req.finalized = true;
 
         (bytes memory callbackData, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
-            req.responses, 
-            req.consensusType, 
+            req.responses,
+            req.responseCount,
+            req.consensusType,
             req.threshold
         );
         uint256 validatorCosts = medianPrice * req.subcommittee.length;
@@ -379,12 +393,13 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
     function _getMajorityResult(
         Response[] storage responses,
+        uint256 responseCount,
         uint256 threshold
     ) internal view returns (bytes memory result) {
         // Find the first result that reached threshold agreement
-        for (uint256 i = 0; i < responses.length; i++) {
+        for (uint256 i = 0; i < responseCount; i++) {
             uint256 count = 0;
-            for (uint256 j = 0; j < responses.length; j++) {
+            for (uint256 j = 0; j < responseCount; j++) {
                 if (BytesLib.equal(responses[i].result, responses[j].result)) {
                     count++;
                 }
@@ -394,16 +409,16 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             }
         }
         // Fallback: return first response (shouldn't reach here if properly finalized)
-        if (responses.length > 0) {
+        if (responseCount > 0) {
             return responses[0].result;
         }
         return bytes("");
     }
 
-    function _encodeAllResponses(Response[] storage responses) internal view returns (bytes memory) {
+    function _encodeAllResponses(Response[] storage responses, uint256 responseCount) internal view returns (bytes memory) {
         // Encode all response results as an array for the callback to process
-        bytes[] memory results = new bytes[](responses.length);
-        for (uint256 i = 0; i < responses.length; i++) {
+        bytes[] memory results = new bytes[](responseCount);
+        for (uint256 i = 0; i < responseCount; i++) {
             results[i] = responses[i].result;
         }
         return abi.encode(results);
@@ -411,30 +426,31 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
     function _getConsensusResultAndMedianPrice(
         Response[] storage responses,
+        uint256 responseCount,
         ConsensusType consensusType,
         uint256 threshold
     ) internal view returns (bytes memory result, uint256 medianPrice) {
         if (consensusType == ConsensusType.Majority) {
-            result = _getMajorityResult(responses, threshold);
+            result = _getMajorityResult(responses, responseCount, threshold);
         } else {
-            result = _encodeAllResponses(responses);
+            result = _encodeAllResponses(responses, responseCount);
         }
-        medianPrice = _getMedianPrice(responses);
+        medianPrice = _getMedianPrice(responses, responseCount);
     }
 
-    function _getAllPrices(Response[] storage responses) internal view returns (uint256[] memory) {
-        uint256[] memory prices = new uint256[](responses.length);
-        for (uint256 i = 0; i < responses.length; i++) {
+    function _getAllPrices(Response[] storage responses, uint256 responseCount) internal view returns (uint256[] memory) {
+        uint256[] memory prices = new uint256[](responseCount);
+        for (uint256 i = 0; i < responseCount; i++) {
             prices[i] = responses[i].price;
         }
         return prices;
     }
 
-    function _getMedianPrice(Response[] storage responses) internal view returns (uint256) {
-        if (responses.length == 0) {
+    function _getMedianPrice(Response[] storage responses, uint256 responseCount) internal view returns (uint256) {
+        if (responseCount == 0) {
             return 0;
         }
-        return MathLib.median(_getAllPrices(responses));
+        return MathLib.median(_getAllPrices(responses, responseCount));
     }
 
     // ============ Timeout Functions ============
@@ -455,8 +471,9 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         // Calculate validator costs from any responses we have
         (bytes memory aggregatedResult, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
-            req.responses, 
-            req.consensusType, 
+            req.responses,
+            req.responseCount,
+            req.consensusType,
             req.threshold
         );
         uint256 validatorCosts = medianPrice * req.subcommittee.length;
@@ -526,8 +543,9 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         // Calculate validator costs from any responses we have
         (bytes memory aggregatedResult, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
-            req.responses, 
-            req.consensusType, 
+            req.responses,
+            req.responseCount,
+            req.consensusType,
             req.threshold
         );
         uint256 validatorCosts = medianPrice * req.subcommittee.length;
@@ -580,7 +598,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             req.threshold,
             req.createdAt,
             req.finalized,
-            req.responses.length,
+            req.responseCount,
             req.consensusType,
             req.agentCost,
             req.maxCost,
@@ -591,7 +609,11 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     function getResponses(uint256 requestId) external view override returns (Response[] memory) {
         Request storage req = requests[requestId % requests.length];
         require(req.id == requestId, "SomniaAgents: request not found or overwritten");
-        return req.responses;
+        Response[] memory result = new Response[](req.responseCount);
+        for (uint256 i = 0; i < req.responseCount; i++) {
+            result[i] = req.responses[i];
+        }
+        return result;
     }
 
     function getSubcommittee(uint256 requestId) external view override returns (address[] memory) {

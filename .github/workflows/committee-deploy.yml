@@ -14,7 +14,7 @@ env:
   ZONE: us-central1-a
   REPO_NAME: agent-runner-repo
   IMAGE_NAME: agent-runner
-  SOMNIA_AGENTS_CONTRACT: "0xd4852cbabb39dc1e7b1b2ab522acfe9d6fa426a6"
+  SOMNIA_AGENTS_CONTRACT: "0xcf2b1641c7e9a0216926d778e2120a3aaad49e65"
 
 jobs:
   build-and-deploy:

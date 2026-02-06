@@ -104,7 +104,7 @@ func New(cfg Config, nonceManager *nonce.Manager) (*Heartbeater, error) {
 		client.Close()
 		return nil, fmt.Errorf("failed to create transactor: %w", err)
 	}
-	auth.GasLimit = 3000000                    // Set high gas limit; unused gas is refunded
+	auth.GasLimit = 10000000                    // Set high gas limit; unused gas is refunded
 	auth.GasPrice = big.NewInt(10_000_000_000) // 10 gwei fixed gas price
 
 	ctx, cancel := context.WithCancel(context.Background())
