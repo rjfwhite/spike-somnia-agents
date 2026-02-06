@@ -4,7 +4,6 @@ package listener
 import (
 	"bytes"
 	"context"
-	"crypto/ecdsa"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -13,7 +12,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -22,14 +20,13 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/somnia-chain/agent-runner/internal/agentregistry"
 	"github.com/somnia-chain/agent-runner/internal/agents"
-	"github.com/somnia-chain/agent-runner/internal/nonce"
 	"github.com/somnia-chain/agent-runner/internal/somniaagents"
+	"github.com/somnia-chain/agent-runner/internal/submitter"
 )
 
 // decodeRevertReason extracts a human-readable revert reason from an error.
@@ -116,17 +113,14 @@ type Config struct {
 
 // Listener listens for RequestCreated events and executes agents.
 type Listener struct {
-	client         *ethclient.Client
-	somniaAgents   *somniaagents.SomniaAgents
-	agentRegistry  *agentregistry.AgentRegistry
-	agentManager   *agents.Manager
-	auth           *bind.TransactOpts
-	nonce          *nonce.Manager
-	address        common.Address
-	privateKey     *ecdsa.PrivateKey
-	chainID        *big.Int
-	rpcURL         string
-	wsURL          string
+	client        *ethclient.Client
+	somniaAgents  *somniaagents.SomniaAgents
+	agentRegistry *agentregistry.AgentRegistry
+	agentManager  *agents.Manager
+	submitter     *submitter.Submitter
+	address       common.Address
+	rpcURL        string
+	wsURL         string
 
 	// Resolved contract addresses
 	somniaAgentsAddr  common.Address
@@ -146,47 +140,18 @@ type Listener struct {
 }
 
 // New creates a new Listener instance.
-// The private key is loaded from the PRIVATE_KEY environment variable.
-func New(cfg Config, agentManager *agents.Manager, nonceManager *nonce.Manager) (*Listener, error) {
-	// Get private key from environment
-	privateKeyHex := os.Getenv("PRIVATE_KEY")
-	if privateKeyHex == "" {
-		return nil, fmt.Errorf("PRIVATE_KEY environment variable is required")
-	}
+func New(cfg Config, agentManager *agents.Manager, sub *submitter.Submitter) (*Listener, error) {
+	address := sub.Address()
 
-	// Remove 0x prefix if present
-	if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
-		privateKeyHex = privateKeyHex[2:]
-	}
+	slog.Info("Listener using wallet", "address", address.Hex())
 
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
-	if err != nil {
-		return nil, fmt.Errorf("invalid private key: %w", err)
-	}
-
-	// Get address from private key
-	publicKey := privateKey.Public()
-	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, fmt.Errorf("failed to cast public key to ECDSA")
-	}
-	address := crypto.PubkeyToAddress(*publicKeyECDSA)
-
-	slog.Info("Listener loaded wallet", "address", address.Hex())
-
-	// Connect to Ethereum client
+	// Connect to Ethereum client (for contract reads and revert reason extraction)
 	client, err := ethclient.Dial(cfg.RPCURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to RPC %s: %w", cfg.RPCURL, err)
 	}
 
-	// Get chain ID
-	chainID, err := client.ChainID(context.Background())
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to get chain ID: %w", err)
-	}
-	slog.Info("Listener connected to chain", "chainID", chainID, "rpc", cfg.RPCURL)
+	slog.Info("Listener connected to RPC", "rpc", cfg.RPCURL)
 
 	// Parse SomniaAgents contract address
 	if !common.IsHexAddress(cfg.SomniaAgentsContract) {
@@ -225,15 +190,6 @@ func New(cfg Config, agentManager *agents.Manager, nonceManager *nonce.Manager) 
 		return nil, fmt.Errorf("failed to create AgentRegistry contract instance: %w", err)
 	}
 
-	// Create transactor
-	auth, err := bind.NewKeyedTransactorWithChainID(privateKey, chainID)
-	if err != nil {
-		client.Close()
-		return nil, fmt.Errorf("failed to create transactor: %w", err)
-	}
-	auth.GasLimit = 10000000                    // Set high gas limit; unused gas is refunded
-	auth.GasPrice = big.NewInt(10_000_000_000) // 10 gwei fixed gas price
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Listener{
@@ -241,11 +197,8 @@ func New(cfg Config, agentManager *agents.Manager, nonceManager *nonce.Manager) 
 		somniaAgents:       somniaAgentsContract,
 		agentRegistry:      agentRegistryContract,
 		agentManager:       agentManager,
-		auth:               auth,
-		nonce:              nonceManager,
+		submitter:          sub,
 		address:            address,
-		privateKey:         privateKey,
-		chainID:            chainID,
 		rpcURL:             cfg.RPCURL,
 		wsURL:              httpToWsURL(cfg.RPCURL),
 		somniaAgentsAddr:   somniaAgentsAddr,
@@ -519,11 +472,8 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		return
 	}
 
-	// Get next nonce from local manager
-	l.auth.Nonce = l.nonce.Next()
-
 	// For now, use 0 as receipt (CID) and agent cost as price
-	receipt := big.NewInt(0)
+	txReceipt := big.NewInt(0)
 	price := agentCost
 	if price == nil {
 		price = big.NewInt(0)
@@ -535,75 +485,55 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		"contract", l.somniaAgentsAddr.Hex(),
 		"resultSize", len(result),
 		"price", price,
-		"nonce", l.auth.Nonce,
 	)
 
-	tx, err := l.somniaAgents.SubmitResponse(l.auth, requestId, result, receipt, price)
-	if err != nil {
+	txResult := l.submitter.Submit(ctx, "submit-response", func(auth *bind.TransactOpts) (*types.Transaction, error) {
+		return l.somniaAgents.SubmitResponse(auth, requestId, result, txReceipt, price)
+	})
+	if txResult.Err != nil {
 		slog.Error("Failed to submit response",
 			"requestId", requestId,
 			"validator", l.address.Hex(),
 			"contract", l.somniaAgentsAddr.Hex(),
-			"nonce", l.auth.Nonce,
-			"error", err,
-			"revertReason", decodeRevertReason(err),
+			"error", txResult.Err,
+			"revertReason", decodeRevertReason(txResult.Err),
 		)
 		return
 	}
 
-	slog.Info("Response transaction sent",
-		"requestId", requestId,
-		"txHash", tx.Hash().Hex(),
-		"validator", l.address.Hex(),
-		"nonce", l.auth.Nonce,
-	)
-
-	// Wait for transaction receipt
-	txReceipt, err := bind.WaitMined(ctx, l.client, tx)
-	if err != nil {
-		slog.Error("Failed to wait for response transaction",
-			"requestId", requestId,
-			"validator", l.address.Hex(),
-			"txHash", tx.Hash().Hex(),
-			"error", err,
-		)
-		return
-	}
-
-	if txReceipt.Status == 1 {
+	if txResult.Receipt.Status == 1 {
 		slog.Info("Response submitted successfully",
 			"requestId", requestId,
 			"validator", l.address.Hex(),
-			"txHash", tx.Hash().Hex(),
-			"block", txReceipt.BlockNumber,
-			"gasUsed", txReceipt.GasUsed,
+			"txHash", txResult.Tx.Hash().Hex(),
+			"block", txResult.Receipt.BlockNumber,
+			"gasUsed", txResult.Receipt.GasUsed,
 		)
 	} else {
-		// Try to get the revert reason by calling the same method
+		// Try to get the revert reason by replaying the call at the failed block
 		revertReason := "unknown (replay succeeded - state may have changed)"
 		var rawError string
 		callMsg := ethereum.CallMsg{
 			From:     l.address,
-			To:       tx.To(),
-			Gas:      tx.Gas(),
-			GasPrice: tx.GasPrice(),
-			Value:    tx.Value(),
-			Data:     tx.Data(),
+			To:       txResult.Tx.To(),
+			Gas:      txResult.Tx.Gas(),
+			GasPrice: txResult.Tx.GasPrice(),
+			Value:    txResult.Tx.Value(),
+			Data:     txResult.Tx.Data(),
 		}
-		// Replay the call at the block where it failed to get revert data
-		_, callErr := l.client.CallContract(ctx, callMsg, txReceipt.BlockNumber)
+		_, callErr := l.client.CallContract(ctx, callMsg, txResult.Receipt.BlockNumber)
 		if callErr != nil {
 			rawError = callErr.Error()
 			revertReason = decodeRevertReason(callErr)
 		}
-		slog.Error("Response transaction failed",
+		slog.Error("Response transaction reverted",
 			"requestId", requestId,
 			"validator", l.address.Hex(),
 			"contract", l.somniaAgentsAddr.Hex(),
-			"txHash", tx.Hash().Hex(),
-			"block", txReceipt.BlockNumber,
-			"status", txReceipt.Status,
-			"gasUsed", txReceipt.GasUsed,
+			"txHash", txResult.Tx.Hash().Hex(),
+			"block", txResult.Receipt.BlockNumber,
+			"status", txResult.Receipt.Status,
+			"gasUsed", txResult.Receipt.GasUsed,
 			"revertReason", revertReason,
 			"rawError", rawError,
 		)

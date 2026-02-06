@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,17 +11,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
-
 	"github.com/somnia-chain/agent-runner/internal/agents"
 	"github.com/somnia-chain/agent-runner/internal/api"
 	"github.com/somnia-chain/agent-runner/internal/config"
 	"github.com/somnia-chain/agent-runner/internal/heartbeater"
 	"github.com/somnia-chain/agent-runner/internal/listener"
 	"github.com/somnia-chain/agent-runner/internal/logging"
-	"github.com/somnia-chain/agent-runner/internal/nonce"
 	"github.com/somnia-chain/agent-runner/internal/sandbox"
 	"github.com/somnia-chain/agent-runner/internal/startup"
+	"github.com/somnia-chain/agent-runner/internal/submitter"
 )
 
 func main() {
@@ -195,31 +192,12 @@ func main() {
 		slog.Info("LLM proxy started", "addr", llmProxyAddr, "upstream", cfg.LLMUpstreamURL)
 	}
 
-	// Initialize blockchain components
-	// Load private key to derive address for nonce manager
-	privateKeyHex := os.Getenv("PRIVATE_KEY")
-	if privateKeyHex == "" {
-		slog.Error("PRIVATE_KEY environment variable is required")
-		os.Exit(1)
-	}
-	if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
-		privateKeyHex = privateKeyHex[2:]
-	}
-	privateKey, err := crypto.HexToECDSA(privateKeyHex)
+	// Initialize blockchain transaction submitter (handles nonce management)
+	txSubmitter, err := submitter.New(cfg.RPCURL)
 	if err != nil {
-		slog.Error("Invalid private key", "error", err)
+		slog.Error("Failed to create transaction submitter", "error", err)
 		os.Exit(1)
 	}
-	publicKey := privateKey.Public().(*ecdsa.PublicKey)
-	address := crypto.PubkeyToAddress(*publicKey)
-
-	// Create shared nonce manager (fetches initial nonce once at startup)
-	nonceManager, err := nonce.NewManager(ctx, cfg.RPCURL, address)
-	if err != nil {
-		slog.Error("Failed to create nonce manager", "error", err)
-		os.Exit(1)
-	}
-	slog.Info("Nonce manager initialized", "address", address.Hex(), "nonce", nonceManager.Current())
 
 	// Create listener to resolve contract addresses from SomniaAgents
 	listenerCfg := listener.Config{
@@ -228,7 +206,7 @@ func main() {
 		ReceiptsServiceURL:   cfg.ReceiptsServiceURL,
 	}
 
-	eventListener, err := listener.New(listenerCfg, agentManager, nonceManager)
+	eventListener, err := listener.New(listenerCfg, agentManager, txSubmitter)
 	if err != nil {
 		slog.Error("Failed to create event listener", "error", err)
 		os.Exit(1)
@@ -244,7 +222,7 @@ func main() {
 		Interval:        cfg.CommitteeInterval,
 	}
 
-	hb, err := heartbeater.New(hbCfg, nonceManager)
+	hb, err := heartbeater.New(hbCfg, txSubmitter)
 	if err != nil {
 		slog.Error("Failed to create heartbeater", "error", err)
 		os.Exit(1)
@@ -273,8 +251,11 @@ func main() {
 		// Stop the event listener
 		eventListener.Stop()
 
-		// Stop the heartbeater (sends leave transaction)
+		// Stop the heartbeater (sends leave transaction via submitter)
 		hb.Stop()
+
+		// Stop the transaction submitter (after heartbeater leave completes)
+		txSubmitter.Stop()
 
 		// Stop the sandbox proxy
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
