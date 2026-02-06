@@ -15,6 +15,7 @@ env:
   REPO_NAME: agent-runner-repo
   IMAGE_NAME: agent-runner
   SOMNIA_AGENTS_CONTRACT: "0xcf2b1641c7e9a0216926d778e2120a3aaad49e65"
+  LLM_UPSTREAM_URL: "https://kgjh5inrp412t4-8000.proxy.runpod.net"
 
 jobs:
   build-and-deploy:
@@ -70,7 +71,9 @@ jobs:
             -var="zone=${{ env.ZONE }}" \
             -var="somnia_agents_contract=${{ env.SOMNIA_AGENTS_CONTRACT }}" \
             -var="container_image=${{ env.IMAGE_TAG }}" \
-            -var="grafana_alloy_token=${{ secrets.GRAFANA_ALLOY_TOKEN }}"
+            -var="grafana_alloy_token=${{ secrets.GRAFANA_ALLOY_TOKEN }}" \
+            -var="llm_upstream_url=${{ env.LLM_UPSTREAM_URL }}" \
+            -var="llm_api_key=${{ secrets.LLM_API_KEY }}"
 
       - name: Restart Committee VMs
         run: |

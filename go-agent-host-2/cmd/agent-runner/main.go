@@ -91,6 +91,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Check 5: LLM determinism (when LLM proxy is enabled)
+	if cfg.LLMProxyEnabled && !cfg.DisableLLMValidation {
+		if err := checker.CheckLLMDeterminism(ctx, startup.LLMDeterminismConfig{
+			UpstreamURL: cfg.LLMUpstreamURL,
+			APIKey:      cfg.LLMAPIKey,
+		}); err != nil {
+			os.Exit(1)
+		}
+	}
+
 	// Print startup check summary
 	checker.PrintSummary()
 	fmt.Println("")

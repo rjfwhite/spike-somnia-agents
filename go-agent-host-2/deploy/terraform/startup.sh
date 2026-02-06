@@ -38,8 +38,14 @@ RPC_URL=$(get_metadata "instance/attributes/rpc-url")
 HEARTBEAT_INTERVAL=$(get_metadata "instance/attributes/heartbeat-interval")
 PROJECT_ID=$(get_metadata "project/project-id")
 
+LLM_UPSTREAM_URL=$(get_metadata "instance/attributes/llm-upstream-url")
+LLM_API_KEY=$(get_metadata "instance/attributes/llm-api-key")
+
 log "Container image: $CONTAINER_IMAGE"
 log "SomniaAgents contract: $SOMNIA_AGENTS_CONTRACT"
+if [ -n "$LLM_UPSTREAM_URL" ]; then
+  log "LLM upstream URL: $LLM_UPSTREAM_URL"
+fi
 
 # Wait for Docker to be ready
 log "Waiting for Docker..."
@@ -92,6 +98,16 @@ mkdir -p /var/lib/agent-runner/image-cache
 # Use host networking so agent-runner can bind to Docker network gateway IPs
 # Note: Dockerfile uses CMD not ENTRYPOINT, so we need to specify the full command
 log "Starting agent-runner container..."
+
+# Build LLM proxy flags if upstream URL is configured
+LLM_FLAGS=""
+if [ -n "$LLM_UPSTREAM_URL" ]; then
+  LLM_FLAGS="--llm-proxy-enabled --llm-upstream-url=$LLM_UPSTREAM_URL"
+  if [ -n "$LLM_API_KEY" ]; then
+    LLM_FLAGS="$LLM_FLAGS --llm-api-key=$LLM_API_KEY"
+  fi
+fi
+
 docker run -d \
   --name agent-runner \
   --restart always \
@@ -104,7 +120,8 @@ docker run -d \
   --somnia-agents-contract="$SOMNIA_AGENTS_CONTRACT" \
   --rpc-url="$RPC_URL" \
   --committee-interval="$HEARTBEAT_INTERVAL" \
-  --port=8080
+  --port=8080 \
+  $LLM_FLAGS
 
 log "Container started successfully"
 

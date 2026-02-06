@@ -35,7 +35,8 @@ type Config struct {
 	LLMProxyEnabled bool
 	LLMProxyPort    int
 	LLMUpstreamURL  string
-	LLMAPIKey       string
+	LLMAPIKey              string
+	DisableLLMValidation   bool
 
 	// Blockchain configuration
 	RPCURL               string
@@ -70,6 +71,7 @@ func Parse() *Config {
 	flag.IntVar(&cfg.LLMProxyPort, "llm-proxy-port", 11434, "Port for LLM proxy")
 	flag.StringVar(&cfg.LLMUpstreamURL, "llm-upstream-url", "https://api.openai.com", "Upstream LLM service URL")
 	flag.StringVar(&cfg.LLMAPIKey, "llm-api-key", "", "API key for upstream LLM service")
+	flag.BoolVar(&cfg.DisableLLMValidation, "disable-llm-validation", false, "Disable LLM determinism validation on startup")
 
 	// Blockchain configuration
 	flag.StringVar(&cfg.RPCURL, "rpc-url", "https://dream-rpc.somnia.network/", "Blockchain RPC URL")

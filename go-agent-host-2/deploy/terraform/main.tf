@@ -137,6 +137,8 @@ resource "google_compute_instance" "committee" {
     rpc-url                 = var.rpc_url
     heartbeat-interval      = var.heartbeat_interval
     grafana-alloy-enabled   = var.grafana_alloy_token != "" ? "true" : "false"
+    llm-upstream-url        = var.llm_upstream_url
+    llm-api-key             = var.llm_api_key
   }
 
   metadata_startup_script = file("${path.module}/startup.sh")

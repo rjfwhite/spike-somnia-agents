@@ -2,9 +2,13 @@
 package startup
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"time"
 
@@ -235,6 +239,144 @@ func (c *Checker) CheckFirewall(netInfo *sandbox.NetworkInfo, allowedPorts []int
 
 	c.addResult(checkName, true, fmt.Sprintf("Firewall rules applied (ports %v)", allowedPorts), nil)
 	return rules, nil
+}
+
+// determinismTestPrompt is the well-known prompt used to validate LLM determinism.
+// Uses /no_think to keep output compact. The prompt is intentionally creative and
+// open-ended to stress-test the sampling path — a deterministic math question would
+// be too easy to get right by accident.
+var determinismTestPrompt = []map[string]string{
+	{"role": "system", "content": "You are a helpful assistant. /no_think"},
+	{"role": "user", "content": "Write a dramatic monologue from the perspective of a sentient pineapple who just discovered it has been placed on a pizza. Express its betrayal, existential crisis, and ultimate acceptance in exactly 5 sentences."},
+}
+
+// expectedModelOutputs maps model names to their expected deterministic output
+// for the well-known test prompt (temperature=0.7, seed=4242).
+// To add a new model: run the test prompt against it with these params, verify
+// it's deterministic across 5+ calls, then add the full output here.
+var expectedModelOutputs = map[string]string{
+	"Qwen/Qwen3-30B-A3B": "<think>\n\n</think>\n\nI was born to ripen under the sun, to blush pink and golden, not to be slathered in sauce and buried beneath cheese\u2014this is no sanctuary, this is a prison of flavor! Who gave you the right to carve me, to defile my core, to turn my sweetness into a crime? Am I nothing more than a garnish, a joke in a circle of cheese and dough? But maybe... maybe this is my purpose, to be devoured, to be loved in a way I never imagined\u2014so let the fire take me, and let me be remembered, not as a fruit, but as a flavor that dared to rise.",
+}
+
+// LLMDeterminismConfig holds configuration for the LLM determinism check.
+type LLMDeterminismConfig struct {
+	UpstreamURL string
+	APIKey      string
+}
+
+// CheckLLMDeterminism validates each model in expectedModelOutputs against the
+// upstream LLM API. For each model it sends the well-known prompt and asserts
+// the response matches the expected output exactly. This is critical for
+// consensus — all hosts must produce identical output for the same input.
+func (c *Checker) CheckLLMDeterminism(ctx context.Context, cfg LLMDeterminismConfig) error {
+	const checkName = "LLM Determinism"
+
+	slog.Info("Running startup check", "check", checkName, "models", len(expectedModelOutputs))
+
+	httpClient := &http.Client{Timeout: 2 * time.Minute}
+	endpoint := strings.TrimRight(cfg.UpstreamURL, "/") + "/v1/chat/completions"
+
+	validated := 0
+	for model, expected := range expectedModelOutputs {
+		if err := c.validateModelOutput(ctx, httpClient, endpoint, cfg.APIKey, model, expected); err != nil {
+			return err
+		}
+		validated++
+	}
+
+	c.addResult(checkName, true,
+		fmt.Sprintf("All %d model(s) produced expected deterministic output", validated), nil)
+	return nil
+}
+
+// validateModelOutput sends the well-known prompt to a model and asserts
+// the response matches the expected output exactly.
+func (c *Checker) validateModelOutput(ctx context.Context, httpClient *http.Client, endpoint, apiKey, model, expected string) error {
+	checkName := fmt.Sprintf("LLM Determinism [%s]", model)
+
+	slog.Info("Validating model determinism", "model", model)
+
+	reqBody := map[string]interface{}{
+		"model":       model,
+		"messages":    determinismTestPrompt,
+		"temperature": 0.7,
+		"seed":        4242,
+	}
+
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		c.addResult(checkName, false, "Failed to marshal request body", err)
+		return fmt.Errorf("failed to marshal request for model %s: %w", model, err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		c.addResult(checkName, false, "Failed to create request", err)
+		return fmt.Errorf("failed to create request for model %s: %w", model, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		c.addResult(checkName, false, "Request failed", err)
+		return fmt.Errorf("LLM request failed for model %s: %w", model, err)
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		c.addResult(checkName, false, "Failed to read response", err)
+		return fmt.Errorf("failed to read response for model %s: %w", model, err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		c.addResult(checkName, false, fmt.Sprintf("LLM returned status %d", resp.StatusCode), nil)
+		return fmt.Errorf("LLM returned status %d for model %s: %s", resp.StatusCode, model, string(respBody))
+	}
+
+	var chatResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
+		c.addResult(checkName, false, "Failed to parse response", err)
+		return fmt.Errorf("failed to parse response for model %s: %w", model, err)
+	}
+
+	if len(chatResp.Choices) == 0 {
+		c.addResult(checkName, false, "No choices in response", nil)
+		return fmt.Errorf("no choices in LLM response for model %s", model)
+	}
+
+	actual := chatResp.Choices[0].Message.Content
+
+	if actual != expected {
+		slog.Error("LLM determinism check failed: output does not match expected",
+			"model", model,
+			"expected_length", len(expected),
+			"actual_length", len(actual),
+			"expected_preview", truncate(expected, 200),
+			"actual_preview", truncate(actual, 200),
+		)
+		c.addResult(checkName, false, "Output does not match expected deterministic answer", nil)
+		return fmt.Errorf("model %s is not deterministic: output does not match expected answer", model)
+	}
+
+	slog.Info("Model determinism check passed", "model", model)
+	return nil
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // PrintSummary prints a summary of all check results.

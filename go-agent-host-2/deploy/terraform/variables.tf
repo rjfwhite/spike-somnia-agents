@@ -55,3 +55,16 @@ variable "grafana_alloy_token" {
   default     = ""
   sensitive   = true
 }
+
+variable "llm_upstream_url" {
+  description = "Upstream LLM API URL"
+  type        = string
+  default     = ""
+}
+
+variable "llm_api_key" {
+  description = "API key for the upstream LLM service"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
