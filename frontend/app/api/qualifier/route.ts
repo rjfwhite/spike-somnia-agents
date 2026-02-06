@@ -13,9 +13,12 @@ import {
   type Hex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
+import {
+  SOMNIA_AGENTS_V2_ADDRESS,
+  SOMNIA_AGENTS_V2_ABI,
+  SOMNIA_RPC_URL,
+} from '@/lib/contract';
 
-const PLATFORM_ADDRESS = '0x58ade7Fe7633b54B0052F9006863c175b8a231bE';
-const RPC_URL = 'https://dream-rpc.somnia.network/';
 const WS_URL = 'wss://dream-rpc.somnia.network/ws';
 const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/triggers/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';
 const EXPLORER_BASE_URL = 'https://shannon-explorer.somnia.network/tx';
@@ -60,48 +63,10 @@ const somniaTestnet = defineChain({
   },
   rpcUrls: {
     default: {
-      http: [RPC_URL],
+      http: [SOMNIA_RPC_URL],
     },
   },
 });
-
-// Platform ABI
-const platformAbi = [
-  {
-    type: 'function',
-    name: 'requestAgent',
-    inputs: [{
-      type: 'tuple',
-      name: 'requestData',
-      components: [
-        { type: 'uint256', name: 'agentId' },
-        { type: 'bytes', name: 'request' },
-        { type: 'address', name: 'callbackAddress' },
-        { type: 'bytes4', name: 'callbackSelector' }
-      ]
-    }],
-    outputs: [{ type: 'uint256', name: 'requestId' }]
-  },
-  {
-    type: 'event',
-    name: 'AgentRequested',
-    inputs: [
-      { type: 'uint256', name: 'requestId', indexed: true },
-      { type: 'uint256', name: 'agentId', indexed: true },
-      { type: 'bytes', name: 'request', indexed: false }
-    ]
-  },
-  {
-    type: 'event',
-    name: 'AgentResponded',
-    inputs: [
-      { type: 'uint256', name: 'requestId', indexed: true },
-      { type: 'uint256', name: 'agentId', indexed: true },
-      { type: 'bytes', name: 'response', indexed: false },
-      { type: 'bool', name: 'success', indexed: false }
-    ]
-  }
-] as const;
 
 // Agent method ABI
 const agentMethodAbi = [{
@@ -118,6 +83,14 @@ const agentMethodAbi = [{
 
 export const maxDuration = 60;
 
+interface ResponseData {
+  validator: string;
+  result: Hex;
+  receipt: bigint;
+  price: bigint;
+  timestamp: bigint;
+}
+
 interface RequestResult {
   index: number;
   a: bigint;
@@ -128,6 +101,9 @@ interface RequestResult {
   success?: boolean;
   error?: string;
   responseRaw?: string;
+  finalCost?: bigint;
+  rebate?: bigint;
+  responseCount?: number;
   timings: {
     sendTxn?: number;
     waitReceipt?: number;
@@ -155,12 +131,12 @@ export async function GET() {
     const walletClient = createWalletClient({
       account,
       chain: somniaTestnet,
-      transport: http(RPC_URL)
+      transport: http(SOMNIA_RPC_URL)
     });
 
     const publicClient = createPublicClient({
       chain: somniaTestnet,
-      transport: http(RPC_URL)
+      transport: http(SOMNIA_RPC_URL)
     });
 
     // Get current nonce
@@ -185,7 +161,7 @@ export async function GET() {
     // Step 1: Send all transactions in parallel with explicit nonces
     const sendStart = Date.now();
     const sendPromises = results.map(async (r, i) => {
-      const requestData = encodeFunctionData({
+      const payload = encodeFunctionData({
         abi: agentMethodAbi,
         functionName: 'add',
         args: [r.a, r.b]
@@ -194,15 +170,15 @@ export async function GET() {
       try {
         const txStart = Date.now();
         const hash = await walletClient.writeContract({
-          address: PLATFORM_ADDRESS,
-          abi: platformAbi,
-          functionName: 'requestAgent',
-          args: [{
-            agentId: BigInt('4124847165696832417'),
-            request: requestData,
-            callbackAddress: '0x0000000000000000000000000000000000000000',
-            callbackSelector: '0x00000000'
-          }],
+          address: SOMNIA_AGENTS_V2_ADDRESS,
+          abi: SOMNIA_AGENTS_V2_ABI,
+          functionName: 'createRequest',
+          args: [
+            BigInt('4124847165696832417'),
+            '0x0000000000000000000000000000000000000000' as `0x${string}`,
+            '0x00000000' as `0x${string}`,
+            payload
+          ],
           value: parseEther('0.1'),
           nonce: startNonce + i
         });
@@ -229,15 +205,15 @@ export async function GET() {
         const receipt = await publicClient.waitForTransactionReceipt({ hash: r.hash as Hex });
         r.timings.waitReceipt = Date.now() - waitStart;
 
-        // Extract requestId
+        // Extract requestId from RequestCreated event
         for (const log of receipt.logs) {
           try {
             const decoded = decodeEventLog({
-              abi: platformAbi,
+              abi: SOMNIA_AGENTS_V2_ABI,
               data: log.data,
               topics: log.topics
             });
-            if (decoded.eventName === 'AgentRequested') {
+            if (decoded.eventName === 'RequestCreated') {
               const args = decoded.args as unknown as { requestId: bigint };
               r.requestId = args.requestId;
               break;
@@ -257,7 +233,7 @@ export async function GET() {
     const receiptDuration = Date.now() - receiptStart;
     console.log(`[Qualifier] All receipts received in ${receiptDuration}ms`);
 
-    // Step 3: Watch for all responses via WebSocket
+    // Step 3: Watch for finalized responses via WebSocket
     const responseStart = Date.now();
     const pendingRequestIds = new Map<string, RequestResult>();
     for (const r of results) {
@@ -274,58 +250,109 @@ export async function GET() {
 
       await new Promise<void>((resolve) => {
         const timeout = setTimeout(() => {
-          unwatch();
+          unwatchFinalized();
+          unwatchTimeout();
           console.log(`[Qualifier] WebSocket timeout - ${pendingRequestIds.size} still pending`);
           resolve();
         }, 45000); // 45 second timeout
 
-        const unwatch = wsClient.watchContractEvent({
-          address: PLATFORM_ADDRESS,
-          abi: platformAbi,
-          eventName: 'AgentResponded',
-          onLogs: (logs) => {
+        const checkDone = () => {
+          if (pendingRequestIds.size === 0) {
+            clearTimeout(timeout);
+            unwatchFinalized();
+            unwatchTimeout();
+            resolve();
+          }
+        };
+
+        // Watch for RequestFinalized events, then fetch the actual response data
+        const unwatchFinalized = wsClient.watchContractEvent({
+          address: SOMNIA_AGENTS_V2_ADDRESS,
+          abi: SOMNIA_AGENTS_V2_ABI,
+          eventName: 'RequestFinalized',
+          onLogs: async (logs) => {
             for (const log of logs) {
-              const logWithArgs = log as typeof log & { args: { requestId?: bigint; success?: boolean; response?: Hex } };
+              const logWithArgs = log as typeof log & { args: { requestId?: bigint; finalCost?: bigint; rebate?: bigint } };
               const logArgs = logWithArgs.args;
               const reqIdStr = logArgs.requestId?.toString();
 
               if (reqIdStr && pendingRequestIds.has(reqIdStr)) {
                 const r = pendingRequestIds.get(reqIdStr)!;
                 r.timings.waitResponse = Date.now() - responseStart;
+                r.finalCost = logArgs.finalCost;
+                r.rebate = logArgs.rebate;
 
-                if (logArgs.success && logArgs.response) {
-                  const decoded = decodeAbiParameters(
-                    [{ type: 'uint256', name: 'sum' }],
-                    logArgs.response
-                  );
-                  r.success = true;
-                  r.result = decoded[0] as bigint;
-                  console.log(`[Qualifier] [${r.index}] Response: ${r.a} + ${r.b} = ${r.result} (${r.timings.waitResponse}ms)`);
-                } else {
-                  r.success = false;
-                  let errorMsg = 'Agent execution failed';
-                  if (logArgs.response) {
-                    // Decode the response bytes as UTF-8 string
+                // Fetch the actual response data via getResponses()
+                try {
+                  const responses = await publicClient.readContract({
+                    address: SOMNIA_AGENTS_V2_ADDRESS,
+                    abi: SOMNIA_AGENTS_V2_ABI,
+                    functionName: 'getResponses',
+                    args: [logArgs.requestId!],
+                  }) as ResponseData[];
+
+                  r.responseCount = responses.length;
+
+                  if (responses.length > 0) {
+                    const firstResponse = responses[0];
                     try {
-                      const bytes = hexToBytes(logArgs.response);
-                      const decoder = new TextDecoder('utf-8', { fatal: false });
-                      r.responseRaw = decoder.decode(bytes);
-                      errorMsg = `Agent failed: ${r.responseRaw}`;
+                      const decoded = decodeAbiParameters(
+                        [{ type: 'uint256', name: 'sum' }],
+                        firstResponse.result
+                      );
+                      r.success = true;
+                      r.result = decoded[0] as bigint;
+                      console.log(`[Qualifier] [${r.index}] Response: ${r.a} + ${r.b} = ${r.result} (${r.timings.waitResponse}ms, ${responses.length} validators)`);
                     } catch {
-                      errorMsg = `Agent failed (raw hex: ${logArgs.response})`;
+                      // Try decoding as UTF-8 error string
+                      r.success = false;
+                      try {
+                        const bytes = hexToBytes(firstResponse.result);
+                        const decoder = new TextDecoder('utf-8', { fatal: false });
+                        r.responseRaw = decoder.decode(bytes);
+                        r.error = `Agent failed: ${r.responseRaw}`;
+                      } catch {
+                        r.error = `Agent failed (raw hex: ${firstResponse.result})`;
+                      }
+                      console.log(`[Qualifier] [${r.index}] Failed: ${r.error} (${r.timings.waitResponse}ms)`);
                     }
+                  } else {
+                    r.success = false;
+                    r.error = 'No responses returned after finalization';
+                    console.log(`[Qualifier] [${r.index}] No responses (${r.timings.waitResponse}ms)`);
                   }
-                  r.error = errorMsg;
-                  console.log(`[Qualifier] [${r.index}] Failed: ${errorMsg} (${r.timings.waitResponse}ms)`);
+                } catch (error) {
+                  r.success = false;
+                  r.error = `Failed to fetch responses: ${error instanceof Error ? error.message : 'unknown'}`;
+                  console.error(`[Qualifier] [${r.index}] getResponses error:`, r.error);
                 }
 
                 pendingRequestIds.delete(reqIdStr);
+                checkDone();
+              }
+            }
+          }
+        });
 
-                if (pendingRequestIds.size === 0) {
-                  clearTimeout(timeout);
-                  unwatch();
-                  resolve();
-                }
+        // Watch for RequestTimedOut events
+        const unwatchTimeout = wsClient.watchContractEvent({
+          address: SOMNIA_AGENTS_V2_ADDRESS,
+          abi: SOMNIA_AGENTS_V2_ABI,
+          eventName: 'RequestTimedOut',
+          onLogs: (logs) => {
+            for (const log of logs) {
+              const logWithArgs = log as typeof log & { args: { requestId?: bigint } };
+              const reqIdStr = logWithArgs.args.requestId?.toString();
+
+              if (reqIdStr && pendingRequestIds.has(reqIdStr)) {
+                const r = pendingRequestIds.get(reqIdStr)!;
+                r.timings.waitResponse = Date.now() - responseStart;
+                r.success = false;
+                r.error = 'Request timed out on-chain';
+                console.log(`[Qualifier] [${r.index}] Timed out on-chain (${r.timings.waitResponse}ms)`);
+
+                pendingRequestIds.delete(reqIdStr);
+                checkDone();
               }
             }
           }
@@ -406,6 +433,9 @@ export async function GET() {
         result: r.result?.toString(),
         error: r.error,
         responseRaw: r.responseRaw,
+        finalCost: r.finalCost?.toString(),
+        rebate: r.rebate?.toString(),
+        responseCount: r.responseCount,
         timings: r.timings
       })),
       timestamp: new Date().toISOString()

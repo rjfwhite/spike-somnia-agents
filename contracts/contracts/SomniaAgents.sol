@@ -142,10 +142,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         _;
     }
 
-    constructor(uint256 bufferSize, address _agentRegistry, address _committee) {
+    constructor(uint256 bufferSize, address _agentRegistry, address _committee, uint256 startingRequestId) {
         owner = msg.sender;
         agentRegistry = IAgentRegistry(_agentRegistry);
         committee = ICommittee(_committee);
+        nextRequestId = startingRequestId;
+        oldestPendingId = startingRequestId;
         // Initialize circular buffer with pre-allocated response slots
         for (uint256 i = 0; i < bufferSize; i++) {
             requests.push();

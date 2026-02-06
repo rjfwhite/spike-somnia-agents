@@ -6,6 +6,7 @@ import { createWalletClient, createPublicClient, http } from "viem";
 const BUFFER_SIZE = 20n;
 const AGENT_REGISTRY_ADDRESS = "0x0B4A083E482eFBE8537eE2265A62AB2E84Ac8DFa";
 const COMMITTEE_ADDRESS = "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB";
+const STARTING_REQUEST_ID = 0n;
 
 async function main() {
   console.log("Deploying SomniaAgents contract...");
@@ -26,7 +27,7 @@ async function main() {
   const deployData = encodeDeployData({
     abi: artifact.abi,
     bytecode: artifact.bytecode as `0x${string}`,
-    args: [BUFFER_SIZE, AGENT_REGISTRY_ADDRESS, COMMITTEE_ADDRESS],
+    args: [BUFFER_SIZE, AGENT_REGISTRY_ADDRESS, COMMITTEE_ADDRESS, STARTING_REQUEST_ID],
   });
 
   const hash = await walletClient.sendTransaction({ data: deployData, chain });
