@@ -174,7 +174,7 @@ export async function GET() {
           abi: SOMNIA_AGENTS_V2_ABI,
           functionName: 'createRequest',
           args: [
-            BigInt('4124847165696832417'),
+            BigInt('6857928810370910649'),
             '0x0000000000000000000000000000000000000000' as `0x${string}`,
             '0x00000000' as `0x${string}`,
             payload
