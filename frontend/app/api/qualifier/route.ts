@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
   createPublicClient,
-  createWalletClient,
   http,
   webSocket,
   encodeFunctionData,
@@ -10,9 +9,9 @@ import {
   parseEther,
   defineChain,
   hexToBytes,
+  numberToHex,
   type Hex,
 } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
 import {
   SOMNIA_AGENTS_V2_ADDRESS,
   SOMNIA_AGENTS_V2_ABI,
@@ -50,6 +49,26 @@ async function postToSlack(payload: SlackPayload): Promise<void> {
 
 function explorerLink(txHash: string): string {
   return `${EXPLORER_BASE_URL}/${txHash}`;
+}
+
+// Raw JSON-RPC helper for session RPCs
+let rpcId = 1;
+async function jsonRpc(method: string, params: unknown[]): Promise<unknown> {
+  const response = await fetch(SOMNIA_RPC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      method,
+      params,
+      id: rpcId++,
+    }),
+  });
+  const data = await response.json();
+  if (data.error) {
+    throw new Error(`RPC ${method}: ${data.error.message}`);
+  }
+  return data.result;
 }
 
 // Define Somnia testnet chain
@@ -105,8 +124,7 @@ interface RequestResult {
   rebate?: bigint;
   responseCount?: number;
   timings: {
-    sendTxn?: number;
-    waitReceipt?: number;
+    submitTxn?: number;
     waitResponse?: number;
     total?: number;
   };
@@ -116,34 +134,23 @@ export async function GET() {
   const startTime = Date.now();
 
   try {
-    const privateKey = process.env.PRIVATE_KEY;
-    if (!privateKey) {
+    const sessionSeed = process.env.SESSION_SEED || '0x84d9bfc4bb7d2a83a068e41f063dc7afcb182f439ac320840940ceb01475072f';
+    if (!sessionSeed) {
       return NextResponse.json(
-        { error: 'PRIVATE_KEY environment variable is required' },
+        { error: 'SESSION_SEED environment variable is required' },
         { status: 500 }
       );
     }
 
-    const account = privateKeyToAccount(privateKey as Hex);
-    console.log(`[Qualifier] Using account: ${account.address}`);
+    // Get the session wallet address from the seed
+    const sessionAddress = await jsonRpc('somnia_getSessionAddress', [sessionSeed]) as string;
+    console.log(`[Qualifier] Session address: ${sessionAddress}`);
     console.log(`[Qualifier] Sending ${NUM_PARALLEL_REQUESTS} parallel requests...`);
-
-    const walletClient = createWalletClient({
-      account,
-      chain: somniaTestnet,
-      transport: http(SOMNIA_RPC_URL)
-    });
 
     const publicClient = createPublicClient({
       chain: somniaTestnet,
       transport: http(SOMNIA_RPC_URL)
     });
-
-    // Get current nonce
-    const startNonce = await publicClient.getTransactionCount({
-      address: account.address
-    });
-    console.log(`[Qualifier] Starting nonce: ${startNonce}`);
 
     // Prepare all requests
     const results: RequestResult[] = [];
@@ -158,82 +165,77 @@ export async function GET() {
       });
     }
 
-    // Step 1: Send all transactions in parallel with explicit nonces
+    // Step 1: Submit all transactions via session RPC (nonce managed by node)
     const sendStart = Date.now();
     const sendPromises = results.map(async (r, i) => {
-      const payload = encodeFunctionData({
+      const agentPayload = encodeFunctionData({
         abi: agentMethodAbi,
         functionName: 'add',
         args: [r.a, r.b]
       });
 
+      const calldata = encodeFunctionData({
+        abi: SOMNIA_AGENTS_V2_ABI,
+        functionName: 'createRequest',
+        args: [
+          BigInt('6857928810370910649'),
+          '0x0000000000000000000000000000000000000000' as `0x${string}`,
+          '0x00000000' as `0x${string}`,
+          agentPayload
+        ]
+      });
+
       try {
         const txStart = Date.now();
-        const hash = await walletClient.writeContract({
-          address: SOMNIA_AGENTS_V2_ADDRESS,
-          abi: SOMNIA_AGENTS_V2_ABI,
-          functionName: 'createRequest',
-          args: [
-            BigInt('6857928810370910649'),
-            '0x0000000000000000000000000000000000000000' as `0x${string}`,
-            '0x00000000' as `0x${string}`,
-            payload
-          ],
-          value: parseEther('0.1'),
-          nonce: startNonce + i
-        });
-        r.hash = hash;
-        r.timings.sendTxn = Date.now() - txStart;
-        console.log(`[Qualifier] [${i}] Tx sent: ${hash} (${r.timings.sendTxn}ms)`);
+        const txResult = await jsonRpc('somnia_sendSessionTransaction', [{
+          seed: sessionSeed,
+          gas: '0x1E8480',
+          to: SOMNIA_AGENTS_V2_ADDRESS,
+          value: numberToHex(parseEther('1')),
+          data: calldata,
+        }]) as Record<string, unknown>;
+
+        r.timings.submitTxn = Date.now() - txStart;
+
+        r.hash = (txResult.hash ?? txResult.transactionHash) as string;
+
+        // Check for revert
+        if (txResult.status === '0x0') {
+          r.error = 'Transaction reverted';
+          console.error(`[Qualifier] [${i}] Reverted: ${r.hash}`);
+          return;
+        }
+
+        // Extract requestId from receipt logs returned by session RPC
+        const logs = txResult.logs as Array<{ data: Hex; topics: readonly Hex[] }> | undefined;
+        if (logs && logs.length > 0) {
+          for (const log of logs) {
+            try {
+              const decoded = decodeEventLog({
+                abi: SOMNIA_AGENTS_V2_ABI,
+                data: log.data,
+                topics: log.topics as [Hex, ...Hex[]],
+              });
+              if (decoded.eventName === 'RequestCreated') {
+                r.requestId = (decoded.args as unknown as { requestId: bigint }).requestId;
+                break;
+              }
+            } catch { /* not a matching event */ }
+          }
+        }
+
+        console.log(`[Qualifier] [${i}] Submitted: ${r.hash}, requestId=${r.requestId} (${r.timings.submitTxn}ms)`);
       } catch (error) {
-        r.error = error instanceof Error ? error.message : 'Send failed';
-        console.error(`[Qualifier] [${i}] Send error:`, r.error);
+        r.error = error instanceof Error ? error.message : 'Submit failed';
+        console.error(`[Qualifier] [${i}] Submit error:`, r.error);
       }
     });
 
     await Promise.all(sendPromises);
-    const sendDuration = Date.now() - sendStart;
-    console.log(`[Qualifier] All transactions sent in ${sendDuration}ms`);
+    const submitDuration = Date.now() - sendStart;
+    console.log(`[Qualifier] All transactions submitted in ${submitDuration}ms`);
 
-    // Step 2: Wait for all receipts in parallel
-    const receiptStart = Date.now();
-    const receiptPromises = results.map(async (r) => {
-      if (!r.hash) return;
-
-      try {
-        const waitStart = Date.now();
-        const receipt = await publicClient.waitForTransactionReceipt({ hash: r.hash as Hex });
-        r.timings.waitReceipt = Date.now() - waitStart;
-
-        // Extract requestId from RequestCreated event
-        for (const log of receipt.logs) {
-          try {
-            const decoded = decodeEventLog({
-              abi: SOMNIA_AGENTS_V2_ABI,
-              data: log.data,
-              topics: log.topics
-            });
-            if (decoded.eventName === 'RequestCreated') {
-              const args = decoded.args as unknown as { requestId: bigint };
-              r.requestId = args.requestId;
-              break;
-            }
-          } catch {
-            // Not matching event
-          }
-        }
-        console.log(`[Qualifier] [${r.index}] Receipt: requestId=${r.requestId} (${r.timings.waitReceipt}ms)`);
-      } catch (error) {
-        r.error = error instanceof Error ? error.message : 'Receipt failed';
-        console.error(`[Qualifier] [${r.index}] Receipt error:`, r.error);
-      }
-    });
-
-    await Promise.all(receiptPromises);
-    const receiptDuration = Date.now() - receiptStart;
-    console.log(`[Qualifier] All receipts received in ${receiptDuration}ms`);
-
-    // Step 3: Watch for finalized responses via WebSocket
+    // Step 2: Watch for finalized responses via WebSocket
     const responseStart = Date.now();
     const pendingRequestIds = new Map<string, RequestResult>();
     for (const r of results) {
@@ -385,7 +387,7 @@ export async function GET() {
 
     // Build Slack message
     const message = [
-      `🚀 Qualifier Batch Complete (${NUM_PARALLEL_REQUESTS} requests)`,
+      `🚀 Qualifier Batch Complete (${NUM_PARALLEL_REQUESTS} requests, session RPC)`,
       ``,
       `✅ Successful: ${stats.successful}`,
       `❌ Failed: ${stats.failed}`,
@@ -393,8 +395,7 @@ export async function GET() {
       `🚫 Send errors: ${stats.sendErrors}`,
       ``,
       `⏱️ Timings:`,
-      `  📤 Send all: ${sendDuration}ms`,
-      `  📝 Receipts: ${receiptDuration}ms`,
+      `  📤 Submit all (send+confirm): ${submitDuration}ms`,
       `  🔄 Responses: ${responseDuration}ms`,
       `  ⏱️ Total: ${totalDuration}ms`,
     ];
@@ -416,11 +417,10 @@ export async function GET() {
 
     return NextResponse.json({
       success: true,
-      account: account.address,
+      sessionAddress,
       stats,
       timings: {
-        sendAll: `${sendDuration}ms`,
-        receipts: `${receiptDuration}ms`,
+        submitAll: `${submitDuration}ms`,
         responses: `${responseDuration}ms`,
         total: `${totalDuration}ms`
       },
