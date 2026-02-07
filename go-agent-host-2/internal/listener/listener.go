@@ -25,8 +25,8 @@ import (
 
 	"github.com/somnia-chain/agent-runner/internal/agentregistry"
 	"github.com/somnia-chain/agent-runner/internal/agents"
+	"github.com/somnia-chain/agent-runner/internal/sessionrpc"
 	"github.com/somnia-chain/agent-runner/internal/somniaagents"
-	"github.com/somnia-chain/agent-runner/internal/submitter"
 )
 
 // decodeRevertReason extracts a human-readable revert reason from an error.
@@ -106,9 +106,10 @@ func httpToWsURL(httpURL string) string {
 
 // Config holds the configuration for the event listener.
 type Config struct {
-	SomniaAgentsContract string
-	RPCURL               string
-	ReceiptsServiceURL   string
+	SomniaAgentsContract  string
+	RPCURL                string
+	ReceiptsServiceURL    string
+	MaxConcurrentRequests int
 }
 
 // Listener listens for RequestCreated events and executes agents.
@@ -117,7 +118,7 @@ type Listener struct {
 	somniaAgents  *somniaagents.SomniaAgents
 	agentRegistry *agentregistry.AgentRegistry
 	agentManager  *agents.Manager
-	submitter     *submitter.Submitter
+	session       *sessionrpc.Client
 	address       common.Address
 	rpcURL        string
 	wsURL         string
@@ -130,6 +131,10 @@ type Listener struct {
 	// Receipts service configuration
 	receiptsServiceURL string
 
+	// Worker pool
+	requestCh  chan *somniaagents.RequestCreatedEvent
+	maxWorkers int
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
@@ -140,8 +145,8 @@ type Listener struct {
 }
 
 // New creates a new Listener instance.
-func New(cfg Config, agentManager *agents.Manager, sub *submitter.Submitter) (*Listener, error) {
-	address := sub.Address()
+func New(cfg Config, agentManager *agents.Manager, session *sessionrpc.Client) (*Listener, error) {
+	address := session.Address()
 
 	slog.Info("Listener using wallet", "address", address.Hex())
 
@@ -190,6 +195,11 @@ func New(cfg Config, agentManager *agents.Manager, sub *submitter.Submitter) (*L
 		return nil, fmt.Errorf("failed to create AgentRegistry contract instance: %w", err)
 	}
 
+	maxWorkers := cfg.MaxConcurrentRequests
+	if maxWorkers <= 0 {
+		maxWorkers = 20
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Listener{
@@ -197,7 +207,7 @@ func New(cfg Config, agentManager *agents.Manager, sub *submitter.Submitter) (*L
 		somniaAgents:       somniaAgentsContract,
 		agentRegistry:      agentRegistryContract,
 		agentManager:       agentManager,
-		submitter:          sub,
+		session:            session,
 		address:            address,
 		rpcURL:             cfg.RPCURL,
 		wsURL:              httpToWsURL(cfg.RPCURL),
@@ -205,6 +215,8 @@ func New(cfg Config, agentManager *agents.Manager, sub *submitter.Submitter) (*L
 		agentRegistryAddr:  agentRegistryAddr,
 		committeeAddr:      committeeAddr,
 		receiptsServiceURL: cfg.ReceiptsServiceURL,
+		requestCh:          make(chan *somniaagents.RequestCreatedEvent, maxWorkers),
+		maxWorkers:         maxWorkers,
 		ctx:                ctx,
 		cancel:             cancel,
 		processed:          make(map[string]bool),
@@ -221,14 +233,22 @@ func (l *Listener) CommitteeAddress() string {
 	return l.committeeAddr.Hex()
 }
 
-// Start begins listening for RequestCreated events.
+// Start begins listening for RequestCreated events with a bounded worker pool.
 func (l *Listener) Start() {
 	slog.Info("Starting event listener",
 		"somnia_agents", l.somniaAgents.Address().Hex(),
 		"agent_registry", l.agentRegistry.Address().Hex(),
 		"validator", l.address.Hex(),
+		"workers", l.maxWorkers,
 	)
 
+	// Start worker pool
+	for i := 0; i < l.maxWorkers; i++ {
+		l.wg.Add(1)
+		go l.worker()
+	}
+
+	// Start event subscription loop
 	l.wg.Add(1)
 	go l.listenLoop()
 }
@@ -240,6 +260,18 @@ func (l *Listener) Stop() {
 	l.wg.Wait()
 	l.client.Close()
 	slog.Info("Event listener stopped")
+}
+
+func (l *Listener) worker() {
+	defer l.wg.Done()
+	for {
+		select {
+		case event := <-l.requestCh:
+			l.handleRequest(event)
+		case <-l.ctx.Done():
+			return
+		}
+	}
 }
 
 func (l *Listener) listenLoop() {
@@ -359,8 +391,12 @@ func (l *Listener) handleLog(vLog types.Log) {
 
 	slog.Info("We are in the subcommittee for request", "requestId", event.RequestId)
 
-	// Handle the request in a goroutine
-	go l.handleRequest(event)
+	// Send to worker pool (drop if full to avoid blocking the event loop)
+	select {
+	case l.requestCh <- event:
+	default:
+		slog.Warn("Worker pool full, dropping request", "requestId", event.RequestId)
+	}
 }
 
 func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
@@ -479,7 +515,14 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		price = big.NewInt(0)
 	}
 
-	slog.Info("Submitting response to blockchain",
+	// ABI-encode the submitResponse calldata
+	calldata, err := sessionrpc.EncodeSubmitResponse(requestId, result, txReceipt, price)
+	if err != nil {
+		slog.Error("Failed to encode submitResponse calldata", "requestId", requestId, "error", err)
+		return
+	}
+
+	slog.Info("Submitting response via session RPC",
 		"requestId", requestId,
 		"validator", l.address.Hex(),
 		"contract", l.somniaAgentsAddr.Hex(),
@@ -487,53 +530,58 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		"price", price,
 	)
 
-	txResult := l.submitter.Submit(ctx, "submit-response", func(auth *bind.TransactOpts) (*types.Transaction, error) {
-		return l.somniaAgents.SubmitResponse(auth, requestId, result, txReceipt, price)
-	})
-	if txResult.Err != nil {
+	receipt, err := l.session.Send(ctx, l.somniaAgentsAddr.Hex(), calldata, "0x0", sessionrpc.DefaultGas)
+	if err != nil {
 		slog.Error("Failed to submit response",
 			"requestId", requestId,
 			"validator", l.address.Hex(),
 			"contract", l.somniaAgentsAddr.Hex(),
-			"error", txResult.Err,
-			"revertReason", decodeRevertReason(txResult.Err),
+			"error", err,
 		)
 		return
 	}
 
-	if txResult.Receipt.Status == 1 {
+	if receipt.Success() {
 		slog.Info("Response submitted successfully",
 			"requestId", requestId,
 			"validator", l.address.Hex(),
-			"txHash", txResult.Tx.Hash().Hex(),
-			"block", txResult.Receipt.BlockNumber,
-			"gasUsed", txResult.Receipt.GasUsed,
+			"txHash", receipt.TransactionHash,
+			"block", receipt.BlockNumber,
+			"gasUsed", receipt.GasUsed,
 		)
 	} else {
 		// Try to get the revert reason by replaying the call at the failed block
 		revertReason := "unknown (replay succeeded - state may have changed)"
 		var rawError string
+
+		calldataBytes, _ := hex.DecodeString(strings.TrimPrefix(calldata, "0x"))
+		to := l.somniaAgentsAddr
 		callMsg := ethereum.CallMsg{
-			From:     l.address,
-			To:       txResult.Tx.To(),
-			Gas:      txResult.Tx.Gas(),
-			GasPrice: txResult.Tx.GasPrice(),
-			Value:    txResult.Tx.Value(),
-			Data:     txResult.Tx.Data(),
+			From: l.address,
+			To:   &to,
+			Gas:  2_000_000,
+			Data: calldataBytes,
 		}
-		_, callErr := l.client.CallContract(ctx, callMsg, txResult.Receipt.BlockNumber)
+
+		// Parse block number from receipt for accurate replay
+		blockNum := new(big.Int)
+		blockHex := strings.TrimPrefix(receipt.BlockNumber, "0x")
+		blockNum.SetString(blockHex, 16)
+
+		_, callErr := l.client.CallContract(ctx, callMsg, blockNum)
 		if callErr != nil {
 			rawError = callErr.Error()
 			revertReason = decodeRevertReason(callErr)
 		}
+
 		slog.Error("Response transaction reverted",
 			"requestId", requestId,
 			"validator", l.address.Hex(),
 			"contract", l.somniaAgentsAddr.Hex(),
-			"txHash", txResult.Tx.Hash().Hex(),
-			"block", txResult.Receipt.BlockNumber,
-			"status", txResult.Receipt.Status,
-			"gasUsed", txResult.Receipt.GasUsed,
+			"txHash", receipt.TransactionHash,
+			"block", receipt.BlockNumber,
+			"status", receipt.Status,
+			"gasUsed", receipt.GasUsed,
 			"revertReason", revertReason,
 			"rawError", rawError,
 		)

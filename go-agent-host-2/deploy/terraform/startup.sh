@@ -63,22 +63,22 @@ mkdir -p /tmp/.docker
 ACCESS_TOKEN=$(get_metadata "instance/service-accounts/default/token" | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
 echo "$ACCESS_TOKEN" | docker --config /tmp/.docker login -u oauth2accesstoken --password-stdin https://us-central1-docker.pkg.dev
 
-# Fetch the private key from Secret Manager
-log "Fetching private key from Secret Manager..."
-SECRET_NAME="committee-private-key-$COMMITTEE_INDEX"
+# Fetch the secret key from Secret Manager
+log "Fetching secret key from Secret Manager..."
+SECRET_NAME="committee-secret-key-$COMMITTEE_INDEX"
 
-PRIVATE_KEY=$(curl -sf -H "$METADATA_HEADER" \
+SECRET_KEY=$(curl -sf -H "$METADATA_HEADER" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   "https://secretmanager.googleapis.com/v1/projects/$PROJECT_ID/secrets/$SECRET_NAME/versions/latest:access" \
   | python3 -c "import sys,json,base64; print(base64.b64decode(json.load(sys.stdin)['payload']['data']).decode())" 2>/dev/null || echo "")
 
-if [ -z "$PRIVATE_KEY" ]; then
-  log "ERROR: Failed to fetch private key for index $COMMITTEE_INDEX"
+if [ -z "$SECRET_KEY" ]; then
+  log "ERROR: Failed to fetch secret key for index $COMMITTEE_INDEX"
   log "Make sure secret '$SECRET_NAME' exists and has a version"
   exit 1
 fi
 
-log "Private key loaded successfully"
+log "Secret key loaded successfully"
 
 # Stop any existing container
 log "Stopping existing container if any..."
@@ -114,7 +114,7 @@ docker run -d \
   --network host \
   -v /var/run/docker.sock:/var/run/docker.sock \
   -v /var/lib/agent-runner/image-cache:/app/image-cache \
-  -e "PRIVATE_KEY=$PRIVATE_KEY" \
+  -e "SECRET_KEY=$SECRET_KEY" \
   "$CONTAINER_IMAGE" \
   ./agent-runner \
   --somnia-agents-contract="$SOMNIA_AGENTS_CONTRACT" \

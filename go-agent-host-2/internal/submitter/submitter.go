@@ -44,13 +44,13 @@ type Submitter struct {
 	wg      sync.WaitGroup
 }
 
-// New creates a Submitter. It loads PRIVATE_KEY from the environment,
+// New creates a Submitter. It loads SECRET_KEY from the environment,
 // connects to the RPC, fetches the initial nonce, and starts the
 // processing goroutine.
 func New(rpcURL string) (*Submitter, error) {
-	privateKeyHex := os.Getenv("PRIVATE_KEY")
+	privateKeyHex := os.Getenv("SECRET_KEY")
 	if privateKeyHex == "" {
-		return nil, fmt.Errorf("PRIVATE_KEY environment variable is required")
+		return nil, fmt.Errorf("SECRET_KEY environment variable is required")
 	}
 	if len(privateKeyHex) > 2 && privateKeyHex[:2] == "0x" {
 		privateKeyHex = privateKeyHex[2:]
@@ -58,7 +58,7 @@ func New(rpcURL string) (*Submitter, error) {
 
 	privateKey, err := crypto.HexToECDSA(privateKeyHex)
 	if err != nil {
-		return nil, fmt.Errorf("invalid private key: %w", err)
+		return nil, fmt.Errorf("invalid secret key: %w", err)
 	}
 
 	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
@@ -114,7 +114,7 @@ func New(rpcURL string) (*Submitter, error) {
 	return s, nil
 }
 
-// Address returns the wallet address derived from the private key.
+// Address returns the wallet address derived from the secret key.
 func (s *Submitter) Address() common.Address {
 	return s.address
 }

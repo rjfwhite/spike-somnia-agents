@@ -18,8 +18,8 @@ import (
 	"github.com/somnia-chain/agent-runner/internal/listener"
 	"github.com/somnia-chain/agent-runner/internal/logging"
 	"github.com/somnia-chain/agent-runner/internal/sandbox"
+	"github.com/somnia-chain/agent-runner/internal/sessionrpc"
 	"github.com/somnia-chain/agent-runner/internal/startup"
-	"github.com/somnia-chain/agent-runner/internal/submitter"
 )
 
 func main() {
@@ -192,21 +192,27 @@ func main() {
 		slog.Info("LLM proxy started", "addr", llmProxyAddr, "upstream", cfg.LLMUpstreamURL)
 	}
 
-	// Initialize blockchain transaction submitter (handles nonce management)
-	txSubmitter, err := submitter.New(cfg.RPCURL)
+	// Initialize session RPC client (replaces submitter — node manages nonces)
+	sessionSeed := os.Getenv("SECRET_KEY")
+	if sessionSeed == "" {
+		slog.Error("SECRET_KEY environment variable is required")
+		os.Exit(1)
+	}
+	session, err := sessionrpc.New(cfg.RPCURL, sessionSeed)
 	if err != nil {
-		slog.Error("Failed to create transaction submitter", "error", err)
+		slog.Error("Failed to create session RPC client", "error", err)
 		os.Exit(1)
 	}
 
 	// Create listener to resolve contract addresses from SomniaAgents
 	listenerCfg := listener.Config{
-		SomniaAgentsContract: cfg.SomniaAgentsContract,
-		RPCURL:               cfg.RPCURL,
-		ReceiptsServiceURL:   cfg.ReceiptsServiceURL,
+		SomniaAgentsContract:  cfg.SomniaAgentsContract,
+		RPCURL:                cfg.RPCURL,
+		ReceiptsServiceURL:    cfg.ReceiptsServiceURL,
+		MaxConcurrentRequests: cfg.MaxConcurrentRequests,
 	}
 
-	eventListener, err := listener.New(listenerCfg, agentManager, txSubmitter)
+	eventListener, err := listener.New(listenerCfg, agentManager, session)
 	if err != nil {
 		slog.Error("Failed to create event listener", "error", err)
 		os.Exit(1)
@@ -222,7 +228,7 @@ func main() {
 		Interval:        cfg.CommitteeInterval,
 	}
 
-	hb, err := heartbeater.New(hbCfg, txSubmitter)
+	hb, err := heartbeater.New(hbCfg, session)
 	if err != nil {
 		slog.Error("Failed to create heartbeater", "error", err)
 		os.Exit(1)
@@ -251,11 +257,8 @@ func main() {
 		// Stop the event listener
 		eventListener.Stop()
 
-		// Stop the heartbeater (sends leave transaction via submitter)
+		// Stop the heartbeater (sends leave transaction via session RPC)
 		hb.Stop()
-
-		// Stop the transaction submitter (after heartbeater leave completes)
-		txSubmitter.Stop()
 
 		// Stop the sandbox proxy
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

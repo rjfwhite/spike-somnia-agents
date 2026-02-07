@@ -14,6 +14,6 @@ output "service_account_email" {
 }
 
 output "secret_names" {
-  description = "Secret Manager secret names (add private keys to these)"
+  description = "Secret Manager secret names (add secret keys to these)"
   value       = [for s in google_secret_manager_secret.committee_keys : s.secret_id]
 }

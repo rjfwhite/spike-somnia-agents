@@ -44,6 +44,9 @@ type Config struct {
 
 	// Committee heartbeater configuration
 	CommitteeInterval time.Duration
+
+	// Worker pool configuration
+	MaxConcurrentRequests int
 }
 
 // Parse parses command-line flags and returns a Config.
@@ -79,6 +82,9 @@ func Parse() *Config {
 
 	// Committee heartbeater configuration
 	flag.DurationVar(&cfg.CommitteeInterval, "committee-interval", 30*time.Second, "Heartbeat interval")
+
+	// Worker pool configuration
+	flag.IntVar(&cfg.MaxConcurrentRequests, "max-concurrent-requests", 20, "Maximum concurrent request handlers")
 
 	flag.Parse()
 

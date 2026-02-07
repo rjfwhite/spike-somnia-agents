@@ -10,11 +10,10 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/somnia-chain/agent-runner/internal/committee"
-	"github.com/somnia-chain/agent-runner/internal/submitter"
+	"github.com/somnia-chain/agent-runner/internal/sessionrpc"
 )
 
 // Config holds the configuration for the heartbeater.
@@ -26,11 +25,12 @@ type Config struct {
 
 // Heartbeater maintains active committee membership by sending periodic heartbeat transactions.
 type Heartbeater struct {
-	client    *ethclient.Client
-	contract  *committee.Committee
-	submitter *submitter.Submitter
-	address   common.Address
-	interval  time.Duration
+	client       *ethclient.Client
+	contract     *committee.Committee
+	session      *sessionrpc.Client
+	address      common.Address
+	contractAddr string // hex address for session RPC Send calls
+	interval     time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -38,8 +38,8 @@ type Heartbeater struct {
 }
 
 // New creates a new Heartbeater instance.
-func New(cfg Config, sub *submitter.Submitter) (*Heartbeater, error) {
-	address := sub.Address()
+func New(cfg Config, session *sessionrpc.Client) (*Heartbeater, error) {
+	address := session.Address()
 
 	slog.Info("Heartbeater using wallet", "address", address.Hex())
 
@@ -56,7 +56,7 @@ func New(cfg Config, sub *submitter.Submitter) (*Heartbeater, error) {
 	}
 	contractAddr := common.HexToAddress(cfg.ContractAddress)
 
-	// Create committee contract instance
+	// Create committee contract instance (for read calls like IsActive)
 	committeeContract, err := committee.NewCommittee(contractAddr, client)
 	if err != nil {
 		client.Close()
@@ -66,13 +66,14 @@ func New(cfg Config, sub *submitter.Submitter) (*Heartbeater, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &Heartbeater{
-		client:    client,
-		contract:  committeeContract,
-		submitter: sub,
-		address:   address,
-		interval:  cfg.Interval,
-		ctx:       ctx,
-		cancel:    cancel,
+		client:       client,
+		contract:     committeeContract,
+		session:      session,
+		address:      address,
+		contractAddr: contractAddr.Hex(),
+		interval:     cfg.Interval,
+		ctx:          ctx,
+		cancel:       cancel,
 	}, nil
 }
 
@@ -130,24 +131,29 @@ func (h *Heartbeater) sendHeartbeat() {
 		slog.Debug("Heartbeater current active status", "active", isActive)
 	}
 
-	result := h.submitter.Submit(ctx, "heartbeat", func(auth *bind.TransactOpts) (*types.Transaction, error) {
-		return h.contract.HeartbeatMembership(auth)
-	})
-	if result.Err != nil {
-		slog.Error("Heartbeat failed", "error", result.Err)
+	// ABI-encode heartbeatMembership calldata
+	calldata, err := sessionrpc.EncodeHeartbeatMembership()
+	if err != nil {
+		slog.Error("Failed to encode heartbeatMembership calldata", "error", err)
 		return
 	}
 
-	if result.Receipt.Status == 1 {
+	receipt, err := h.session.Send(ctx, h.contractAddr, calldata, "0x0", sessionrpc.DefaultGas)
+	if err != nil {
+		slog.Error("Heartbeat failed", "error", err)
+		return
+	}
+
+	if receipt.Success() {
 		slog.Info("Heartbeat confirmed",
-			"txHash", result.Tx.Hash().Hex(),
-			"block", result.Receipt.BlockNumber,
-			"gasUsed", result.Receipt.GasUsed,
+			"txHash", receipt.TransactionHash,
+			"block", receipt.BlockNumber,
+			"gasUsed", receipt.GasUsed,
 		)
 	} else {
 		slog.Error("Heartbeat transaction reverted",
-			"txHash", result.Tx.Hash().Hex(),
-			"status", result.Receipt.Status,
+			"txHash", receipt.TransactionHash,
+			"status", receipt.Status,
 		)
 	}
 }
@@ -168,24 +174,29 @@ func (h *Heartbeater) sendLeaveMembership() {
 		return
 	}
 
-	result := h.submitter.Submit(ctx, "leave-membership", func(auth *bind.TransactOpts) (*types.Transaction, error) {
-		return h.contract.LeaveMembership(auth)
-	})
-	if result.Err != nil {
-		slog.Error("Heartbeater failed to leave committee", "error", result.Err)
+	// ABI-encode leaveMembership calldata
+	calldata, err := sessionrpc.EncodeLeaveMembership()
+	if err != nil {
+		slog.Error("Failed to encode leaveMembership calldata", "error", err)
 		return
 	}
 
-	if result.Receipt.Status == 1 {
+	receipt, err := h.session.Send(ctx, h.contractAddr, calldata, "0x0", sessionrpc.DefaultGas)
+	if err != nil {
+		slog.Error("Heartbeater failed to leave committee", "error", err)
+		return
+	}
+
+	if receipt.Success() {
 		slog.Info("Left committee successfully",
-			"txHash", result.Tx.Hash().Hex(),
-			"block", result.Receipt.BlockNumber,
-			"gasUsed", result.Receipt.GasUsed,
+			"txHash", receipt.TransactionHash,
+			"block", receipt.BlockNumber,
+			"gasUsed", receipt.GasUsed,
 		)
 	} else {
 		slog.Error("Leave transaction reverted",
-			"txHash", result.Tx.Hash().Hex(),
-			"status", result.Receipt.Status,
+			"txHash", receipt.TransactionHash,
+			"status", receipt.Status,
 		)
 	}
 }

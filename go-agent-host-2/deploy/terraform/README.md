@@ -1,6 +1,6 @@
 # Committee Deployment with Terraform
 
-Deploys a Managed Instance Group of 5 VMs to form the Somnia agent committee. Each VM gets a unique private key from Secret Manager.
+Deploys a Managed Instance Group of 5 VMs to form the Somnia agent committee. Each VM gets a unique secret key from Secret Manager.
 
 ## Prerequisites
 
@@ -33,17 +33,17 @@ terraform plan
 terraform apply
 ```
 
-### 3. Add Private Keys
+### 3. Add Secret Keys
 
-After Terraform creates the secrets, add the private keys:
+After Terraform creates the secrets, add the secret keys:
 
 ```bash
 # For each committee member (0-4):
-echo -n 'your-private-key-hex' | gcloud secrets versions add committee-private-key-0 --data-file=-
-echo -n 'your-private-key-hex' | gcloud secrets versions add committee-private-key-1 --data-file=-
-echo -n 'your-private-key-hex' | gcloud secrets versions add committee-private-key-2 --data-file=-
-echo -n 'your-private-key-hex' | gcloud secrets versions add committee-private-key-3 --data-file=-
-echo -n 'your-private-key-hex' | gcloud secrets versions add committee-private-key-4 --data-file=-
+echo -n 'your-secret-key-hex' | gcloud secrets versions add committee-secret-key-0 --data-file=-
+echo -n 'your-secret-key-hex' | gcloud secrets versions add committee-secret-key-1 --data-file=-
+echo -n 'your-secret-key-hex' | gcloud secrets versions add committee-secret-key-2 --data-file=-
+echo -n 'your-secret-key-hex' | gcloud secrets versions add committee-secret-key-3 --data-file=-
+echo -n 'your-secret-key-hex' | gcloud secrets versions add committee-secret-key-4 --data-file=-
 ```
 
 ### 4. Trigger VM Recreation (to pick up secrets)
@@ -104,7 +104,7 @@ docker logs agent-runner
 │  ┌──────────────┐  ┌──────────────┐       ┌──────────────┐ │
 │  │ committee-0  │  │ committee-1  │  ...  │ committee-4  │ │
 │  │              │  │              │       │              │ │
-│  │ PRIVATE_KEY  │  │ PRIVATE_KEY  │       │ PRIVATE_KEY  │ │
+│  │  SECRET_KEY  │  │  SECRET_KEY  │       │  SECRET_KEY  │ │
 │  │ from secret-0│  │ from secret-1│       │ from secret-4│ │
 │  └──────┬───────┘  └──────┬───────┘       └──────┬───────┘ │
 │         │                 │                      │         │
@@ -113,11 +113,11 @@ docker logs agent-runner
           ▼                 ▼                      ▼
     ┌─────────────────────────────────────────────────────┐
     │              Secret Manager                          │
-    │  committee-private-key-0                            │
-    │  committee-private-key-1                            │
-    │  committee-private-key-2                            │
-    │  committee-private-key-3                            │
-    │  committee-private-key-4                            │
+    │  committee-secret-key-0                              │
+    │  committee-secret-key-1                              │
+    │  committee-secret-key-2                              │
+    │  committee-secret-key-3                              │
+    │  committee-secret-key-4                              │
     └─────────────────────────────────────────────────────┘
           │
           ▼
@@ -131,11 +131,11 @@ docker logs agent-runner
 
 ## How Instance Index Assignment Works
 
-The startup script determines which private key to use based on the instance name. MIG instances are named `somnia-committee-XXXX` where XXXX is random. The script:
+The startup script determines which secret key to use based on the instance name. MIG instances are named `somnia-committee-XXXX` where XXXX is random. The script:
 
 1. Extracts the instance name
 2. Uses a hash of the name to consistently map to an index 0-4
-3. Fetches `committee-private-key-{index}` from Secret Manager
+3. Fetches `committee-secret-key-{index}` from Secret Manager
 
 This means if a VM is replaced, it might get a different index. This is fine because:
 - All 5 keys are valid committee members

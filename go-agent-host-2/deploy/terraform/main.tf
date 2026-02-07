@@ -45,10 +45,10 @@ resource "google_project_iam_member" "artifact_reader" {
   member  = "serviceAccount:${google_service_account.committee.email}"
 }
 
-# Secret Manager secrets for private keys
+# Secret Manager secrets for committee secret keys
 resource "google_secret_manager_secret" "committee_keys" {
   count     = var.committee_size
-  secret_id = "committee-private-key-${count.index}"
+  secret_id = "committee-secret-key-${count.index}"
 
   replication {
     auto {}
@@ -128,7 +128,7 @@ resource "google_compute_instance" "committee" {
   metadata = {
     google-logging-enabled = "true"
 
-    # Explicit committee index for private key lookup
+    # Explicit committee index for secret key lookup
     committee-index = count.index
 
     # Pass config as metadata so startup script can read it
