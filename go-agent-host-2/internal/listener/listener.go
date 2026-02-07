@@ -215,7 +215,7 @@ func New(cfg Config, agentManager *agents.Manager, session *sessionrpc.Client) (
 		agentRegistryAddr:  agentRegistryAddr,
 		committeeAddr:      committeeAddr,
 		receiptsServiceURL: cfg.ReceiptsServiceURL,
-		requestCh:          make(chan *somniaagents.RequestCreatedEvent, maxWorkers),
+		requestCh:          make(chan *somniaagents.RequestCreatedEvent, 10000),
 		maxWorkers:         maxWorkers,
 		ctx:                ctx,
 		cancel:             cancel,
