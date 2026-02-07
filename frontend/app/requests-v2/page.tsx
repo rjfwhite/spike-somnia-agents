@@ -1158,6 +1158,21 @@ export default function RequestsV2Page() {
                             <span className={`relative inline-flex rounded-full h-3 w-3 ${connectionStatus === "connected" ? "bg-green-500" : "bg-red-500"}`}></span>
                         </span>
                         Live Events
+                        {eventsList.length > 0 && (
+                            <span className="flex items-center gap-2 ml-2 text-xs font-normal">
+                                <span className="px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                    {eventsList.filter(e => e.status === 'pending').length} pending
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
+                                    {eventsList.filter(e => e.status === 'finalized').length} completed
+                                </span>
+                                {eventsList.some(e => e.status === 'timeout') && (
+                                    <span className="px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
+                                        {eventsList.filter(e => e.status === 'timeout').length} timed out
+                                    </span>
+                                )}
+                            </span>
+                        )}
                     </h3>
                     <span className={`text-xs px-2 py-1 rounded-full border ${
                         connectionStatus === "connected"
