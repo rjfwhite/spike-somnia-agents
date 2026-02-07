@@ -29,6 +29,14 @@ import (
 	"github.com/somnia-chain/agent-runner/internal/somniaagents"
 )
 
+// agentCacheEntry holds cached agent info with a TTL.
+type agentCacheEntry struct {
+	agent     *agentregistry.Agent
+	fetchedAt time.Time
+}
+
+const agentCacheTTL = 60 * time.Second
+
 // decodeRevertReason extracts a human-readable revert reason from an error.
 // It handles both rpc.DataError (which contains revert data) and standard errors.
 func decodeRevertReason(err error) string {
@@ -142,6 +150,10 @@ type Listener struct {
 	// Track processed requests to avoid duplicates
 	processed     map[string]bool
 	processedLock sync.Mutex
+
+	// Agent info cache
+	agentCache     map[string]*agentCacheEntry
+	agentCacheLock sync.RWMutex
 }
 
 // New creates a new Listener instance.
@@ -220,6 +232,7 @@ func New(cfg Config, agentManager *agents.Manager, session *sessionrpc.Client) (
 		ctx:                ctx,
 		cancel:             cancel,
 		processed:          make(map[string]bool),
+		agentCache:         make(map[string]*agentCacheEntry),
 	}, nil
 }
 
@@ -399,34 +412,41 @@ func (l *Listener) handleLog(vLog types.Log) {
 	}
 }
 
+// getCachedAgent returns agent info from cache or fetches from chain.
+func (l *Listener) getCachedAgent(agentId *big.Int) (*agentregistry.Agent, error) {
+	key := agentId.String()
+
+	// Fast path: read lock
+	l.agentCacheLock.RLock()
+	if entry, ok := l.agentCache[key]; ok && time.Since(entry.fetchedAt) < agentCacheTTL {
+		l.agentCacheLock.RUnlock()
+		return entry.agent, nil
+	}
+	l.agentCacheLock.RUnlock()
+
+	// Slow path: fetch from chain
+	agent, err := l.agentRegistry.GetAgent(&bind.CallOpts{Context: l.ctx}, agentId)
+	if err != nil {
+		return nil, err
+	}
+
+	l.agentCacheLock.Lock()
+	l.agentCache[key] = &agentCacheEntry{agent: agent, fetchedAt: time.Now()}
+	l.agentCacheLock.Unlock()
+
+	return agent, nil
+}
+
 func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
-	ctx := l.ctx
 	requestId := event.RequestId
 	agentId := event.AgentId
 
-	// Check if request is still pending
-	isPending, err := l.somniaAgents.IsRequestPending(&bind.CallOpts{Context: ctx}, requestId)
-	if err != nil {
-		slog.Error("Failed to check if request is pending", "requestId", requestId, "error", err)
-		return
-	}
-	if !isPending {
-		slog.Info("Request is no longer pending", "requestId", requestId)
-		return
-	}
-
-	// Get agent info from registry
-	agent, err := l.agentRegistry.GetAgent(&bind.CallOpts{Context: ctx}, agentId)
+	// Get agent info from cache (or fetch once)
+	agent, err := l.getCachedAgent(agentId)
 	if err != nil {
 		slog.Error("Failed to get agent from registry", "agentId", agentId, "error", err)
 		return
 	}
-
-	slog.Info("Retrieved agent info",
-		"agentId", agentId,
-		"containerImageUri", agent.ContainerImageUri,
-		"cost", agent.Cost,
-	)
 
 	if agent.ContainerImageUri == "" {
 		slog.Error("Agent has no container image URI", "agentId", agentId)
@@ -457,14 +477,14 @@ func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
 		"responseSize", len(response.Body),
 	)
 
-	// Upload receipt asynchronously (don't block blockchain submission)
+	// Upload receipt asynchronously
 	if response.Receipt != nil {
 		response.Receipt["agentId"] = agentId.String()
 		go l.uploadReceipt(requestIdStr, response.Receipt)
 	}
 
-	// Submit the response to the blockchain
-	l.submitResponse(requestId, response.Body, agent.Cost)
+	// Submit the response to the blockchain (fire and forget)
+	go l.submitResponse(requestId, response.Body, agent.Cost)
 }
 
 // uploadReceipt uploads a receipt to the receipts service asynchronously.
@@ -496,17 +516,6 @@ func (l *Listener) uploadReceipt(requestID string, receipt map[string]interface{
 
 func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *big.Int) {
 	ctx := l.ctx
-
-	// Check if request is still pending before submitting
-	isPending, err := l.somniaAgents.IsRequestPending(&bind.CallOpts{Context: ctx}, requestId)
-	if err != nil {
-		slog.Error("Failed to check if request is pending before submit", "requestId", requestId, "error", err)
-		return
-	}
-	if !isPending {
-		slog.Info("Request is no longer pending, skipping response submission", "requestId", requestId)
-		return
-	}
 
 	// For now, use 0 as receipt (CID) and agent cost as price
 	txReceipt := big.NewInt(0)

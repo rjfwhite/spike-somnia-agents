@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, keccak256 } from "viem";
+import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, keccak256, formatEther } from "viem";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
 import { COMMITTEE_CONTRACT_ADDRESS, COMMITTEE_ABI, SOMNIA_RPC_URL } from "@/lib/contract";
 import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle } from "lucide-react";
@@ -19,6 +19,9 @@ export function CommitteeViewer() {
   const [activeTab, setActiveTab] = useState<"state" | "events" | "actions">("state");
   const [events, setEvents] = useState<MemberEvent[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
+
+  // Member balances
+  const [balances, setBalances] = useState<Record<string, bigint>>({});
 
   // Subcommittee election state
   const [subcommitteeSize, setSubcommitteeSize] = useState("3");
@@ -78,6 +81,24 @@ export function CommitteeViewer() {
       refetchLastUpkeep();
     }
   }, [isHeartbeatSuccess, isLeaveSuccess, refetchMembers, refetchUserActive, refetchLastUpkeep]);
+
+  // Fetch STT balances for all active members
+  useEffect(() => {
+    if (!activeMembers || activeMembers.length === 0) return;
+
+    const client = createPublicClient({ transport: http(SOMNIA_RPC_URL) });
+
+    Promise.all(
+      activeMembers.map(async (member) => {
+        const balance = await client.getBalance({ address: member as `0x${string}` });
+        return [member, balance] as const;
+      })
+    ).then((results) => {
+      const map: Record<string, bigint> = {};
+      for (const [addr, bal] of results) map[addr] = bal;
+      setBalances(map);
+    }).catch(console.error);
+  }, [activeMembers]);
 
   // Watch for MemberJoined and MemberLeft events
   useEffect(() => {
@@ -366,14 +387,21 @@ export function CommitteeViewer() {
                         </span>
                       )}
                     </div>
-                    <a
-                      href={`https://shannon-explorer.somnia.network/address/${member}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-gray-500 hover:text-cyan-400 transition-colors"
-                    >
-                      View
-                    </a>
+                    <div className="flex items-center gap-4">
+                      <span className="font-mono text-sm text-gray-400">
+                        {balances[member] !== undefined
+                          ? `${parseFloat(formatEther(balances[member])).toFixed(2)} STT`
+                          : "..."}
+                      </span>
+                      <a
+                        href={`https://shannon-explorer.somnia.network/address/${member}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-gray-500 hover:text-cyan-400 transition-colors"
+                      >
+                        View
+                      </a>
+                    </div>
                   </div>
                 ))}
               </div>
