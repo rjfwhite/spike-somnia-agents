@@ -22,7 +22,7 @@ const WS_URL = 'wss://dream-rpc.somnia.network/ws';
 const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/triggers/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';
 const EXPLORER_BASE_URL = 'https://shannon-explorer.somnia.network/tx';
 
-const NUM_PARALLEL_REQUESTS = 1000;
+const DEFAULT_NUM_REQUESTS = 20;
 
 interface SlackPayload {
   message: string;
@@ -130,10 +130,12 @@ interface RequestResult {
   };
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const startTime = Date.now();
 
   try {
+    const { searchParams } = new URL(request.url);
+    const numRequests = Math.max(1, parseInt(searchParams.get('n') || String(DEFAULT_NUM_REQUESTS), 10) || DEFAULT_NUM_REQUESTS);
     const sessionSeed = process.env.SESSION_SEED || '0x84d9bfc4bb7d2a83a068e41f063dc7afcb182f439ac320840940ceb01475072f';
     if (!sessionSeed) {
       return NextResponse.json(
@@ -145,7 +147,7 @@ export async function GET() {
     // Get the session wallet address from the seed
     const sessionAddress = await jsonRpc('somnia_getSessionAddress', [sessionSeed]) as string;
     console.log(`[Qualifier] Session address: ${sessionAddress}`);
-    console.log(`[Qualifier] Sending ${NUM_PARALLEL_REQUESTS} parallel requests...`);
+    console.log(`[Qualifier] Sending ${numRequests} parallel requests...`);
 
     const publicClient = createPublicClient({
       chain: somniaTestnet,
@@ -154,7 +156,7 @@ export async function GET() {
 
     // Prepare all requests
     const results: RequestResult[] = [];
-    for (let i = 0; i < NUM_PARALLEL_REQUESTS; i++) {
+    for (let i = 0; i < numRequests; i++) {
       const a = BigInt(Math.floor(Math.random() * 100));
       const b = BigInt(Math.floor(Math.random() * 100));
       results.push({
@@ -372,7 +374,7 @@ export async function GET() {
 
     const responseTimes = successful.map(r => r.timings.waitResponse!).sort((a, b) => a - b);
     const stats = {
-      total: NUM_PARALLEL_REQUESTS,
+      total: numRequests,
       successful: successful.length,
       failed: failed.length,
       timedOut: timedOut.length,
@@ -387,7 +389,7 @@ export async function GET() {
 
     // Build Slack message
     const message = [
-      `🚀 Qualifier Batch Complete (${NUM_PARALLEL_REQUESTS} requests, session RPC)`,
+      `🚀 Qualifier Batch Complete (${numRequests} requests, session RPC)`,
       ``,
       `✅ Successful: ${stats.successful}`,
       `❌ Failed: ${stats.failed}`,
