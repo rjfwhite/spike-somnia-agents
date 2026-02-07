@@ -189,7 +189,7 @@ export async function GET() {
         const txStart = Date.now();
         const txResult = await jsonRpc('somnia_sendSessionTransaction', [{
           seed: sessionSeed,
-          gas: '0x1E8480',
+          gas: '0x989680',
           to: SOMNIA_AGENTS_V2_ADDRESS,
           value: numberToHex(parseEther('1')),
           data: calldata,
