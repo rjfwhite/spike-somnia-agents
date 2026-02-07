@@ -3,7 +3,7 @@ import { encodeDeployData } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { createWalletClient, createPublicClient, http } from "viem";
 
-const BUFFER_SIZE = 20n;
+const BUFFER_SIZE = 2000n;
 const AGENT_REGISTRY_ADDRESS = "0x0B4A083E482eFBE8537eE2265A62AB2E84Ac8DFa";
 const COMMITTEE_ADDRESS = "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB";
 const STARTING_REQUEST_ID = 0n;

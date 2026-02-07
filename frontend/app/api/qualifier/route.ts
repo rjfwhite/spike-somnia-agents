@@ -22,7 +22,7 @@ const WS_URL = 'wss://dream-rpc.somnia.network/ws';
 const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/triggers/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';
 const EXPLORER_BASE_URL = 'https://shannon-explorer.somnia.network/tx';
 
-const NUM_PARALLEL_REQUESTS = 20;
+const NUM_PARALLEL_REQUESTS = 1000;
 
 interface SlackPayload {
   message: string;

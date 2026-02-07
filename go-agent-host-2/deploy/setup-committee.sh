@@ -7,6 +7,11 @@
 #   cast         - foundry CLI (curl -L https://foundry.paradigm.xyz | bash)
 #   gcloud       - Google Cloud CLI (for Secret Manager storage)
 #   openssl      - for key generation
+#   curl/python3 - for somnia_getSessionAddress RPC calls
+#
+# NOTE: Somnia session RPCs derive a DIFFERENT address from the seed than
+# standard Ethereum key derivation. This script uses somnia_getSessionAddress
+# to get the correct address that the session RPC will send transactions from.
 
 set -e
 
@@ -41,6 +46,19 @@ if command -v gcloud &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# Helper: get session address from seed via Somnia RPC
+# ---------------------------------------------------------------------------
+
+RPC_ID=1
+get_session_address() {
+  local seed="$1"
+  curl -sf -X POST "$RPC_URL" \
+    -H "Content-Type: application/json" \
+    -d "{\"jsonrpc\":\"2.0\",\"method\":\"somnia_getSessionAddress\",\"params\":[\"$seed\"],\"id\":$((RPC_ID++))}" \
+    | python3 -c "import sys,json; print(json.load(sys.stdin)['result'])"
+}
+
+# ---------------------------------------------------------------------------
 # Funding wallet info
 # ---------------------------------------------------------------------------
 
@@ -68,7 +86,7 @@ echo ""
 
 for i in $(seq 0 $((COMMITTEE_SIZE - 1))); do
   KEY="0x$(openssl rand -hex 32)"
-  ADDR=$(cast wallet address --private-key "$KEY")
+  ADDR=$(get_session_address "$KEY")
   KEYS[$i]="$KEY"
   ADDRS[$i]="$ADDR"
   echo "  [$i] $ADDR"

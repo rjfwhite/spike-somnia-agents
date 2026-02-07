@@ -14,7 +14,7 @@ env:
   ZONE: us-central1-a
   REPO_NAME: agent-runner-repo
   IMAGE_NAME: agent-runner
-  SOMNIA_AGENTS_CONTRACT: "0xcf2b1641c7e9a0216926d778e2120a3aaad49e65"
+  SOMNIA_AGENTS_CONTRACT: "0x0ec29e62cbcc0f6e52561d9b752b1e972477b970"
   LLM_UPSTREAM_URL: "https://kgjh5inrp412t4-8000.proxy.runpod.net"
 
 jobs:
