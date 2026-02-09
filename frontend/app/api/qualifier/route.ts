@@ -4,7 +4,6 @@ import {
   http,
   webSocket,
   encodeFunctionData,
-  parseEther,
   defineChain,
   numberToHex,
 } from 'viem';
@@ -75,7 +74,20 @@ export async function GET(request: Request) {
     const sessionAddress = await jsonRpc('somnia_getSessionAddress', [sessionSeed]) as string;
     console.log(`[Qualifier] Session: ${sessionAddress}, sending ${numRequests} requests`);
 
-    // Step 1: Subscribe to RequestFinalized events BEFORE submitting
+    // Step 1: Read required deposit
+    const httpClient = createPublicClient({
+      chain: somniaTestnet,
+      transport: http(SOMNIA_RPC_URL)
+    });
+
+    const deposit = await httpClient.readContract({
+      address: SOMNIA_AGENTS_V2_ADDRESS,
+      abi: SOMNIA_AGENTS_V2_ABI,
+      functionName: 'getRequestDeposit'
+    }) as bigint;
+    console.log(`[Qualifier] Deposit: ${deposit}`);
+
+    // Step 2: Subscribe to RequestFinalized events BEFORE submitting
     const wsClient = createPublicClient({
       chain: somniaTestnet,
       transport: webSocket(WS_URL)
@@ -143,7 +155,7 @@ export async function GET(request: Request) {
           seed: sessionSeed,
           gas: '0x989680',
           to: SOMNIA_AGENTS_V2_ADDRESS,
-          value: numberToHex(parseEther('1')),
+          value: numberToHex(deposit),
           data: calldata,
         }]) as Record<string, unknown>;
 
