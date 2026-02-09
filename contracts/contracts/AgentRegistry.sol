@@ -10,7 +10,6 @@ struct Agent {
     address owner;
     string metadataUri;
     string containerImageUri;
-    uint256 cost;
 }
 
 /// @title IAgentRegistry Interface
@@ -20,8 +19,7 @@ interface IAgentRegistry {
         uint256 indexed agentId,
         address indexed owner,
         string metadataUri,
-        string containerImageUri,
-        uint256 cost
+        string containerImageUri
     );
 
     event AgentDeleted(uint256 indexed agentId, address indexed owner);
@@ -32,8 +30,7 @@ interface IAgentRegistry {
     function setAgent(
         uint256 agentId,
         string calldata metadataUri,
-        string calldata containerImageUri,
-        uint256 cost
+        string calldata containerImageUri
     ) external;
 
     function deleteAgent(uint256 agentId) external;
@@ -65,8 +62,7 @@ contract AgentRegistry is IAgentRegistry, ERC721Enumerable {
     function setAgent(
         uint256 agentId,
         string calldata metadataUri,
-        string calldata containerImageUri,
-        uint256 cost
+        string calldata containerImageUri
     ) external override {
         address currentOwner = _ownerOf(agentId);
 
@@ -80,11 +76,10 @@ contract AgentRegistry is IAgentRegistry, ERC721Enumerable {
             agentId: agentId,
             owner: msg.sender,
             metadataUri: metadataUri,
-            containerImageUri: containerImageUri,
-            cost: cost
+            containerImageUri: containerImageUri
         });
 
-        emit AgentSet(agentId, msg.sender, metadataUri, containerImageUri, cost);
+        emit AgentSet(agentId, msg.sender, metadataUri, containerImageUri);
     }
 
     function deleteAgent(uint256 agentId) external override onlyAgentOwner(agentId) {

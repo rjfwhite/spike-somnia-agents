@@ -1,9 +1,9 @@
 export const SOMNIA_CHAIN_ID = 50312;
 export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
 export const CONTRACT_ADDRESS = "0x58ade7Fe7633b54B0052F9006863c175b8a231bE" as const;
-export const COMMITTEE_CONTRACT_ADDRESS = "0xA338F4Fb70Cf2245fb31D8651799D6b3e23F81cB" as const;
-export const AGENT_REGISTRY_V2_ADDRESS = "0x0B4A083E482eFBE8537eE2265A62AB2E84Ac8DFa" as const;
-export const SOMNIA_AGENTS_V2_ADDRESS = "0x0ec29e62cbcc0f6e52561d9b752b1e972477b970" as const;
+export const COMMITTEE_CONTRACT_ADDRESS = "0xA4D2E22EFA337423147C993E2F348Da68F921119" as const;
+export const AGENT_REGISTRY_V2_ADDRESS = "0x81A80E8A7923566F4c0120fE7e93aF12A0e180C3" as const;
+export const SOMNIA_AGENTS_V2_ADDRESS = "0xfc96D1a8d2C5f44CC51e924a1a79f9AFE9A6bbeF" as const;
 
 // Contract ABI for SomniaAgents (ERC721 Enumerable)
 export const SOMNIA_AGENTS_ABI = [
@@ -192,8 +192,7 @@ export const SOMNIA_AGENTS_ABI = [
     "inputs": [
       { "internalType": "uint256", "name": "agentId", "type": "uint256" },
       { "internalType": "string", "name": "metadataUri", "type": "string" },
-      { "internalType": "string", "name": "containerImageUri", "type": "string" },
-      { "internalType": "uint256", "name": "cost", "type": "uint256" }
+      { "internalType": "string", "name": "containerImageUri", "type": "string" }
     ],
     "name": "setAgent",
     "outputs": [],
@@ -216,8 +215,7 @@ export const SOMNIA_AGENTS_ABI = [
           { "internalType": "uint256", "name": "agentId", "type": "uint256" },
           { "internalType": "address", "name": "owner", "type": "address" },
           { "internalType": "string", "name": "metadataUri", "type": "string" },
-          { "internalType": "string", "name": "containerImageUri", "type": "string" },
-          { "internalType": "uint256", "name": "cost", "type": "uint256" }
+          { "internalType": "string", "name": "containerImageUri", "type": "string" }
         ],
         "internalType": "struct Agent",
         "name": "agent",
@@ -508,8 +506,9 @@ export const SOMNIA_AGENTS_HANDLER_ABI = [
   {
     "inputs": [
       { "internalType": "uint256", "name": "requestId", "type": "uint256" },
-      { "internalType": "bytes", "name": "response", "type": "bytes" },
-      { "internalType": "bool", "name": "success", "type": "bool" }
+      { "internalType": "bytes[]", "name": "results", "type": "bytes[]" },
+      { "internalType": "enum ResponseStatus", "name": "status", "type": "uint8" },
+      { "internalType": "uint256", "name": "cost", "type": "uint256" }
     ],
     "name": "handleResponse",
     "outputs": [],
@@ -524,7 +523,6 @@ export interface Agent {
   owner: string;
   metadataUri: string;
   containerImageUri: string;
-  cost: bigint;
 }
 
 // AgentRegistry v2 ABI (standalone registry contract)
@@ -656,8 +654,7 @@ export const AGENT_REGISTRY_V2_ABI = [
     "inputs": [
       { "internalType": "uint256", "name": "agentId", "type": "uint256" },
       { "internalType": "string", "name": "metadataUri", "type": "string" },
-      { "internalType": "string", "name": "containerImageUri", "type": "string" },
-      { "internalType": "uint256", "name": "cost", "type": "uint256" }
+      { "internalType": "string", "name": "containerImageUri", "type": "string" }
     ],
     "name": "setAgent",
     "outputs": [],
@@ -680,8 +677,7 @@ export const AGENT_REGISTRY_V2_ABI = [
           { "internalType": "uint256", "name": "agentId", "type": "uint256" },
           { "internalType": "address", "name": "owner", "type": "address" },
           { "internalType": "string", "name": "metadataUri", "type": "string" },
-          { "internalType": "string", "name": "containerImageUri", "type": "string" },
-          { "internalType": "uint256", "name": "cost", "type": "uint256" }
+          { "internalType": "string", "name": "containerImageUri", "type": "string" }
         ],
         "internalType": "struct Agent",
         "name": "agent",
@@ -885,7 +881,6 @@ export const SOMNIA_AGENTS_V2_ABI = [
     "inputs": [
       { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
       { "indexed": true, "internalType": "uint256", "name": "agentId", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "requester", "type": "address" },
       { "indexed": false, "internalType": "uint256", "name": "maxCost", "type": "uint256" },
       { "indexed": false, "internalType": "bytes", "name": "payload", "type": "bytes" },
       { "indexed": false, "internalType": "address[]", "name": "subcommittee", "type": "address[]" }
@@ -897,28 +892,9 @@ export const SOMNIA_AGENTS_V2_ABI = [
     "anonymous": false,
     "inputs": [
       { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "finalCost", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "rebate", "type": "uint256" }
+      { "indexed": false, "internalType": "enum ResponseStatus", "name": "status", "type": "uint8" }
     ],
     "name": "RequestFinalized",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" }
-    ],
-    "name": "RequestTimedOut",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
-      { "indexed": true, "internalType": "address", "name": "validator", "type": "address" },
-      { "indexed": false, "internalType": "uint256", "name": "receipt", "type": "uint256" }
-    ],
-    "name": "ResponseSubmitted",
     "type": "event"
   },
   // Request Functions
@@ -944,7 +920,7 @@ export const SOMNIA_AGENTS_V2_ABI = [
       { "internalType": "uint256", "name": "threshold", "type": "uint256" },
       { "internalType": "enum ConsensusType", "name": "consensusType", "type": "uint8" }
     ],
-    "name": "createRequestWithParams",
+    "name": "createAdvancedRequest",
     "outputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
     "stateMutability": "payable",
     "type": "function"
@@ -955,7 +931,8 @@ export const SOMNIA_AGENTS_V2_ABI = [
       { "internalType": "uint256", "name": "requestId", "type": "uint256" },
       { "internalType": "bytes", "name": "result", "type": "bytes" },
       { "internalType": "uint256", "name": "receipt", "type": "uint256" },
-      { "internalType": "uint256", "name": "price", "type": "uint256" }
+      { "internalType": "uint256", "name": "cost", "type": "uint256" },
+      { "internalType": "bool", "name": "success", "type": "bool" }
     ],
     "name": "submitResponse",
     "outputs": [],
@@ -966,13 +943,6 @@ export const SOMNIA_AGENTS_V2_ABI = [
   {
     "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
     "name": "timeoutRequest",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "upkeepRequests",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -988,12 +958,12 @@ export const SOMNIA_AGENTS_V2_ABI = [
       { "internalType": "address[]", "name": "subcommittee", "type": "address[]" },
       { "internalType": "uint256", "name": "threshold", "type": "uint256" },
       { "internalType": "uint256", "name": "createdAt", "type": "uint256" },
-      { "internalType": "bool", "name": "finalized", "type": "bool" },
+      { "internalType": "enum ResponseStatus", "name": "status", "type": "uint8" },
       { "internalType": "uint256", "name": "responseCount", "type": "uint256" },
       { "internalType": "enum ConsensusType", "name": "consensusType", "type": "uint8" },
-      { "internalType": "uint256", "name": "agentCost", "type": "uint256" },
       { "internalType": "uint256", "name": "maxCost", "type": "uint256" },
-      { "internalType": "uint256", "name": "finalCost", "type": "uint256" }
+      { "internalType": "uint256", "name": "finalCost", "type": "uint256" },
+      { "internalType": "address", "name": "agentCreator", "type": "address" }
     ],
     "stateMutability": "view",
     "type": "function"
@@ -1006,8 +976,9 @@ export const SOMNIA_AGENTS_V2_ABI = [
         "components": [
           { "internalType": "address", "name": "validator", "type": "address" },
           { "internalType": "bytes", "name": "result", "type": "bytes" },
+          { "internalType": "enum ResponseStatus", "name": "status", "type": "uint8" },
           { "internalType": "uint256", "name": "receipt", "type": "uint256" },
-          { "internalType": "uint256", "name": "price", "type": "uint256" },
+          { "internalType": "uint256", "name": "cost", "type": "uint256" },
           { "internalType": "uint256", "name": "timestamp", "type": "uint256" }
         ],
         "internalType": "struct Response[]",
@@ -1020,31 +991,7 @@ export const SOMNIA_AGENTS_V2_ABI = [
   },
   {
     "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
-    "name": "getSubcommittee",
-    "outputs": [{ "internalType": "address[]", "name": "", "type": "address[]" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      { "internalType": "uint256", "name": "requestId", "type": "uint256" },
-      { "internalType": "address", "name": "addr", "type": "address" }
-    ],
-    "name": "isSubcommitteeMember",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
-    "name": "isRequestPending",
-    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [{ "internalType": "uint256", "name": "requestId", "type": "uint256" }],
-    "name": "isRequestValid",
+    "name": "hasRequest",
     "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
     "stateMutability": "view",
     "type": "function"
@@ -1094,7 +1041,21 @@ export const SOMNIA_AGENTS_V2_ABI = [
   },
   {
     "inputs": [],
-    "name": "maxExecutionFee",
+    "name": "maxPerAgentFee",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getRequestDeposit",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "subcommitteeSize", "type": "uint256" }],
+    "name": "getAdvancedRequestDeposit",
     "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
     "stateMutability": "view",
     "type": "function"
@@ -1164,8 +1125,8 @@ export const SOMNIA_AGENTS_V2_ABI = [
     "type": "function"
   },
   {
-    "inputs": [{ "internalType": "uint256", "name": "maxFee", "type": "uint256" }],
-    "name": "setMaxExecutionFee",
+    "inputs": [{ "internalType": "uint256", "name": "fee", "type": "uint256" }],
+    "name": "setMaxPerAgentFee",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1173,6 +1134,53 @@ export const SOMNIA_AGENTS_V2_ABI = [
   {
     "inputs": [{ "internalType": "address", "name": "newOwner", "type": "address" }],
     "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  // Revenue Share
+  {
+    "inputs": [],
+    "name": "treasury",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "runnerBps",
+    "outputs": [{ "internalType": "uint16", "name": "", "type": "uint16" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "creatorBps",
+    "outputs": [{ "internalType": "uint16", "name": "", "type": "uint16" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "protocolBps",
+    "outputs": [{ "internalType": "uint16", "name": "", "type": "uint16" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "_treasury", "type": "address" }],
+    "name": "setTreasury",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint16", "name": "_runnerBps", "type": "uint16" },
+      { "internalType": "uint16", "name": "_creatorBps", "type": "uint16" },
+      { "internalType": "uint16", "name": "_protocolBps", "type": "uint16" }
+    ],
+    "name": "setFeeShares",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -1274,9 +1282,27 @@ export const COMMITTEE_ABI = [
     "stateMutability": "nonpayable",
     "type": "function"
   },
+  // Payment Distribution
+  {
+    "inputs": [
+      { "internalType": "address[]", "name": "recipients", "type": "address[]" },
+      { "internalType": "uint256[]", "name": "amounts", "type": "uint256[]" }
+    ],
+    "name": "deposit",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "name": "pendingBalance",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
   {
     "inputs": [],
-    "name": "upkeep",
+    "name": "claim",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

@@ -12,7 +12,6 @@ interface MyAgentData {
     id: string;
     metadataUri: string;
     containerImageUri: string;
-    cost: bigint;
     metadata: TokenMetadata | null;
 }
 
@@ -72,7 +71,6 @@ export default function MyAgentsPage() {
                         id: agentId.toString(),
                         metadataUri: agent.metadataUri,
                         containerImageUri: agent.containerImageUri,
-                        cost: agent.cost,
                         metadata,
                     };
                 });
@@ -182,7 +180,7 @@ export default function MyAgentsPage() {
                             key={agent.id}
                             id={agent.id}
                             metadata={agent.metadata}
-                            cost={agent.cost}
+                            cost={undefined}
                             showActions
                         />
                     ))}

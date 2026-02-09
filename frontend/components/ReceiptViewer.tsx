@@ -322,7 +322,7 @@ export function ResultDisplay({ result, abi, label = "Result" }: { result: strin
 }
 
 export function RequestDisplay({ request, abi, label = "Request" }: { request: string; abi?: any[]; label?: string }) {
-    const [isOpen, setIsOpen] = useState(false);
+    const [isOpen, setIsOpen] = useState(true);
 
     // Try to decode the request calldata if ABI is provided
     const decoded = useMemo(() => {

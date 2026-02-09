@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, keccak256, formatEther } from "viem";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
 import { COMMITTEE_CONTRACT_ADDRESS, COMMITTEE_ABI, SOMNIA_RPC_URL } from "@/lib/contract";
-import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle } from "lucide-react";
+import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle, Coins } from "lucide-react";
 
 interface MemberEvent {
   type: "joined" | "left" | "timedOut";
@@ -20,8 +20,9 @@ export function CommitteeViewer() {
   const [events, setEvents] = useState<MemberEvent[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
 
-  // Member balances
+  // Member balances and pending rewards
   const [balances, setBalances] = useState<Record<string, bigint>>({});
+  const [pendingRewards, setPendingRewards] = useState<Record<string, bigint>>({});
 
   // Subcommittee election state
   const [subcommitteeSize, setSubcommitteeSize] = useState("3");
@@ -73,16 +74,22 @@ export function CommitteeViewer() {
     hash: leaveTxHash,
   });
 
-  // Refresh all data when heartbeat or leave succeeds
+  // Write contract for claim
+  const { writeContract: sendClaim, data: claimTxHash, isPending: isClaimPending } = useWriteContract();
+  const { isLoading: isClaimConfirming, isSuccess: isClaimSuccess } = useWaitForTransactionReceipt({
+    hash: claimTxHash,
+  });
+
+  // Refresh all data when heartbeat, leave, or claim succeeds
   useEffect(() => {
-    if (isHeartbeatSuccess || isLeaveSuccess) {
+    if (isHeartbeatSuccess || isLeaveSuccess || isClaimSuccess) {
       refetchMembers();
       refetchUserActive();
       refetchLastUpkeep();
     }
-  }, [isHeartbeatSuccess, isLeaveSuccess, refetchMembers, refetchUserActive, refetchLastUpkeep]);
+  }, [isHeartbeatSuccess, isLeaveSuccess, isClaimSuccess, refetchMembers, refetchUserActive, refetchLastUpkeep]);
 
-  // Fetch STT balances for all active members
+  // Fetch STT balances and pending rewards for all active members
   useEffect(() => {
     if (!activeMembers || activeMembers.length === 0) return;
 
@@ -90,15 +97,28 @@ export function CommitteeViewer() {
 
     Promise.all(
       activeMembers.map(async (member) => {
-        const balance = await client.getBalance({ address: member as `0x${string}` });
-        return [member, balance] as const;
+        const [balance, pending] = await Promise.all([
+          client.getBalance({ address: member as `0x${string}` }),
+          client.readContract({
+            address: COMMITTEE_CONTRACT_ADDRESS,
+            abi: COMMITTEE_ABI,
+            functionName: "pendingBalance",
+            args: [member],
+          }) as Promise<bigint>,
+        ]);
+        return [member, balance, pending] as const;
       })
     ).then((results) => {
-      const map: Record<string, bigint> = {};
-      for (const [addr, bal] of results) map[addr] = bal;
-      setBalances(map);
+      const balMap: Record<string, bigint> = {};
+      const rewMap: Record<string, bigint> = {};
+      for (const [addr, bal, rew] of results) {
+        balMap[addr] = bal;
+        rewMap[addr] = rew;
+      }
+      setBalances(balMap);
+      setPendingRewards(rewMap);
     }).catch(console.error);
-  }, [activeMembers]);
+  }, [activeMembers, isClaimSuccess]);
 
   // Watch for MemberJoined and MemberLeft events
   useEffect(() => {
@@ -215,6 +235,14 @@ export function CommitteeViewer() {
       address: COMMITTEE_CONTRACT_ADDRESS,
       abi: COMMITTEE_ABI,
       functionName: "leaveMembership",
+    });
+  };
+
+  const handleClaim = () => {
+    sendClaim({
+      address: COMMITTEE_CONTRACT_ADDRESS,
+      abi: COMMITTEE_ABI,
+      functionName: "claim",
     });
   };
 
@@ -388,11 +416,18 @@ export function CommitteeViewer() {
                       )}
                     </div>
                     <div className="flex items-center gap-4">
-                      <span className="font-mono text-sm text-gray-400">
-                        {balances[member] !== undefined
-                          ? `${parseFloat(formatEther(balances[member])).toFixed(2)} STT`
-                          : "..."}
-                      </span>
+                      <div className="flex flex-col items-end gap-0.5">
+                        <span className="font-mono text-sm text-gray-400">
+                          {balances[member] !== undefined
+                            ? `${parseFloat(formatEther(balances[member])).toFixed(2)} STT`
+                            : "..."}
+                        </span>
+                        {pendingRewards[member] !== undefined && pendingRewards[member] > 0n && (
+                          <span className="font-mono text-xs text-yellow-400">
+                            +{parseFloat(formatEther(pendingRewards[member])).toFixed(4)} unclaimed
+                          </span>
+                        )}
+                      </div>
                       <a
                         href={`https://shannon-explorer.somnia.network/address/${member}`}
                         target="_blank"
@@ -508,7 +543,7 @@ export function CommitteeViewer() {
 
       {/* Actions Tab */}
       {activeTab === "actions" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* Heartbeat Card */}
           <div className="glass-panel rounded-xl p-6">
             <div className="flex items-center gap-3 mb-4">
@@ -630,8 +665,69 @@ export function CommitteeViewer() {
             </div>
           </div>
 
+          {/* Claim Rewards Card */}
+          <div className="glass-panel rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-yellow-500/20 flex items-center justify-center">
+                <Coins className="w-6 h-6 text-yellow-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Claim Rewards</h3>
+                <p className="text-xs text-gray-500">Withdraw your earned revenue share</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Your Pending Balance</div>
+                <div className="font-mono text-lg text-yellow-400">
+                  {!isConnected
+                    ? "Not Connected"
+                    : address && pendingRewards[address]
+                    ? `${parseFloat(formatEther(pendingRewards[address])).toFixed(6)} STT`
+                    : "0 STT"}
+                </div>
+              </div>
+
+              <button
+                onClick={handleClaim}
+                disabled={!isConnected || !address || !pendingRewards[address] || pendingRewards[address] === 0n || isClaimPending || isClaimConfirming}
+                className={`w-full py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                  !isConnected || !address || !pendingRewards[address] || pendingRewards[address] === 0n
+                    ? "bg-gray-700 text-gray-500 cursor-not-allowed"
+                    : isClaimPending || isClaimConfirming
+                    ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
+                    : "bg-yellow-600 hover:bg-yellow-500 text-white"
+                }`}
+              >
+                {isClaimPending ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : isClaimConfirming ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Confirming...
+                  </>
+                ) : (
+                  <>
+                    <Coins className="w-4 h-4" />
+                    Claim Rewards
+                  </>
+                )}
+              </button>
+
+              {isClaimSuccess && (
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm">
+                  Rewards claimed successfully!
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Elect Subcommittee Card */}
-          <div className="glass-panel rounded-xl p-6 md:col-span-2">
+          <div className="glass-panel rounded-xl p-6 md:col-span-3">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center">
                 <Shuffle className="w-6 h-6 text-cyan-400" />

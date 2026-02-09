@@ -8,11 +8,19 @@ contract CommitteeTest is Test {
     Committee committee;
     address member1;
     address member2;
+    address upkeeper; // helper to trigger _upkeep via heartbeat
 
     function setUp() public {
         member1 = address(0x1);
         member2 = address(0x2);
+        upkeeper = address(0xFF);
         committee = new Committee();
+    }
+
+    // Trigger _upkeep by calling heartbeatMembership from the upkeeper
+    function _triggerUpkeep() internal {
+        vm.prank(upkeeper);
+        committee.heartbeatMembership();
     }
 
     function test_InitialState() public view {
@@ -82,7 +90,7 @@ contract CommitteeTest is Test {
 
         // Miss heartbeat
         vm.warp(block.timestamp + 2 minutes);
-        committee.upkeep();
+        _triggerUpkeep();
 
         require(!committee.isActive(member1), "Should be inactive after missing heartbeat");
     }
@@ -93,7 +101,7 @@ contract CommitteeTest is Test {
 
         // Miss heartbeat - gets removed
         vm.warp(block.timestamp + 2 minutes);
-        committee.upkeep();
+        _triggerUpkeep();
 
         // Rejoin via heartbeat
         vm.prank(member1);
@@ -124,7 +132,7 @@ contract CommitteeTest is Test {
         committee.heartbeatMembership();
 
         vm.warp(block.timestamp + 1 minutes);
-        committee.upkeep();
+        _triggerUpkeep();
 
         require(committee.isActive(member1), "member1 should still be active");
         require(!committee.isActive(member2), "member2 should be inactive");
@@ -137,7 +145,7 @@ contract CommitteeTest is Test {
 
         // Miss heartbeat
         vm.warp(block.timestamp + 2 minutes);
-        committee.upkeep();
+        _triggerUpkeep();
         require(!committee.isActive(member1), "Should be inactive");
 
         // Rejoin
@@ -145,7 +153,7 @@ contract CommitteeTest is Test {
         committee.heartbeatMembership();
 
         // Upkeep won't run again yet (rate limited)
-        committee.upkeep();
+        _triggerUpkeep();
         require(committee.isActive(member1), "Should still be active (upkeep rate limited)");
     }
 

@@ -10,6 +10,13 @@ enum ConsensusType {
     Threshold   // Finalizes when threshold responses received (for median/xor aggregation)
 }
 
+enum ResponseStatus {
+    Pending,    // Not yet resolved (default zero value)
+    Success,    // Consensus reached normally
+    Failed,     // Validators reported failure (success became impossible)
+    TimedOut    // Request timed out
+}
+
 struct Request {
     uint256 id;             // Request ID to verify slot hasn't been overwritten
     address requester;      // Address to receive rebate
@@ -18,20 +25,22 @@ struct Request {
     address[] subcommittee;
     Response[] responses;
     uint256 responseCount;
+    uint256 failureCount;   // Number of failure responses
     uint256 threshold;
     uint256 createdAt;
-    bool finalized;
+    ResponseStatus status;      // Pending, Success, Failed, or TimedOut
     ConsensusType consensusType;
-    uint256 agentCost;      // Base fee for the agent (captured at request time)
     uint256 maxCost;        // Maximum cost paid upfront by requester
-    uint256 finalCost;      // Actual cost: agentCost + validatorCosts + callbackGasCost
+    uint256 finalCost;      // Actual cost: validatorCosts + callbackGasCost
+    address agentCreator;   // Snapshot of agent owner at request creation
 }
 
 struct Response {
     address validator;
     bytes result;
-    uint256 receipt;    // CID of JSON manifest of the computation
-    uint256 price;      // Price quoted by this validator
+    ResponseStatus status;  // Success or Failed
+    uint256 receipt;        // CID of JSON manifest of the computation
+    uint256 cost;           // Cost quoted by this validator
     uint256 timestamp;
 }
 
@@ -39,10 +48,8 @@ struct Response {
 /// @notice Consumer interface for requesting agent execution
 interface ISomniaAgents {
     // Events
-    event RequestCreated(uint256 indexed requestId, uint256 indexed agentId, address indexed requester, uint256 maxCost, bytes payload, address[] subcommittee);
-    event RequestFinalized(uint256 indexed requestId, uint256 finalCost, uint256 rebate);
-    event RequestTimedOut(uint256 indexed requestId);
-
+    event RequestCreated(uint256 indexed requestId, uint256 indexed agentId, uint256 maxCost, bytes payload, address[] subcommittee);
+    event RequestFinalized(uint256 indexed requestId, ResponseStatus status);
     // Request Creation (payable - sends max cost upfront)
     function createRequest(
         uint256 agentId,
@@ -51,7 +58,7 @@ interface ISomniaAgents {
         bytes calldata payload
     ) external payable returns (uint256 requestId);
 
-    function createRequestWithParams(
+    function createAdvancedRequest(
         uint256 agentId,
         address callbackAddress,
         bytes4 callbackSelector,
@@ -69,45 +76,44 @@ interface ISomniaAgents {
         address[] memory subcommittee,
         uint256 threshold,
         uint256 createdAt,
-        bool finalized,
+        ResponseStatus status,
         uint256 responseCount,
         ConsensusType consensusType,
-        uint256 agentCost,
         uint256 maxCost,
-        uint256 finalCost
+        uint256 finalCost,
+        address agentCreator
     );
 
-    function isRequestPending(uint256 requestId) external view returns (bool);
-    function isRequestValid(uint256 requestId) external view returns (bool);
+    function getResponses(uint256 requestId) external view returns (Response[] memory);
+
+    function hasRequest(uint256 requestId) external view returns (bool);
+
+    function getRequestDeposit() external view returns (uint256);
+    function getAdvancedRequestDeposit(uint256 subcommitteeSize) external view returns (uint256);
 }
 
 /// @title ISomniaAgentsRunner Interface
 /// @notice Validator interface for agent runners participating in consensus
 interface ISomniaAgentsRunner {
-    // Events
-    event ResponseSubmitted(uint256 indexed requestId, address indexed validator, uint256 receipt);
-
     // Response Submission
     function submitResponse(
         uint256 requestId,
         bytes calldata result,
         uint256 receipt,
-        uint256 price
+        uint256 cost,
+        bool success
     ) external;
-
-    // Maintenance
-    function upkeepRequests() external;
-
-    // Query Functions
-    function getResponses(uint256 requestId) external view returns (Response[] memory);
-    function getSubcommittee(uint256 requestId) external view returns (address[] memory);
-    function isSubcommitteeMember(uint256 requestId, address addr) external view returns (bool);
 }
 
 /// @title ISomniaAgentsHandler Interface
 /// @notice Interface for contracts that receive callbacks from SomniaAgents
 interface ISomniaAgentsHandler {
-    function handleResponse(uint256 requestId, bytes calldata result) external;
+    function handleResponse(
+        uint256 requestId,
+        bytes[] calldata results,
+        ResponseStatus status,
+        uint256 cost
+    ) external;
 }
 
 contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
@@ -122,7 +128,13 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     uint256 public defaultThreshold = 3;
     uint256 public requestTimeout = 1 minutes;
     uint256 public callbackGasLimit = 500_000;
-    uint256 public maxExecutionFee = 1 ether;  // Maximum allowed prepaid cost per request
+    uint256 public maxPerAgentFee = 0.01 ether;  // Max fee per subcommittee member (rebated if less)
+
+    // Revenue share configuration (basis points, must sum to 10000)
+    address public treasury;
+    uint16 public runnerBps = 7000;   // 70% to agent runners (subcommittee)
+    uint16 public creatorBps = 2000;  // 20% to agent creator
+    uint16 public protocolBps = 1000; // 10% to protocol treasury
 
     // Circular buffer of requests
     Request[] public requests;
@@ -185,13 +197,24 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         callbackGasLimit = gasLimit;
     }
 
-    function setMaxExecutionFee(uint256 maxFee) external onlyOwner {
-        maxExecutionFee = maxFee;
+    function setMaxPerAgentFee(uint256 fee) external onlyOwner {
+        maxPerAgentFee = fee;
     }
 
     function transferOwnership(address newOwner) external onlyOwner {
         require(newOwner != address(0), "SomniaAgents: new owner is zero address");
         owner = newOwner;
+    }
+
+    function setTreasury(address _treasury) external onlyOwner {
+        treasury = _treasury;
+    }
+
+    function setFeeShares(uint16 _runnerBps, uint16 _creatorBps, uint16 _protocolBps) external onlyOwner {
+        require(_runnerBps + _creatorBps + _protocolBps == 10000, "SomniaAgents: shares must sum to 10000");
+        runnerBps = _runnerBps;
+        creatorBps = _creatorBps;
+        protocolBps = _protocolBps;
     }
 
     // ============ Request Functions ============
@@ -205,7 +228,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         return _createRequest(agentId, callbackAddress, callbackSelector, payload, defaultSubcommitteeSize, defaultThreshold, ConsensusType.Majority);
     }
 
-    function createRequestWithParams(
+    function createAdvancedRequest(
         uint256 agentId,
         address callbackAddress,
         bytes4 callbackSelector,
@@ -227,9 +250,9 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         ConsensusType consensusType
     ) internal returns (uint256 requestId) {
         require(threshold > 0 && threshold <= subcommitteeSize, "SomniaAgents: invalid threshold");
-        require(msg.value > 0 && msg.value <= maxExecutionFee, "SomniaAgents: invalid max cost");
+        require(msg.value == maxPerAgentFee * subcommitteeSize, "SomniaAgents: incorrect deposit (use getRequestDeposit())");
 
-        // Get agent info (validates existence and captures cost)
+        // Validate agent exists and capture creator
         Agent memory agent = agentRegistry.getAgent(agentId);
 
         address[] memory activeMembers = committee.getActiveMembers();
@@ -244,6 +267,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
 
         // Reset response count (pre-allocated slots are reused)
         req.responseCount = 0;
+        req.failureCount = 0;
 
         req.id = requestId;
         req.requester = msg.sender;
@@ -252,13 +276,13 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         req.subcommittee = subcommittee;
         req.threshold = threshold;
         req.createdAt = block.timestamp;
-        req.finalized = false;
+        req.status = ResponseStatus.Pending;
         req.consensusType = consensusType;
-        req.agentCost = agent.cost;
         req.maxCost = msg.value;
         req.finalCost = 0;
+        req.agentCreator = agent.owner;
 
-        emit RequestCreated(requestId, agentId, msg.sender, msg.value, payload, subcommittee);
+        emit RequestCreated(requestId, agentId, msg.value, payload, subcommittee);
     }
 
     // ============ Response Functions ============
@@ -267,8 +291,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         uint256 requestId,
         bytes calldata result,
         uint256 receipt,
-        uint256 price
+        uint256 cost,
+        bool success
     ) external override {
+
+        upkeepRequests();
+
         // Validate request exists
         require(
             requests.length > 0 && requests[requestId % requests.length].id == requestId,
@@ -296,7 +324,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         );
 
         // If already finalized, just return
-        if (req.finalized) {
+        if (req.status != ResponseStatus.Pending) {
             return;
         }
 
@@ -306,30 +334,44 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             Response storage resp = req.responses[idx];
             resp.validator = msg.sender;
             resp.result = result;
+            resp.status = success ? ResponseStatus.Success : ResponseStatus.Failed;
             resp.receipt = receipt;
-            resp.price = price;
+            resp.cost = cost;
             resp.timestamp = block.timestamp;
         } else {
             req.responses.push(Response({
                 validator: msg.sender,
                 result: result,
+                status: success ? ResponseStatus.Success : ResponseStatus.Failed,
                 receipt: receipt,
-                price: price,
+                cost: cost,
                 timestamp: block.timestamp
             }));
         }
         req.responseCount++;
 
-        emit ResponseSubmitted(requestId, msg.sender, receipt);
+        if (!success) req.failureCount++;
 
-        // Check finalization based on consensus type
-        if (req.consensusType == ConsensusType.Majority) {
-            if (_checkMajorityConsensus(req.responses, req.responseCount, req.threshold)) {
-                _finalizeRequest(requestId);
-            }
-        } else {
-            if (req.responseCount >= req.threshold) {
-                _finalizeRequest(requestId);
+        // Check if success is still mathematically possible
+        uint256 successCount = req.responseCount - req.failureCount;
+        uint256 remaining = req.subcommittee.length - req.responseCount;
+
+        if (successCount + remaining < req.threshold) {
+            // Success is impossible — finalize as Failed
+            _finalizeWithStatus(requestId, ResponseStatus.Failed);
+            return;
+        }
+
+        // Check finalization based on consensus type (only successful responses count)
+        if (success) {
+            if (req.consensusType == ConsensusType.Majority) {
+                if (_checkMajorityConsensus(req.responses, req.responseCount, req.threshold)) {
+                    _finalizeWithStatus(requestId, ResponseStatus.Success);
+                }
+            } else {
+                if (successCount >= req.threshold) {
+                    _finalizeWithStatus(requestId, ResponseStatus.Success);
+                }
             }
         }
     }
@@ -344,9 +386,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     }
 
     function _checkMajorityConsensus(Response[] storage responses, uint256 responseCount, uint256 threshold) internal view returns (bool) {
+        // Only count successful responses for majority agreement
         for (uint256 i = 0; i < responseCount; i++) {
+            if (responses[i].status != ResponseStatus.Success) continue;
             uint256 count = 0;
             for (uint256 j = 0; j < responseCount; j++) {
+                if (responses[j].status != ResponseStatus.Success) continue;
                 if (BytesLib.equal(responses[i].result, responses[j].result)) {
                     count++;
                 }
@@ -358,101 +403,139 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         return false;
     }
 
-    function _finalizeRequest(uint256 requestId) internal {
+    // ============ Finalization ============
+
+    function _finalizeWithStatus(uint256 requestId, ResponseStatus status) internal {
         Request storage req = requests[requestId % requests.length];
-        require(!req.finalized, "SomniaAgents: already finalized");
+        require(req.status == ResponseStatus.Pending, "SomniaAgents: already finalized");
 
-        req.finalized = true;
+        req.status = status;
 
-        (bytes memory callbackData, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
-            req.responses,
-            req.responseCount,
-            req.consensusType,
-            req.threshold
+        uint256 medianCost = _getMedianCost(req.responses, req.responseCount);
+        uint256 validatorCosts = medianCost * req.subcommittee.length;
+
+        uint256 callbackGasCost = _invokeCallback(req, status, validatorCosts);
+
+        _settleRequest(req, status, validatorCosts, callbackGasCost);
+    }
+
+    function _invokeCallback(Request storage req, ResponseStatus status, uint256 validatorCosts) internal returns (uint256 callbackGasCost) {
+        callbackGasCost = callbackGasLimit * tx.gasprice;
+
+        if (req.callbackAddress == address(0)) return callbackGasCost;
+
+        uint256 totalCost = validatorCosts + callbackGasCost;
+
+        // Build results array (only successful responses)
+        bytes[] memory results = _getSuccessfulResults(req.responses, req.responseCount);
+
+        (bool ok, ) = req.callbackAddress.call{gas: callbackGasLimit}(
+            abi.encodeWithSelector(
+                req.callbackSelector,
+                req.id,
+                results,
+                status,
+                totalCost
+            )
         );
-        uint256 validatorCosts = medianPrice * req.subcommittee.length;
+        // Callback failure is silently ignored — caller can check via getResponses
+    }
 
-        uint256 callbackGasCost = 0;
-        if (req.callbackAddress != address(0)) {
-            uint256 gasBefore = gasleft();
-            (bool success, ) = req.callbackAddress.call{gas: callbackGasLimit}(
-                abi.encodeWithSelector(req.callbackSelector, requestId, callbackData)
-            );
-            uint256 gasUsed = gasBefore - gasleft();
-            callbackGasCost = gasUsed * tx.gasprice;
+    function _getSuccessfulResults(Response[] storage responses, uint256 responseCount) internal view returns (bytes[] memory) {
+        uint256 successCount = 0;
+        for (uint256 i = 0; i < responseCount; i++) {
+            if (responses[i].status == ResponseStatus.Success) successCount++;
         }
 
-        req.finalCost = req.agentCost + validatorCosts + callbackGasCost;
+        bytes[] memory results = new bytes[](successCount);
+        uint256 idx = 0;
+        for (uint256 i = 0; i < responseCount; i++) {
+            if (responses[i].status == ResponseStatus.Success) {
+                results[idx] = responses[i].result;
+                idx++;
+            }
+        }
+        return results;
+    }
 
-        uint256 rebate = 0;
+    function _settleRequest(Request storage req, ResponseStatus status, uint256 validatorCosts, uint256 callbackGasCost) internal {
+        req.finalCost = validatorCosts + callbackGasCost;
+
+        // Distribute validatorCosts via Committee
+        if (validatorCosts > 0) {
+            uint256 runnerTotal = validatorCosts * runnerBps / 10000;
+            uint256 creatorTotal = validatorCosts * creatorBps / 10000;
+            uint256 protocolTotal = validatorCosts - runnerTotal - creatorTotal;
+
+            // Runner share: equal split among subcommittee
+            uint256 subLen = req.subcommittee.length;
+            uint256 perRunner = runnerTotal / subLen;
+            uint256 runnerRemainder = runnerTotal - (perRunner * subLen);
+            protocolTotal += runnerRemainder;
+
+            // Creator share (falls back to protocol if no creator)
+            if (req.agentCreator == address(0)) {
+                protocolTotal += creatorTotal;
+                creatorTotal = 0;
+            }
+
+            // Protocol share (falls back to contract if no treasury)
+            if (treasury == address(0)) {
+                protocolTotal = 0;
+            }
+
+            // Build deposit arrays
+            uint256 depositCount = subLen;
+            if (creatorTotal > 0) depositCount++;
+            if (protocolTotal > 0) depositCount++;
+
+            address[] memory recipients = new address[](depositCount);
+            uint256[] memory amounts = new uint256[](depositCount);
+
+            for (uint256 i = 0; i < subLen; i++) {
+                recipients[i] = req.subcommittee[i];
+                amounts[i] = perRunner;
+            }
+
+            uint256 idx = subLen;
+            uint256 depositTotal = perRunner * subLen;
+            if (creatorTotal > 0) {
+                recipients[idx] = req.agentCreator;
+                amounts[idx] = creatorTotal;
+                depositTotal += creatorTotal;
+                idx++;
+            }
+            if (protocolTotal > 0) {
+                recipients[idx] = treasury;
+                amounts[idx] = protocolTotal;
+                depositTotal += protocolTotal;
+            }
+
+            committee.deposit{value: depositTotal}(recipients, amounts);
+        }
+
+        // Rebate unused funds to requester
         if (req.finalCost < req.maxCost) {
-            rebate = req.maxCost - req.finalCost;
+            uint256 rebate = req.maxCost - req.finalCost;
             (bool sent, ) = req.requester.call{value: rebate}("");
         }
 
-        emit RequestFinalized(requestId, req.finalCost, rebate);
+        emit RequestFinalized(req.id, status);
     }
 
-    function _getMajorityResult(
-        Response[] storage responses,
-        uint256 responseCount,
-        uint256 threshold
-    ) internal view returns (bytes memory result) {
-        // Find the first result that reached threshold agreement
+    function _getAllCosts(Response[] storage responses, uint256 responseCount) internal view returns (uint256[] memory) {
+        uint256[] memory costs = new uint256[](responseCount);
         for (uint256 i = 0; i < responseCount; i++) {
-            uint256 count = 0;
-            for (uint256 j = 0; j < responseCount; j++) {
-                if (BytesLib.equal(responses[i].result, responses[j].result)) {
-                    count++;
-                }
-            }
-            if (count >= threshold) {
-                return responses[i].result;
-            }
+            costs[i] = responses[i].cost;
         }
-        // Fallback: return first response (shouldn't reach here if properly finalized)
-        if (responseCount > 0) {
-            return responses[0].result;
-        }
-        return bytes("");
+        return costs;
     }
 
-    function _encodeAllResponses(Response[] storage responses, uint256 responseCount) internal view returns (bytes memory) {
-        // Encode all response results as an array for the callback to process
-        bytes[] memory results = new bytes[](responseCount);
-        for (uint256 i = 0; i < responseCount; i++) {
-            results[i] = responses[i].result;
-        }
-        return abi.encode(results);
-    }
-
-    function _getConsensusResultAndMedianPrice(
-        Response[] storage responses,
-        uint256 responseCount,
-        ConsensusType consensusType,
-        uint256 threshold
-    ) internal view returns (bytes memory result, uint256 medianPrice) {
-        if (consensusType == ConsensusType.Majority) {
-            result = _getMajorityResult(responses, responseCount, threshold);
-        } else {
-            result = _encodeAllResponses(responses, responseCount);
-        }
-        medianPrice = _getMedianPrice(responses, responseCount);
-    }
-
-    function _getAllPrices(Response[] storage responses, uint256 responseCount) internal view returns (uint256[] memory) {
-        uint256[] memory prices = new uint256[](responseCount);
-        for (uint256 i = 0; i < responseCount; i++) {
-            prices[i] = responses[i].price;
-        }
-        return prices;
-    }
-
-    function _getMedianPrice(Response[] storage responses, uint256 responseCount) internal view returns (uint256) {
+    function _getMedianCost(Response[] storage responses, uint256 responseCount) internal view returns (uint256) {
         if (responseCount == 0) {
             return 0;
         }
-        return MathLib.median(_getAllPrices(responses, responseCount));
+        return MathLib.median(_getAllCosts(responses, responseCount));
     }
 
     // ============ Timeout Functions ============
@@ -464,46 +547,21 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     function _timeoutRequest(uint256 requestId) internal {
         Request storage req = requests[requestId % requests.length];
 
-        require(!req.finalized, "SomniaAgents: request already finalized");
+        require(req.status == ResponseStatus.Pending, "SomniaAgents: request already finalized");
         require(block.timestamp > req.createdAt + requestTimeout, "SomniaAgents: request not timed out yet");
 
-        req.finalized = true;
+        req.status = ResponseStatus.TimedOut;
 
-        emit RequestTimedOut(requestId);
+        uint256 medianCost = _getMedianCost(req.responses, req.responseCount);
+        uint256 validatorCosts = medianCost * req.subcommittee.length;
 
-        // Calculate validator costs from any responses we have
-        (bytes memory aggregatedResult, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
-            req.responses,
-            req.responseCount,
-            req.consensusType,
-            req.threshold
-        );
-        uint256 validatorCosts = medianPrice * req.subcommittee.length;
+        uint256 callbackGasCost = _invokeCallback(req, ResponseStatus.TimedOut, validatorCosts);
 
-        // Call callback and track gas
-        uint256 callbackGasCost = 0;
-        if (req.callbackAddress != address(0)) {
-            uint256 gasBefore = gasleft();
-            (bool success, ) = req.callbackAddress.call{gas: callbackGasLimit}(
-                abi.encodeWithSelector(req.callbackSelector, requestId, aggregatedResult)
-            );
-            uint256 gasUsed = gasBefore - gasleft();
-            callbackGasCost = gasUsed * tx.gasprice;
-        }
-
-        // Calculate final cost and send rebate
-        req.finalCost = req.agentCost + validatorCosts + callbackGasCost;
-        uint256 rebate = 0;
-        if (req.finalCost < req.maxCost) {
-            rebate = req.maxCost - req.finalCost;
-            (bool sent, ) = req.requester.call{value: rebate}("");
-        }
-
-        emit RequestFinalized(requestId, req.finalCost, rebate);
+        _settleRequest(req, ResponseStatus.TimedOut, validatorCosts, callbackGasCost);
     }
 
     // Upkeep function to timeout old requests - walks from oldest pending forward
-    function upkeepRequests() external override {
+    function upkeepRequests() public {
         uint256 current = oldestPendingId;
         uint256 end = nextRequestId;
         uint256 bufferLen = requests.length;
@@ -518,7 +576,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             }
 
             // If already finalized, advance and continue
-            if (req.finalized) {
+            if (req.status != ResponseStatus.Pending) {
                 current++;
                 continue;
             }
@@ -538,40 +596,14 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
     }
 
     function _timeoutRequestUnchecked(Request storage req) internal {
-        uint256 requestId = req.id;
-        req.finalized = true;
+        req.status = ResponseStatus.TimedOut;
 
-        emit RequestTimedOut(requestId);
+        uint256 medianCost = _getMedianCost(req.responses, req.responseCount);
+        uint256 validatorCosts = medianCost * req.subcommittee.length;
 
-        // Calculate validator costs from any responses we have
-        (bytes memory aggregatedResult, uint256 medianPrice) = _getConsensusResultAndMedianPrice(
-            req.responses,
-            req.responseCount,
-            req.consensusType,
-            req.threshold
-        );
-        uint256 validatorCosts = medianPrice * req.subcommittee.length;
+        uint256 callbackGasCost = _invokeCallback(req, ResponseStatus.TimedOut, validatorCosts);
 
-        // Call callback and track gas
-        uint256 callbackGasCost = 0;
-        if (req.callbackAddress != address(0)) {
-            uint256 gasBefore = gasleft();
-            (bool success, ) = req.callbackAddress.call{gas: callbackGasLimit}(
-                abi.encodeWithSelector(req.callbackSelector, requestId, aggregatedResult)
-            );
-            uint256 gasUsed = gasBefore - gasleft();
-            callbackGasCost = gasUsed * tx.gasprice;
-        }
-
-        // Calculate final cost and send rebate
-        req.finalCost = req.agentCost + validatorCosts + callbackGasCost;
-        uint256 rebate = 0;
-        if (req.finalCost < req.maxCost) {
-            rebate = req.maxCost - req.finalCost;
-            (bool sent, ) = req.requester.call{value: rebate}("");
-        }
-
-        emit RequestFinalized(requestId, req.finalCost, rebate);
+        _settleRequest(req, ResponseStatus.TimedOut, validatorCosts, callbackGasCost);
     }
 
     // ============ View Functions ============
@@ -583,12 +615,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         address[] memory subcommittee,
         uint256 threshold,
         uint256 createdAt,
-        bool finalized,
+        ResponseStatus status,
         uint256 responseCount,
         ConsensusType consensusType,
-        uint256 agentCost,
         uint256 maxCost,
-        uint256 finalCost
+        uint256 finalCost,
+        address agentCreator
     ) {
         Request storage req = requests[requestId % requests.length];
         require(req.id == requestId, "SomniaAgents: request not found or overwritten");
@@ -599,12 +631,12 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             req.subcommittee,
             req.threshold,
             req.createdAt,
-            req.finalized,
+            req.status,
             req.responseCount,
             req.consensusType,
-            req.agentCost,
             req.maxCost,
-            req.finalCost
+            req.finalCost,
+            req.agentCreator
         );
     }
 
@@ -616,18 +648,6 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
             result[i] = req.responses[i];
         }
         return result;
-    }
-
-    function getSubcommittee(uint256 requestId) external view override returns (address[] memory) {
-        Request storage req = requests[requestId % requests.length];
-        require(req.id == requestId, "SomniaAgents: request not found or overwritten");
-        return req.subcommittee;
-    }
-
-    function isSubcommitteeMember(uint256 requestId, address addr) external view override returns (bool) {
-        Request storage req = requests[requestId % requests.length];
-        if (req.id != requestId) return false;
-        return _isSubcommitteeMember(requestId, addr);
     }
 
     function _isSubcommitteeMember(uint256 requestId, address addr) internal view returns (bool) {
@@ -642,13 +662,15 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         return false;
     }
 
-    function isRequestPending(uint256 requestId) external view override returns (bool) {
-        Request storage req = requests[requestId % requests.length];
-        if (req.id != requestId) return false;
-        return !req.finalized && block.timestamp <= req.createdAt + requestTimeout;
+    function hasRequest(uint256 requestId) external view override returns (bool) {
+        return requests[requestId % requests.length].id == requestId;
     }
 
-    function isRequestValid(uint256 requestId) external view override returns (bool) {
-        return requests[requestId % requests.length].id == requestId;
+    function getRequestDeposit() external view override returns (uint256) {
+        return maxPerAgentFee * defaultSubcommitteeSize;
+    }
+
+    function getAdvancedRequestDeposit(uint256 subcommitteeSize) external view override returns (uint256) {
+        return maxPerAgentFee * subcommitteeSize;
     }
 }

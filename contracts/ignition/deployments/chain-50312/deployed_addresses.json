@@ -1,3 +1,5 @@
 {
-  "SomniaAgentsModule#SomniaAgents": "0x8Ef7AEDB064456c47F9603910Ae682C387f8aa1a"
+  "CommitteeModule#Committee": "0xA4D2E22EFA337423147C993E2F348Da68F921119",
+  "AgentRegistryModule#AgentRegistry": "0x81A80E8A7923566F4c0120fE7e93aF12A0e180C3",
+  "SomniaAgentsModule#SomniaAgents": "0xfc96D1a8d2C5f44CC51e924a1a79f9AFE9A6bbeF"
 }

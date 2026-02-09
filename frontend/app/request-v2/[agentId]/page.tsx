@@ -37,10 +37,10 @@ import Link from "next/link";
 
 interface TrackedRequest {
     id: bigint;
-    status: 'pending' | 'finalized' | 'timeout';
-    responses: Response[];
+    status: 'pending' | 'finalized' | 'failed' | 'timeout';
     finalCost?: bigint;
     rebate?: bigint;
+    responses: Response[];
     txHash?: string;
     receipts?: any[];
     receiptsFetching?: boolean;
@@ -49,8 +49,9 @@ interface TrackedRequest {
 interface Response {
     validator: string;
     result: string;
+    status: number;
     receipt: bigint;
-    price: bigint;
+    cost: bigint;
     timestamp: bigint;
 }
 
@@ -189,60 +190,19 @@ export default function AgentRequestPage() {
             transport: webSocket(wsUrl),
         });
 
-        const unwatchResponse = client.watchContractEvent({
-            address: SOMNIA_AGENTS_V2_ADDRESS,
-            abi: SOMNIA_AGENTS_V2_ABI,
-            eventName: "ResponseSubmitted",
-            onLogs: async (logs) => {
-                for (const log of logs) {
-                    const { requestId, receipt } = log.args as { requestId: bigint; receipt: bigint };
-                    if (requestId === trackedRequest.id) {
-                        // Fetch updated responses
-                        const responses = await publicClient.readContract({
-                            address: SOMNIA_AGENTS_V2_ADDRESS,
-                            abi: SOMNIA_AGENTS_V2_ABI,
-                            functionName: "getResponses",
-                            args: [requestId],
-                        }) as Response[];
-
-                        setTrackedRequest(prev => prev ? {
-                            ...prev,
-                            responses,
-                        } : null);
-
-                        // Fetch receipts as they come in (if receipt is non-zero)
-                        if (receipt !== 0n) {
-                            const receipts = await fetchReceipts(requestId.toString());
-                            setTrackedRequest(prev => prev ? {
-                                ...prev,
-                                receipts,
-                            } : null);
-                        }
-                    }
-                }
-            },
-        });
-
         const unwatchFinalized = client.watchContractEvent({
             address: SOMNIA_AGENTS_V2_ADDRESS,
             abi: SOMNIA_AGENTS_V2_ABI,
             eventName: "RequestFinalized",
             onLogs: async (logs) => {
                 for (const log of logs) {
-                    const { requestId, finalCost, rebate } = log.args as { requestId: bigint; finalCost: bigint; rebate: bigint };
+                    const { requestId, status, finalCost, rebate } = log.args as { requestId: bigint; status: number; finalCost: bigint; rebate: bigint };
                     if (requestId === trackedRequest.id) {
-                        // Fetch final responses
-                        const responses = await publicClient.readContract({
-                            address: SOMNIA_AGENTS_V2_ADDRESS,
-                            abi: SOMNIA_AGENTS_V2_ABI,
-                            functionName: "getResponses",
-                            args: [requestId],
-                        }) as Response[];
+                        const finalStatus = status === 1 ? 'finalized' : status === 2 ? 'failed' : 'timeout';
 
                         setTrackedRequest(prev => prev ? {
                             ...prev,
-                            status: 'finalized',
-                            responses,
+                            status: finalStatus,
                             finalCost,
                             rebate,
                             receiptsFetching: true,
@@ -260,27 +220,8 @@ export default function AgentRequestPage() {
             },
         });
 
-        const unwatchTimeout = client.watchContractEvent({
-            address: SOMNIA_AGENTS_V2_ADDRESS,
-            abi: SOMNIA_AGENTS_V2_ABI,
-            eventName: "RequestTimedOut",
-            onLogs: (logs) => {
-                for (const log of logs) {
-                    const { requestId } = log.args as { requestId: bigint };
-                    if (requestId === trackedRequest.id) {
-                        setTrackedRequest(prev => prev ? {
-                            ...prev,
-                            status: 'timeout',
-                        } : null);
-                    }
-                }
-            },
-        });
-
         return () => {
-            unwatchResponse();
             unwatchFinalized();
-            unwatchTimeout();
         };
     }, [trackedRequest?.id, trackedRequest?.status, publicClient]);
 
@@ -441,7 +382,7 @@ export default function AgentRequestPage() {
                 </div>
                 <div className="bg-slate-900/50 border border-white/10 rounded-lg p-4">
                     <span className="text-xs text-gray-500 uppercase tracking-wider">Cost</span>
-                    <p className="text-lg text-green-400 font-mono mt-1">{agent ? formatEther(agent.cost) : '0'} STT</p>
+                    <p className="text-lg text-green-400 font-mono mt-1">N/A</p>
                 </div>
                 <div className="bg-slate-900/50 border border-white/10 rounded-lg p-4">
                     <span className="text-xs text-gray-500 uppercase tracking-wider">Methods</span>
@@ -546,7 +487,7 @@ export default function AgentRequestPage() {
                                     />
                                     <p className="text-xs text-gray-500 mt-1">
                                         Maximum amount to pay. Unused funds will be refunded.
-                                        Agent cost: {agent ? formatEther(agent.cost) : '0'} STT
+                                        Maximum amount to pay. Unused funds will be refunded.
                                     </p>
                                 </div>
 
@@ -635,38 +576,18 @@ export default function AgentRequestPage() {
                                                             {response.validator.slice(0, 6)}...{response.validator.slice(-4)}
                                                         </span>
                                                         <span className="text-xs text-gray-500">
-                                                            Price: {formatEther(response.price)} STT
+                                                            Cost: {formatEther(response.cost)} STT
                                                         </span>
                                                     </div>
 
-                                                    {/* Decoded Result */}
-                                                    <DecodedData
-                                                        data={response.result}
-                                                        label="Result"
-                                                        method={selectedMethod}
-                                                    />
+                                                    <span className={`text-xs ${response.status === 1 ? 'text-green-400' : response.status === 2 ? 'text-red-400' : 'text-gray-400'}`}>
+                                                        {response.status === 1 ? 'Success' : response.status === 2 ? 'Failed' : 'Pending'}
+                                                    </span>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
 
-                                    {/* Final Cost */}
-                                    {trackedRequest.status === 'finalized' && trackedRequest.finalCost !== undefined && (
-                                        <div className="p-4 bg-green-500/10 rounded-lg border border-green-500/20">
-                                            <div className="grid grid-cols-2 gap-4 text-sm">
-                                                <div>
-                                                    <span className="text-gray-500">Final Cost: </span>
-                                                    <span className="font-mono text-white">{formatEther(trackedRequest.finalCost)} STT</span>
-                                                </div>
-                                                {trackedRequest.rebate !== undefined && trackedRequest.rebate > BigInt(0) && (
-                                                    <div>
-                                                        <span className="text-gray-500">Rebate: </span>
-                                                        <span className="font-mono text-green-400">{formatEther(trackedRequest.rebate)} STT</span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
 
                                     {/* Receipts - contains the actual execution result */}
                                     {trackedRequest.status === 'finalized' && (

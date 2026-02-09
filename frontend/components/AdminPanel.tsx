@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
-import { parseEther } from "viem";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
 import { uploadFile } from "@/lib/files";
 import { X, Check, FileJson, Package, ExternalLink, Loader2, AlertTriangle, Dices } from "lucide-react";
@@ -23,14 +22,12 @@ interface AdminPanelProps {
         agentId?: string;
         metadataUri?: string;
         containerImageUri?: string;
-        cost?: string;
     };
 }
 
 export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
     const { address, isConnected } = useAccount();
     const [agentId, setAgentId] = useState(initialValues?.agentId || "");
-    const [cost, setCost] = useState(initialValues?.cost || "0.1");
 
     // Metadata mode - default to 'url' if we have a metadataUri, otherwise 'upload'
     const [metadataMode, setMetadataMode] = useState<InputMode>(initialValues?.metadataUri ? 'url' : 'upload');
@@ -163,13 +160,11 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
             return;
         }
 
-        const costInWei = cost ? parseEther(cost) : BigInt(0);
-
         writeContract({
             address: CONTRACT_ADDRESS,
             abi: SOMNIA_AGENTS_ABI,
             functionName: "setAgent",
-            args: [BigInt(agentId), finalMetadataUri, finalContainerUri, costInWei],
+            args: [BigInt(agentId), finalMetadataUri, finalContainerUri],
         });
     };
 
@@ -310,7 +305,7 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
             <div className="bg-slate-900/50 border border-white/10 rounded-lg p-6">
                 <h2 className="text-lg font-bold text-white mb-4">Create or Update Agent</h2>
                 <p className="text-gray-400 text-sm mb-6">
-                    Configure an agent with metadata, container image URI, and invocation cost.
+                    Configure an agent with metadata and container image URI.
                     If the agent doesn&apos;t exist, it will be minted to your address.
                 </p>
 
@@ -448,22 +443,6 @@ export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
                                 hint="Upload a .tar, .tar.gz, or .tgz container image"
                             />
                         )}
-                    </div>
-
-                    <div>
-                        <label htmlFor="cost" className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                            Cost (STT)
-                        </label>
-                        <input
-                            id="cost"
-                            type="text"
-                            value={cost}
-                            onChange={(e) => setCost(e.target.value)}
-                            className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
-                            placeholder="0.1"
-                            required
-                        />
-                        <p className="text-xs text-gray-500 mt-1">Cost in STT tokens to invoke this agent</p>
                     </div>
 
                     <button

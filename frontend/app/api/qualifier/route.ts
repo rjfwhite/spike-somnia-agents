@@ -75,28 +75,25 @@ export async function GET(request: Request) {
     const sessionAddress = await jsonRpc('somnia_getSessionAddress', [sessionSeed]) as string;
     console.log(`[Qualifier] Session: ${sessionAddress}, sending ${numRequests} requests`);
 
-    // Step 1: Subscribe to finalized/timeout events BEFORE submitting
+    // Step 1: Subscribe to RequestFinalized events BEFORE submitting
     const wsClient = createPublicClient({
       chain: somniaTestnet,
       transport: webSocket(WS_URL)
     });
 
-    let finalized = 0;
-    let timedOutCount = 0;
+    let completed = 0;
 
     const eventsDone = new Promise<void>((resolve) => {
       const wsTimeout = setTimeout(() => {
         unwatchFinalized();
-        unwatchTimeout();
-        console.log(`[Qualifier] Timeout - finalized: ${finalized}, timedOut: ${timedOutCount}`);
+        console.log(`[Qualifier] Timeout - completed: ${completed}`);
         resolve();
       }, 55000);
 
       const checkDone = () => {
-        if (finalized + timedOutCount >= numRequests) {
+        if (completed >= numRequests) {
           clearTimeout(wsTimeout);
           unwatchFinalized();
-          unwatchTimeout();
           resolve();
         }
       };
@@ -106,20 +103,10 @@ export async function GET(request: Request) {
         abi: SOMNIA_AGENTS_V2_ABI,
         eventName: 'RequestFinalized',
         onLogs: (logs) => {
-          finalized += logs.length;
-          if (finalized % 50 === 0 || finalized + timedOutCount >= numRequests) {
-            console.log(`[Qualifier] finalized: ${finalized}/${numRequests} (${Date.now() - startTime}ms)`);
+          completed += logs.length;
+          if (completed % 50 === 0 || completed >= numRequests) {
+            console.log(`[Qualifier] completed: ${completed}/${numRequests} (${Date.now() - startTime}ms)`);
           }
-          checkDone();
-        }
-      });
-
-      const unwatchTimeout = wsClient.watchContractEvent({
-        address: SOMNIA_AGENTS_V2_ADDRESS,
-        abi: SOMNIA_AGENTS_V2_ABI,
-        eventName: 'RequestTimedOut',
-        onLogs: (logs) => {
-          timedOutCount += logs.length;
           checkDone();
         }
       });
@@ -183,16 +170,15 @@ export async function GET(request: Request) {
     await eventsDone;
 
     const totalDuration = Date.now() - startTime;
-    const effectiveTPS = totalDuration > 0 ? (finalized / (totalDuration / 1000)) : 0;
+    const effectiveTPS = totalDuration > 0 ? (completed / (totalDuration / 1000)) : 0;
     const submitTPS = submitDuration > 0 ? (submitted / (submitDuration / 1000)) : 0;
-    const missing = numRequests - finalized - timedOutCount - sendErrors;
+    const missing = numRequests - completed - sendErrors;
 
     const stats = {
       total: numRequests,
       submitted,
       sendErrors,
-      finalized,
-      timedOut: timedOutCount,
+      completed,
       missing,
       effectiveTPS: Math.round(effectiveTPS * 100) / 100,
       submitTPS: Math.round(submitTPS * 100) / 100,
@@ -203,14 +189,13 @@ export async function GET(request: Request) {
       ``,
       `Submitted:  ${submitted}`,
       `Send errors: ${sendErrors}`,
-      `Finalized:  ${finalized}`,
-      `Timed out:  ${timedOutCount}`,
+      `Completed:  ${completed}`,
       `Missing:    ${missing}`,
       ``,
       `Submit time: ${submitDuration}ms`,
       `Total time:  ${totalDuration}ms`,
       ``,
-      `Effective TPS: ${stats.effectiveTPS} (finalized/total_time)`,
+      `Effective TPS: ${stats.effectiveTPS} (completed/total_time)`,
       `Submit TPS:    ${stats.submitTPS} (submitted/submit_time)`,
     ].join('\n');
 

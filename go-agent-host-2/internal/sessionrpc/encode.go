@@ -19,7 +19,8 @@ const somniaAgentsWriteABI = `[{
 		{"type": "uint256", "name": "requestId"},
 		{"type": "bytes", "name": "result"},
 		{"type": "uint256", "name": "receipt"},
-		{"type": "uint256", "name": "price"}
+		{"type": "uint256", "name": "cost"},
+		{"type": "bool", "name": "success"}
 	],
 	"name": "submitResponse",
 	"outputs": [],
@@ -62,9 +63,9 @@ func init() {
 }
 
 // EncodeSubmitResponse returns 0x-prefixed calldata for
-// submitResponse(requestId, result, receipt, price).
-func EncodeSubmitResponse(requestId *big.Int, result []byte, receipt *big.Int, price *big.Int) (string, error) {
-	data, err := agentsWriteABI.Pack("submitResponse", requestId, result, receipt, price)
+// submitResponse(requestId, result, receipt, cost, success).
+func EncodeSubmitResponse(requestId *big.Int, result []byte, receipt *big.Int, cost *big.Int, success bool) (string, error) {
+	data, err := agentsWriteABI.Pack("submitResponse", requestId, result, receipt, cost, success)
 	if err != nil {
 		return "", fmt.Errorf("encode submitResponse: %w", err)
 	}

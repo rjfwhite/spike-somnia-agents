@@ -38,7 +38,7 @@ export function AgentList() {
                         id={agent.id}
                         metadata={agent.metadata}
                         owner={agent.owner}
-                        cost={agent.price}
+                        cost={undefined}
                     />
                 ))}
             </div>

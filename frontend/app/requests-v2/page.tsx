@@ -41,18 +41,16 @@ import {
 interface RequestEvent {
     requestId: bigint;
     agentId?: bigint;
-    requester?: string;
     maxCost?: bigint;
     payload?: string;
     subcommittee?: string[];
-    finalCost?: bigint;
-    rebate?: bigint;
     validator?: string;
     receipt?: bigint;
     timestamp: number;
     txHash?: string;
     blockNumber?: bigint;
-    type: 'created' | 'response' | 'finalized' | 'timeout';
+    status?: number;
+    type: 'created' | 'finalized';
 }
 
 interface RequestDetails {
@@ -62,10 +60,9 @@ interface RequestDetails {
     subcommittee: string[];
     threshold: bigint;
     createdAt: bigint;
-    finalized: boolean;
+    status: number;
     responseCount: bigint;
     consensusType: number;
-    agentCost: bigint;
     maxCost: bigint;
     finalCost: bigint;
 }
@@ -73,8 +70,9 @@ interface RequestDetails {
 interface Response {
     validator: string;
     result: string;
+    status: number;
     receipt: bigint;
-    price: bigint;
+    cost: bigint;
     timestamp: bigint;
 }
 
@@ -142,10 +140,10 @@ export default function RequestsV2Page() {
         functionName: "requestTimeout",
     });
 
-    const { data: maxExecutionFee } = useReadContract({
+    const { data: maxPerAgentFee } = useReadContract({
         address: SOMNIA_AGENTS_V2_ADDRESS,
         abi: SOMNIA_AGENTS_V2_ABI,
-        functionName: "maxExecutionFee",
+        functionName: "maxPerAgentFee",
     });
 
     // Read active committee members
@@ -241,10 +239,9 @@ export default function RequestsV2Page() {
             eventName: "RequestCreated",
             onLogs: (logs) => {
                 logs.forEach((log) => {
-                    const { requestId, agentId, requester, maxCost, payload, subcommittee } = log.args as {
+                    const { requestId, agentId, maxCost, payload, subcommittee } = log.args as {
                         requestId: bigint;
                         agentId: bigint;
-                        requester: string;
                         maxCost: bigint;
                         payload: string;
                         subcommittee: string[];
@@ -253,7 +250,6 @@ export default function RequestsV2Page() {
                     const event: RequestEvent = {
                         requestId,
                         agentId,
-                        requester,
                         maxCost,
                         payload,
                         subcommittee,
@@ -278,58 +274,20 @@ export default function RequestsV2Page() {
             },
         });
 
-        const unwatchResponse = client.watchContractEvent({
-            address: SOMNIA_AGENTS_V2_ADDRESS,
-            abi: SOMNIA_AGENTS_V2_ABI,
-            eventName: "ResponseSubmitted",
-            onLogs: (logs) => {
-                logs.forEach((log) => {
-                    const { requestId, validator, receipt } = log.args as {
-                        requestId: bigint;
-                        validator: string;
-                        receipt: bigint;
-                    };
-
-                    const event: RequestEvent = {
-                        requestId,
-                        validator,
-                        receipt,
-                        timestamp: Date.now(),
-                        txHash: log.transactionHash,
-                        blockNumber: log.blockNumber,
-                        type: 'response'
-                    };
-
-                    setEvents(prev => {
-                        const newEvents = new Map(prev);
-                        const key = requestId.toString();
-                        const existing = newEvents.get(key) || [];
-                        newEvents.set(key, [...existing, event]);
-                        return newEvents;
-                    });
-                });
-            },
-            onError: (error) => {
-                console.error("Error watching ResponseSubmitted:", error);
-            },
-        });
-
         const unwatchFinalized = client.watchContractEvent({
             address: SOMNIA_AGENTS_V2_ADDRESS,
             abi: SOMNIA_AGENTS_V2_ABI,
             eventName: "RequestFinalized",
             onLogs: (logs) => {
                 logs.forEach((log) => {
-                    const { requestId, finalCost, rebate } = log.args as {
+                    const { requestId, status } = log.args as {
                         requestId: bigint;
-                        finalCost: bigint;
-                        rebate: bigint;
+                        status: number;
                     };
 
                     const event: RequestEvent = {
                         requestId,
-                        finalCost,
-                        rebate,
+                        status,
                         timestamp: Date.now(),
                         txHash: log.transactionHash,
                         blockNumber: log.blockNumber,
@@ -350,43 +308,9 @@ export default function RequestsV2Page() {
             },
         });
 
-        const unwatchTimeout = client.watchContractEvent({
-            address: SOMNIA_AGENTS_V2_ADDRESS,
-            abi: SOMNIA_AGENTS_V2_ABI,
-            eventName: "RequestTimedOut",
-            onLogs: (logs) => {
-                logs.forEach((log) => {
-                    const { requestId } = log.args as {
-                        requestId: bigint;
-                    };
-
-                    const event: RequestEvent = {
-                        requestId,
-                        timestamp: Date.now(),
-                        txHash: log.transactionHash,
-                        blockNumber: log.blockNumber,
-                        type: 'timeout'
-                    };
-
-                    setEvents(prev => {
-                        const newEvents = new Map(prev);
-                        const key = requestId.toString();
-                        const existing = newEvents.get(key) || [];
-                        newEvents.set(key, [...existing, event]);
-                        return newEvents;
-                    });
-                });
-            },
-            onError: (error) => {
-                console.error("Error watching RequestTimedOut:", error);
-            },
-        });
-
         return () => {
             unwatchCreated();
-            unwatchResponse();
             unwatchFinalized();
-            unwatchTimeout();
         };
     }, []);
 
@@ -534,7 +458,7 @@ export default function RequestsV2Page() {
                 abi: SOMNIA_AGENTS_V2_ABI,
                 functionName: "getRequest",
                 args: [BigInt(lookupRequestId)],
-            }) as [string, string, string, string[], bigint, bigint, boolean, bigint, number, bigint, bigint, bigint];
+            }) as unknown as [string, string, string, string[], bigint, bigint, number, bigint, number, bigint, bigint];
 
             const responses = await publicClient.readContract({
                 address: SOMNIA_AGENTS_V2_ADDRESS,
@@ -586,12 +510,11 @@ export default function RequestsV2Page() {
                     subcommittee: details[3],
                     threshold: details[4],
                     createdAt: details[5],
-                    finalized: details[6],
+                    status: details[6],
                     responseCount: details[7],
                     consensusType: details[8],
-                    agentCost: details[9],
-                    maxCost: details[10],
-                    finalCost: details[11],
+                    maxCost: details[9],
+                    finalCost: details[10],
                 },
                 responses,
                 agentMetadata,
@@ -623,10 +546,9 @@ export default function RequestsV2Page() {
                         subcommittee: [],
                         threshold: BigInt(0),
                         createdAt: BigInt(0),
-                        finalized: false,
+                        status: 0,
                         responseCount: BigInt(0),
                         consensusType: 0,
-                        agentCost: BigInt(0),
                         maxCost: BigInt(0),
                         finalCost: BigInt(0),
                     },
@@ -654,9 +576,13 @@ export default function RequestsV2Page() {
         }))
         .sort((a, b) => b.latestTimestamp - a.latestTimestamp);
 
-    function getRequestStatus(events: RequestEvent[]): 'pending' | 'finalized' | 'timeout' {
-        if (events.some(e => e.type === 'timeout')) return 'timeout';
-        if (events.some(e => e.type === 'finalized')) return 'finalized';
+    function getRequestStatus(events: RequestEvent[]): 'pending' | 'finalized' | 'failed' | 'timeout' {
+        const finalized = events.find(e => e.type === 'finalized');
+        if (finalized) {
+            if (finalized.status === 3) return 'timeout';
+            if (finalized.status === 2) return 'failed';
+            return 'finalized';
+        }
         return 'pending';
     }
 
@@ -687,7 +613,7 @@ export default function RequestsV2Page() {
                 <StatCard label="Subcommittee Size" value={defaultSubcommitteeSize?.toString() || '3'} icon={<Users className="w-4 h-4" />} />
                 <StatCard label="Threshold" value={defaultThreshold?.toString() || '2'} icon={<CheckCircle className="w-4 h-4" />} />
                 <StatCard label="Timeout" value={requestTimeout ? `${Number(requestTimeout)}s` : '60s'} icon={<Clock className="w-4 h-4" />} />
-                <StatCard label="Max Fee" value={maxExecutionFee ? `${formatEther(maxExecutionFee)} STT` : '1 STT'} icon={<AlertCircle className="w-4 h-4" />} />
+                <StatCard label="Per Agent Fee" value={maxPerAgentFee ? `${formatEther(maxPerAgentFee)} STT` : '0.01 STT'} icon={<AlertCircle className="w-4 h-4" />} />
                 <StatCard
                     label="Active Members"
                     value={`${activeMemberCount}/${requiredMembers}`}
@@ -769,7 +695,7 @@ export default function RequestsV2Page() {
                                                     <p className="text-xs text-gray-500 font-mono">ID: {agentData.id}</p>
                                                     <div className="flex items-center gap-2 mt-1">
                                                         <span className="text-xs text-green-400 font-mono">
-                                                            {formatEther(agentData.agent.cost)} STT
+                                                            Agent
                                                         </span>
                                                         {methods.length > 0 && (
                                                             <span className="text-xs text-gray-500">
@@ -1033,8 +959,8 @@ export default function RequestsV2Page() {
                                 </div>
                                 <div>
                                     <span className="text-gray-500">Status:</span>
-                                    <p className={lookupResult.details.finalized ? 'text-green-400' : 'text-yellow-400'}>
-                                        {lookupResult.details.finalized ? 'Finalized' : 'Pending'}
+                                    <p className={lookupResult.details.status !== 0 ? 'text-green-400' : 'text-yellow-400'}>
+                                        {lookupResult.details.status === 0 ? 'Pending' : lookupResult.details.status === 1 ? 'Success' : lookupResult.details.status === 2 ? 'Failed' : 'TimedOut'}
                                     </p>
                                 </div>
                                 <div>
@@ -1070,45 +996,26 @@ export default function RequestsV2Page() {
                         {lookupResult.responses.length > 0 && (
                             <div className="p-4 bg-black/20 rounded-lg border border-white/5">
                                 <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-                                    Responses ({lookupResult.responses.length})
-                                    {lookupResult.agentMetadata && (
-                                        <span className="ml-2 text-green-400 font-normal normal-case">
-                                            - decoded using {lookupResult.agentMetadata.name} ABI
-                                        </span>
-                                    )}
+                                    Response Details ({lookupResult.responses.length})
                                 </h4>
                                 <div className="space-y-3">
                                     {lookupResult.responses.map((response, i) => {
-                                        const methods = lookupResult.agentMetadata ? getAbiFunctions(lookupResult.agentMetadata) : [];
-                                        const firstMethod = methods.length > 0 ? methods[0] : undefined;
+                                        const statusLabel = response.status === 1 ? 'Success' : response.status === 2 ? 'Failed' : 'Pending';
+                                        const statusColor = response.status === 1 ? 'text-green-400' : response.status === 2 ? 'text-red-400' : 'text-gray-400';
 
                                         return (
                                             <div key={i} className="p-3 bg-black/30 rounded-lg border border-white/5">
                                                 <div className="flex items-center justify-between mb-2">
                                                     <span className="font-mono text-sm text-blue-400">{shortenAddress(response.validator)}</span>
-                                                    <span className="text-xs text-gray-500">
-                                                        Price: {formatEther(response.price)} STT
-                                                    </span>
-                                                </div>
-
-                                                {/* Try to decode response using agent ABI */}
-                                                {lookupResult.agentMetadata && firstMethod ? (
-                                                    <DecodedData
-                                                        data={response.result}
-                                                        label="Result"
-                                                        method={firstMethod}
-                                                    />
-                                                ) : (
-                                                    <div className="text-xs">
-                                                        <span className="text-gray-500">Result (raw): </span>
-                                                        <span className="font-mono text-green-400 break-all">
-                                                            {response.result.length > 66
-                                                                ? `${response.result.slice(0, 34)}...${response.result.slice(-32)}`
-                                                                : response.result
-                                                            }
-                                                        </span>
+                                                    <div className="flex items-center gap-3">
+                                                        <span className={`text-xs ${statusColor}`}>{statusLabel}</span>
+                                                        {response.cost > 0n && (
+                                                            <span className="text-xs text-gray-500">
+                                                                Cost: {formatEther(response.cost)} STT
+                                                            </span>
+                                                        )}
                                                     </div>
-                                                )}
+                                                </div>
                                             </div>
                                         );
                                     })}
@@ -1166,9 +1073,9 @@ export default function RequestsV2Page() {
                                 <span className="px-2 py-0.5 rounded-full bg-green-500/10 text-green-400 border border-green-500/20">
                                     {eventsList.filter(e => e.status === 'finalized').length} completed
                                 </span>
-                                {eventsList.some(e => e.status === 'timeout') && (
+                                {eventsList.some(e => e.status === 'timeout' || e.status === 'failed') && (
                                     <span className="px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20">
-                                        {eventsList.filter(e => e.status === 'timeout').length} timed out
+                                        {eventsList.filter(e => e.status === 'timeout' || e.status === 'failed').length} failed/timed out
                                     </span>
                                 )}
                             </span>
@@ -1234,23 +1141,23 @@ function RequestEventCard({
 }: {
     requestId: string;
     events: RequestEvent[];
-    status: 'pending' | 'finalized' | 'timeout';
+    status: 'pending' | 'finalized' | 'failed' | 'timeout';
 }) {
     const [expanded, setExpanded] = useState(false);
     const createdEvent = events.find(e => e.type === 'created');
-    const responseEvents = events.filter(e => e.type === 'response');
     const finalizedEvent = events.find(e => e.type === 'finalized');
-    const timeoutEvent = events.find(e => e.type === 'timeout');
 
-    const statusColors = {
+    const statusColors: Record<string, string> = {
         pending: 'bg-blue-500/10 border-blue-500/20 text-blue-400',
         finalized: 'bg-green-500/10 border-green-500/20 text-green-400',
+        failed: 'bg-red-500/10 border-red-500/20 text-red-400',
         timeout: 'bg-red-500/10 border-red-500/20 text-red-400',
     };
 
-    const statusIcons = {
+    const statusIcons: Record<string, React.ReactNode> = {
         pending: <Loader2 className="w-4 h-4 animate-spin" />,
         finalized: <CheckCircle className="w-4 h-4" />,
+        failed: <XCircle className="w-4 h-4" />,
         timeout: <XCircle className="w-4 h-4" />,
     };
 
@@ -1267,9 +1174,7 @@ function RequestEventCard({
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-xs text-gray-500">
-                        {responseEvents.length} response{responseEvents.length !== 1 ? 's' : ''}
-                    </span>
+                    <span className="text-xs text-gray-500 capitalize">{status}</span>
                     <button onClick={() => setExpanded(!expanded)} className="p-1 hover:bg-white/10 rounded">
                         {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                     </button>
@@ -1282,10 +1187,6 @@ function RequestEventCard({
                         <div className="p-3 bg-black/20 rounded-lg">
                             <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Created</div>
                             <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                    <span className="text-gray-500">Requester: </span>
-                                    <span className="font-mono text-blue-400">{createdEvent.requester?.slice(0, 10)}...</span>
-                                </div>
                                 <div>
                                     <span className="text-gray-500">Max Cost: </span>
                                     <span className="font-mono text-white">{createdEvent.maxCost ? formatEther(createdEvent.maxCost) : '?'} STT</span>
@@ -1306,37 +1207,11 @@ function RequestEventCard({
                         </div>
                     )}
 
-                    {responseEvents.length > 0 && (
-                        <div className="p-3 bg-black/20 rounded-lg">
-                            <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Responses ({responseEvents.length})</div>
-                            {responseEvents.map((event, i) => (
-                                <div key={i} className="flex items-center gap-2 text-xs">
-                                    <CheckCircle className="w-3 h-3 text-green-400" />
-                                    <span className="font-mono text-blue-400">{event.validator?.slice(0, 10)}...</span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
                     {finalizedEvent && (
-                        <div className="p-3 bg-green-500/10 rounded-lg border border-green-500/20">
-                            <div className="text-xs text-green-400 uppercase tracking-wider mb-2">Finalized</div>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                                <div>
-                                    <span className="text-gray-500">Final Cost: </span>
-                                    <span className="font-mono text-white">{finalizedEvent.finalCost ? formatEther(finalizedEvent.finalCost) : '?'} STT</span>
-                                </div>
-                                <div>
-                                    <span className="text-gray-500">Rebate: </span>
-                                    <span className="font-mono text-green-400">{finalizedEvent.rebate ? formatEther(finalizedEvent.rebate) : '0'} STT</span>
-                                </div>
+                        <div className={`p-3 rounded-lg border ${status === 'finalized' ? 'bg-green-500/10 border-green-500/20' : 'bg-red-500/10 border-red-500/20'}`}>
+                            <div className={`text-xs uppercase tracking-wider ${status === 'finalized' ? 'text-green-400' : 'text-red-400'}`}>
+                                {status === 'finalized' ? 'Finalized' : status === 'failed' ? 'Failed' : 'Timed Out'}
                             </div>
-                        </div>
-                    )}
-
-                    {timeoutEvent && (
-                        <div className="p-3 bg-red-500/10 rounded-lg border border-red-500/20">
-                            <div className="text-xs text-red-400 uppercase tracking-wider">Request Timed Out</div>
                         </div>
                     )}
                 </div>

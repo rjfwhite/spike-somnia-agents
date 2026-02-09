@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { parseEther, formatEther } from "viem";
 import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
 import { uploadFile } from "@/lib/files";
 import { X, Check, FileJson, Package, ExternalLink, Loader2, Trash2, AlertTriangle } from "lucide-react";
@@ -22,13 +21,11 @@ interface AgentManagerProps {
     initialValues?: {
         metadataUri?: string;
         containerImageUri?: string;
-        cost?: string;
     };
 }
 
 export function AgentManager({ agentId, initialValues }: AgentManagerProps) {
     const { address, isConnected } = useAccount();
-    const [cost, setCost] = useState(initialValues?.cost || "0.1");
 
     // Read existing agent data
     const { data: agentData, isLoading: isLoadingAgent, refetch } = useReadContract({
@@ -55,7 +52,6 @@ export function AgentManager({ agentId, initialValues }: AgentManagerProps) {
         if (agentExists && !initialValues?.metadataUri && !initialValues?.containerImageUri) {
             setMetadataUrl(agent.metadataUri);
             setContainerUrl(agent.containerImageUri);
-            setCost(formatEther(agent.cost));
             setMetadataMode('url');
             setContainerMode('url');
         }
@@ -169,13 +165,11 @@ export function AgentManager({ agentId, initialValues }: AgentManagerProps) {
             }
         }
 
-        const costInWei = cost ? parseEther(cost) : BigInt(0);
-
         writeSetAgent({
             address: CONTRACT_ADDRESS,
             abi: SOMNIA_AGENTS_ABI,
             functionName: "setAgent",
-            args: [BigInt(agentId), finalMetadataUri, finalContainerUri, costInWei],
+            args: [BigInt(agentId), finalMetadataUri, finalContainerUri],
         });
     };
 
@@ -465,22 +459,6 @@ export function AgentManager({ agentId, initialValues }: AgentManagerProps) {
                                     hint="Upload a .tar, .tar.gz, or .tgz container image"
                                 />
                             )}
-                        </div>
-
-                        <div>
-                            <label htmlFor="cost" className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                                Cost (STT)
-                            </label>
-                            <input
-                                id="cost"
-                                type="text"
-                                value={cost}
-                                onChange={(e) => setCost(e.target.value)}
-                                className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
-                                placeholder="0.1"
-                                required
-                            />
-                            <p className="text-xs text-gray-500 mt-1">Cost in STT tokens to invoke this agent</p>
                         </div>
 
                         <button

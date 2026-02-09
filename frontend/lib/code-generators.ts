@@ -1,5 +1,5 @@
 import { AbiFunction } from "./types";
-import { CONTRACT_ADDRESS } from "./contract";
+import { CONTRACT_ADDRESS, SOMNIA_AGENTS_V2_ADDRESS } from "./contract";
 import { formatEther } from "viem";
 
 // Helper to add memory qualifier for string and bytes types in function signatures
@@ -21,12 +21,12 @@ export function generateSolidityExample(method: AbiFunction, agentId?: string, p
     ? `bytes memory request = abi.encodeWithSelector(IAgent.${method.name}.selector, ${argNames});`
     : `bytes memory request = abi.encodeWithSelector(IAgent.${method.name}.selector);`;
 
-  const priceValue = price ? `${formatEther(price)} ether` : "agentCost";
+  const priceValue = price ? `${formatEther(price)} ether` : "0.01 ether";
   const agentIdValue = agentId || "AGENT_ID";
 
   // Generate decode logic for outputs
   const decodeLogic = method.outputs.length > 0
-    ? `(${outputTypes}) = abi.decode(response, (${method.outputs.map(p => p.type).join(", ")}));`
+    ? `(${outputTypes}) = abi.decode(results[0], (${method.outputs.map(p => p.type).join(", ")}));`
     : `// No return value`;
 
   return `// SPDX-License-Identifier: MIT
@@ -53,10 +53,16 @@ contract MyContract {
     IHttpSingletonSomniaAgents public platform = IHttpSingletonSomniaAgents(${CONTRACT_ADDRESS});
     uint256 constant AGENT_ID = ${agentIdValue};
 
+    // Response status codes
+    uint8 constant STATUS_PENDING = 0;
+    uint8 constant STATUS_SUCCESS = 1;
+    uint8 constant STATUS_FAILED = 2;
+    uint8 constant STATUS_TIMED_OUT = 3;
+
     // Store pending requests
     mapping(uint256 => address) public requestSenders;
 
-    event AgentResponseReceived(uint256 indexed requestId, bool success${method.outputs.length > 0 ? `, ${method.outputs.map(p => `${p.type} ${p.name || 'result'}`).join(', ')}` : ''});
+    event AgentResponseReceived(uint256 indexed requestId, uint8 status${method.outputs.length > 0 ? `, ${method.outputs.map(p => `${p.type} ${p.name || 'result'}`).join(', ')}` : ''});
 
     function invoke${method.name.charAt(0).toUpperCase() + method.name.slice(1)}(${inputs ? inputs : ""}) external payable returns (uint256 requestId) {
         // 1. Encode the FULL function call using interface selector
@@ -76,15 +82,17 @@ contract MyContract {
     }
 
     // Called by the platform when the agent responds
-    function handleResponse(uint256 requestId, bytes calldata response, bool success) external {
+    // status: 0 = Pending, 1 = Success, 2 = Failed, 3 = TimedOut
+    function handleResponse(uint256 requestId, bytes[] calldata results, uint8 status, uint256 cost) external {
         require(msg.sender == address(platform), "Only platform can call");
 
-        if (success && response.length > 0) {
-            // Decode the response
+        if (status == STATUS_SUCCESS && results.length > 0) {
+            // Decode the first result (consensus result)
             ${decodeLogic}
-            emit AgentResponseReceived(requestId, success${method.outputs.length > 0 ? `, ${outputNames}` : ''});
+            emit AgentResponseReceived(requestId, status${method.outputs.length > 0 ? `, ${outputNames}` : ''});
         } else {
-            emit AgentResponseReceived(requestId, false${method.outputs.length > 0 ? method.outputs.map(() => ', 0').join('') : ''});
+            // Failed or timed out
+            emit AgentResponseReceived(requestId, status${method.outputs.length > 0 ? method.outputs.map(() => ', 0').join('') : ''});
         }
     }
 }`;
@@ -104,12 +112,18 @@ export function generateViemExample(method: AbiFunction, agentId?: string, price
 
   const outputsAbi = method.outputs.map(p => ({ type: p.type, name: p.name }));
 
-  return `import { createPublicClient, createWalletClient, http, webSocket, encodeFunctionData, decodeAbiParameters, parseEther } from 'viem';
+  return `import { createPublicClient, createWalletClient, http, webSocket, encodeFunctionData, parseEther, decodeEventLog } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 const PLATFORM_ADDRESS = '${CONTRACT_ADDRESS}';
 const RPC_URL = 'https://dream-rpc.somnia.network/';
 const WS_URL = 'wss://dream-rpc.somnia.network/ws';
+
+// Response status codes
+const STATUS_PENDING = 0;
+const STATUS_SUCCESS = 1;
+const STATUS_FAILED = 2;
+const STATUS_TIMED_OUT = 3;
 
 // Platform ABI
 const platformAbi = [
@@ -130,27 +144,43 @@ const platformAbi = [
   },
   {
     type: 'event',
-    name: 'AgentRequested',
+    name: 'RequestCreated',
     inputs: [
       { type: 'uint256', name: 'requestId', indexed: true },
       { type: 'uint256', name: 'agentId', indexed: true },
-      { type: 'bytes', name: 'request', indexed: false }
+      { type: 'uint256', name: 'maxCost', indexed: false },
+      { type: 'bytes', name: 'payload', indexed: false },
+      { type: 'address[]', name: 'subcommittee', indexed: false }
     ]
   },
   {
     type: 'event',
-    name: 'AgentResponded',
+    name: 'RequestFinalized',
     inputs: [
       { type: 'uint256', name: 'requestId', indexed: true },
-      { type: 'uint256', name: 'agentId', indexed: true },
-      { type: 'bytes', name: 'response', indexed: false },
-      { type: 'bool', name: 'success', indexed: false }
+      { type: 'uint8', name: 'status', indexed: false }
     ]
+  },
+  {
+    type: 'function',
+    name: 'getResponses',
+    inputs: [{ type: 'uint256', name: 'requestId' }],
+    outputs: [{
+      type: 'tuple[]',
+      components: [
+        { type: 'address', name: 'validator' },
+        { type: 'bytes', name: 'result' },
+        { type: 'uint8', name: 'status' },
+        { type: 'uint256', name: 'receipt' },
+        { type: 'uint256', name: 'cost' },
+        { type: 'uint256', name: 'timestamp' }
+      ]
+    }]
   }
-];
+] as const;
 
-// Agent method ABI (for encoding request & decoding response)
-const agentMethodAbi = [${JSON.stringify(methodAbi, null, 2)}];
+// Agent method ABI (for encoding request)
+const agentMethodAbi = [${JSON.stringify(methodAbi, null, 2)}] as const;
 
 async function invokeAgentAndWaitForResponse() {
   const account = privateKeyToAccount('0x...'); // Your private key
@@ -172,6 +202,7 @@ async function invokeAgentAndWaitForResponse() {
   });
 
   // 2. Send request (no callback - we'll watch for events)
+  //    For on-chain callbacks, use the Solidity example instead
   const hash = await walletClient.writeContract({
     address: PLATFORM_ADDRESS,
     abi: platformAbi,
@@ -187,40 +218,46 @@ async function invokeAgentAndWaitForResponse() {
 
   console.log('Transaction submitted:', hash);
 
-  // 3. Wait for transaction and extract requestId from AgentRequested event
+  // 3. Wait for transaction and extract requestId from RequestCreated event
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  const requestedLog = receipt.logs.find(log => {
+  const createdLog = receipt.logs.find(log => {
     try {
       const decoded = decodeEventLog({ abi: platformAbi, data: log.data, topics: log.topics });
-      return decoded.eventName === 'AgentRequested';
+      return decoded.eventName === 'RequestCreated';
     } catch { return false; }
   });
 
-  const requestId = requestedLog?.args?.requestId;
+  const requestId = createdLog?.args?.requestId;
   console.log('Request ID:', requestId);
 
-  // 4. Watch for AgentResponded event
+  // 4. Watch for RequestFinalized event (covers Success, Failed, and TimedOut)
   return new Promise((resolve, reject) => {
     const unwatch = publicClient.watchContractEvent({
       address: PLATFORM_ADDRESS,
       abi: platformAbi,
-      eventName: 'AgentResponded',
+      eventName: 'RequestFinalized',
       onLogs: (logs) => {
         for (const log of logs) {
           if (log.args.requestId === requestId) {
             unwatch();
+            const status = Number(log.args.status);
 
-            if (log.args.success && log.args.response) {
-              // 5. Decode the response using agent's output ABI
-              const decoded = decodeAbiParameters(
-                ${JSON.stringify(outputsAbi)},
-                log.args.response
-              );
-              console.log('Response:', decoded);
-              resolve({ success: true, data: decoded });
-            } else {
-              reject(new Error('Agent execution failed'));
-            }
+            // 5. Read responses from the contract
+            publicClient.readContract({
+              address: PLATFORM_ADDRESS,
+              abi: platformAbi,
+              functionName: 'getResponses',
+              args: [requestId]
+            }).then(responses => {
+              console.log('Finalized! Status:', status === STATUS_SUCCESS ? 'Success' : status === STATUS_FAILED ? 'Failed' : 'TimedOut');
+              console.log('Responses:', responses);
+
+              if (status === STATUS_SUCCESS) {
+                resolve({ status: 'success', responses });
+              } else {
+                reject(new Error(status === STATUS_FAILED ? 'Agent execution failed' : 'Request timed out'));
+              }
+            });
           }
         }
       }

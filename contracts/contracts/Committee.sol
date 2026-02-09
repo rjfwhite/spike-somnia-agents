@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 /// @title ICommittee Interface
-/// @notice Interface for validator committee management
+/// @notice Interface for validator committee management and payment distribution
 interface ICommittee {
     event MemberJoined(address indexed member);
     event MemberLeft(address indexed member);
@@ -10,10 +10,20 @@ interface ICommittee {
 
     function heartbeatMembership() external;
     function leaveMembership() external;
-    function upkeep() external;
     function getActiveMembers() external view returns (address[] memory);
-    function electSubcommittee(uint256 n, bytes32 seed) external view returns (address[] memory);
+    function electSubcommittee(
+        uint256 n,
+        bytes32 seed
+    ) external view returns (address[] memory);
     function isActive(address addr) external view returns (bool);
+
+    // Payment distribution
+    function deposit(
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external payable;
+    function pendingBalance(address account) external view returns (uint256);
+    function claim() external;
 }
 
 contract Committee is ICommittee {
@@ -25,6 +35,9 @@ contract Committee is ICommittee {
     uint256 public lastUpkeep;
     uint256 public constant HEARTBEAT_INTERVAL = 1 minutes;
 
+    // Claimable balances for runners, creators, and treasury
+    mapping(address => uint256) public override pendingBalance;
+
     function heartbeatMembership() external override {
         if (!_active[msg.sender]) {
             _active[msg.sender] = true;
@@ -33,6 +46,7 @@ contract Committee is ICommittee {
             emit MemberJoined(msg.sender);
         }
         lastHeartbeat[msg.sender] = block.timestamp;
+        // TODO: Once timers rolled out on mainnet, schedule that way instead
         _upkeep();
     }
 
@@ -58,10 +72,6 @@ contract Committee is ICommittee {
         delete lastHeartbeat[addr];
     }
 
-    function upkeep() external override {
-        _upkeep();
-    }
-
     function _upkeep() internal {
         if (block.timestamp < lastUpkeep + 1 minutes) {
             return;
@@ -80,15 +90,51 @@ contract Committee is ICommittee {
         }
     }
 
+    // ============ Payment Distribution ============
+
+    function deposit(
+        address[] calldata recipients,
+        uint256[] calldata amounts
+    ) external payable override {
+        require(
+            recipients.length == amounts.length,
+            "Committee: length mismatch"
+        );
+        uint256 total = 0;
+        for (uint256 i = 0; i < recipients.length; i++) {
+            pendingBalance[recipients[i]] += amounts[i];
+            total += amounts[i];
+        }
+        require(total == msg.value, "Committee: amount mismatch");
+    }
+
+    function claim() external override {
+        uint256 amount = pendingBalance[msg.sender];
+        require(amount > 0, "Committee: no balance to claim");
+        pendingBalance[msg.sender] = 0;
+        (bool sent, ) = msg.sender.call{value: amount}("");
+        require(sent, "Committee: transfer failed");
+    }
+
+    // ============ Membership ============
+
     function isActive(address addr) external view override returns (bool) {
         return _active[addr];
     }
 
-    function getActiveMembers() public view override returns (address[] memory) {
+    function getActiveMembers()
+        public
+        view
+        override
+        returns (address[] memory)
+    {
         return members;
     }
 
-    function electSubcommittee(uint256 n, bytes32 seed) external view override returns (address[] memory) {
+    function electSubcommittee(
+        uint256 n,
+        bytes32 seed
+    ) external view override returns (address[] memory) {
         require(n <= members.length, "n exceeds active members");
 
         address[] memory shuffled = new address[](members.length);
@@ -97,7 +143,9 @@ contract Committee is ICommittee {
         }
 
         for (uint256 i = 0; i < n; i++) {
-            uint256 j = i + uint256(keccak256(abi.encodePacked(seed, i))) % (shuffled.length - i);
+            uint256 j = i +
+                (uint256(keccak256(abi.encodePacked(seed, i))) %
+                    (shuffled.length - i));
             (shuffled[i], shuffled[j]) = (shuffled[j], shuffled[i]);
         }
 

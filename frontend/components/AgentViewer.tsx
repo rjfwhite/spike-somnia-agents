@@ -28,7 +28,6 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
   const agent = agentData as Agent | undefined;
   const tokenURI = agent?.metadataUri;
   const containerImageUri = agent?.containerImageUri;
-  const price = agent?.cost;
   const owner = agent?.owner;
   const agentExists = agent && agent.owner !== "0x0000000000000000000000000000000000000000";
 
@@ -234,7 +233,7 @@ export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
                               isExpanded={expandedMethods.has(method.name)}
                               onToggle={() => toggleMethod(method.name)}
                               agentId={agentId}
-                              price={price ? (typeof price === 'bigint' ? price : undefined) : undefined}
+                              price={undefined}
                             />
                           ))}
                         </div>

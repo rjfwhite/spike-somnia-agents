@@ -383,7 +383,6 @@ func (l *Listener) handleLog(vLog types.Log) {
 	slog.Info("Received RequestCreated event",
 		"requestId", event.RequestId,
 		"agentId", event.AgentId,
-		"requester", event.Requester.Hex(),
 		"subcommitteeSize", len(event.Subcommittee),
 		"txHash", vLog.TxHash.Hex(),
 	)
@@ -480,11 +479,13 @@ func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
 	// Upload receipt asynchronously
 	if response.Receipt != nil {
 		response.Receipt["agentId"] = agentId.String()
+		response.Receipt["request"] = "0x" + hex.EncodeToString(event.Payload)
 		go l.uploadReceipt(requestIdStr, response.Receipt)
 	}
 
 	// Submit the response to the blockchain (fire and forget)
-	go l.submitResponse(requestId, response.Body, agent.Cost)
+	success := response.Status >= 200 && response.Status < 300
+	go l.submitResponse(requestId, response.Body, agent.Cost, success)
 }
 
 // uploadReceipt uploads a receipt to the receipts service asynchronously.
@@ -514,18 +515,17 @@ func (l *Listener) uploadReceipt(requestID string, receipt map[string]interface{
 	}
 }
 
-func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *big.Int) {
+func (l *Listener) submitResponse(requestId *big.Int, result []byte, cost *big.Int, success bool) {
 	ctx := l.ctx
 
-	// For now, use 0 as receipt (CID) and agent cost as price
+	// For now, use 0 as receipt (CID)
 	txReceipt := big.NewInt(0)
-	price := agentCost
-	if price == nil {
-		price = big.NewInt(0)
+	if cost == nil {
+		cost = big.NewInt(0)
 	}
 
 	// ABI-encode the submitResponse calldata
-	calldata, err := sessionrpc.EncodeSubmitResponse(requestId, result, txReceipt, price)
+	calldata, err := sessionrpc.EncodeSubmitResponse(requestId, result, txReceipt, cost, success)
 	if err != nil {
 		slog.Error("Failed to encode submitResponse calldata", "requestId", requestId, "error", err)
 		return
@@ -536,7 +536,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, agentCost *
 		"validator", l.address.Hex(),
 		"contract", l.somniaAgentsAddr.Hex(),
 		"resultSize", len(result),
-		"price", price,
+		"cost", cost,
 	)
 
 	receipt, err := l.session.Send(ctx, l.somniaAgentsAddr.Hex(), calldata, "0x0", sessionrpc.DefaultGas)

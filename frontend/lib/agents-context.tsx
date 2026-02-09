@@ -11,7 +11,6 @@ export interface AgentData {
     tokenURI: string;
     containerImageUri: string;
     metadata: TokenMetadata | null;
-    price: bigint;
 }
 
 interface AgentsContextType {
@@ -100,7 +99,6 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
                         owner: agent.owner,
                         tokenURI: agent.metadataUri,
                         containerImageUri: agent.containerImageUri,
-                        price: agent.cost,
                         metadata
                     };
                 } catch (err) {

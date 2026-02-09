@@ -18,7 +18,6 @@ const SomniaAgentsABI = `[
 		"inputs": [
 			{"indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256"},
 			{"indexed": true, "internalType": "uint256", "name": "agentId", "type": "uint256"},
-			{"indexed": true, "internalType": "address", "name": "requester", "type": "address"},
 			{"indexed": false, "internalType": "uint256", "name": "maxCost", "type": "uint256"},
 			{"indexed": false, "internalType": "bytes", "name": "payload", "type": "bytes"},
 			{"indexed": false, "internalType": "address[]", "name": "subcommittee", "type": "address[]"}
@@ -30,28 +29,9 @@ const SomniaAgentsABI = `[
 		"anonymous": false,
 		"inputs": [
 			{"indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256"},
-			{"indexed": true, "internalType": "address", "name": "validator", "type": "address"},
-			{"indexed": false, "internalType": "uint256", "name": "receipt", "type": "uint256"}
-		],
-		"name": "ResponseSubmitted",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{"indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256"},
-			{"indexed": false, "internalType": "uint256", "name": "finalCost", "type": "uint256"},
-			{"indexed": false, "internalType": "uint256", "name": "rebate", "type": "uint256"}
+			{"indexed": false, "internalType": "uint8", "name": "status", "type": "uint8"}
 		],
 		"name": "RequestFinalized",
-		"type": "event"
-	},
-	{
-		"anonymous": false,
-		"inputs": [
-			{"indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256"}
-		],
-		"name": "RequestTimedOut",
 		"type": "event"
 	},
 	{
@@ -59,7 +39,8 @@ const SomniaAgentsABI = `[
 			{"internalType": "uint256", "name": "requestId", "type": "uint256"},
 			{"internalType": "bytes", "name": "result", "type": "bytes"},
 			{"internalType": "uint256", "name": "receipt", "type": "uint256"},
-			{"internalType": "uint256", "name": "price", "type": "uint256"}
+			{"internalType": "uint256", "name": "cost", "type": "uint256"},
+			{"internalType": "bool", "name": "success", "type": "bool"}
 		],
 		"name": "submitResponse",
 		"outputs": [],
@@ -68,32 +49,8 @@ const SomniaAgentsABI = `[
 	},
 	{
 		"inputs": [{"internalType": "uint256", "name": "requestId", "type": "uint256"}],
-		"name": "isRequestPending",
+		"name": "hasRequest",
 		"outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [{"internalType": "uint256", "name": "requestId", "type": "uint256"}],
-		"name": "isRequestValid",
-		"outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{"internalType": "uint256", "name": "requestId", "type": "uint256"},
-			{"internalType": "address", "name": "addr", "type": "address"}
-		],
-		"name": "isSubcommitteeMember",
-		"outputs": [{"internalType": "bool", "name": "", "type": "bool"}],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [{"internalType": "uint256", "name": "requestId", "type": "uint256"}],
-		"name": "getSubcommittee",
-		"outputs": [{"internalType": "address[]", "name": "", "type": "address[]"}],
 		"stateMutability": "view",
 		"type": "function"
 	},
@@ -117,7 +74,6 @@ const SomniaAgentsABI = `[
 type RequestCreatedEvent struct {
 	RequestId    *big.Int
 	AgentId      *big.Int
-	Requester    common.Address
 	MaxCost      *big.Int
 	Payload      []byte
 	Subcommittee []common.Address
@@ -176,44 +132,14 @@ func (s *SomniaAgents) ABI() abi.ABI {
 	return s.abi
 }
 
-// IsRequestPending checks if a request is still pending.
-func (c *SomniaAgentsCaller) IsRequestPending(opts *bind.CallOpts, requestId *big.Int) (bool, error) {
+// HasRequest checks if a request exists and hasn't been overwritten.
+func (c *SomniaAgentsCaller) HasRequest(opts *bind.CallOpts, requestId *big.Int) (bool, error) {
 	var out []interface{}
-	err := c.contract.Call(opts, &out, "isRequestPending", requestId)
+	err := c.contract.Call(opts, &out, "hasRequest", requestId)
 	if err != nil {
 		return false, err
 	}
 	return out[0].(bool), nil
-}
-
-// IsRequestValid checks if a request exists and hasn't been overwritten.
-func (c *SomniaAgentsCaller) IsRequestValid(opts *bind.CallOpts, requestId *big.Int) (bool, error) {
-	var out []interface{}
-	err := c.contract.Call(opts, &out, "isRequestValid", requestId)
-	if err != nil {
-		return false, err
-	}
-	return out[0].(bool), nil
-}
-
-// IsSubcommitteeMember checks if an address is a subcommittee member for a request.
-func (c *SomniaAgentsCaller) IsSubcommitteeMember(opts *bind.CallOpts, requestId *big.Int, addr common.Address) (bool, error) {
-	var out []interface{}
-	err := c.contract.Call(opts, &out, "isSubcommitteeMember", requestId, addr)
-	if err != nil {
-		return false, err
-	}
-	return out[0].(bool), nil
-}
-
-// GetSubcommittee returns the subcommittee for a request.
-func (c *SomniaAgentsCaller) GetSubcommittee(opts *bind.CallOpts, requestId *big.Int) ([]common.Address, error) {
-	var out []interface{}
-	err := c.contract.Call(opts, &out, "getSubcommittee", requestId)
-	if err != nil {
-		return nil, err
-	}
-	return out[0].([]common.Address), nil
 }
 
 // AgentRegistry returns the address of the AgentRegistry contract.
@@ -237,8 +163,8 @@ func (c *SomniaAgentsCaller) Committee(opts *bind.CallOpts) (common.Address, err
 }
 
 // SubmitResponse submits a response for a request.
-func (t *SomniaAgentsTransactor) SubmitResponse(opts *bind.TransactOpts, requestId *big.Int, result []byte, receipt *big.Int, price *big.Int) (*types.Transaction, error) {
-	return t.contract.Transact(opts, "submitResponse", requestId, result, receipt, price)
+func (t *SomniaAgentsTransactor) SubmitResponse(opts *bind.TransactOpts, requestId *big.Int, result []byte, receipt *big.Int, cost *big.Int, success bool) (*types.Transaction, error) {
+	return t.contract.Transact(opts, "submitResponse", requestId, result, receipt, cost, success)
 }
 
 // ParseRequestCreated parses a RequestCreated event from a log.
@@ -246,13 +172,12 @@ func (f *SomniaAgentsFilterer) ParseRequestCreated(log types.Log) (*RequestCreat
 	event := new(RequestCreatedEvent)
 
 	// Indexed fields are in topics
-	if len(log.Topics) < 4 {
+	if len(log.Topics) < 3 {
 		return nil, nil
 	}
 
 	event.RequestId = new(big.Int).SetBytes(log.Topics[1].Bytes())
 	event.AgentId = new(big.Int).SetBytes(log.Topics[2].Bytes())
-	event.Requester = common.BytesToAddress(log.Topics[3].Bytes())
 
 	// Non-indexed fields are in data
 	err := f.abi.UnpackIntoInterface(event, "RequestCreated", log.Data)

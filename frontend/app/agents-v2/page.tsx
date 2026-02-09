@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAccount, useReadContract, usePublicClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { parseEther, formatEther } from "viem";
 import { AGENT_REGISTRY_V2_ADDRESS, AGENT_REGISTRY_V2_ABI, Agent } from "@/lib/contract";
 import { TokenMetadata, getAbiFunctions } from "@/lib/types";
 import { uploadFile } from "@/lib/files";
@@ -41,7 +40,6 @@ interface AgentData {
     owner: string;
     metadataUri: string;
     containerImageUri: string;
-    cost: bigint;
     metadata: TokenMetadata | null;
 }
 
@@ -56,7 +54,6 @@ export default function AgentsV2Page() {
 
     // Form state
     const [agentId, setAgentId] = useState("");
-    const [cost, setCost] = useState("0.1");
     const [metadataMode, setMetadataMode] = useState<InputMode>('upload');
     const [metadataUrl, setMetadataUrl] = useState("");
     const [containerMode, setContainerMode] = useState<InputMode>('upload');
@@ -125,7 +122,6 @@ export default function AgentsV2Page() {
                         owner: agent.owner,
                         metadataUri: agent.metadataUri,
                         containerImageUri: agent.containerImageUri,
-                        cost: agent.cost,
                         metadata,
                     };
                 });
@@ -166,7 +162,6 @@ export default function AgentsV2Page() {
 
     const resetForm = () => {
         setAgentId("");
-        setCost("0.1");
         setMetadataMode('upload');
         setMetadataUrl("");
         setContainerMode('upload');
@@ -267,13 +262,11 @@ export default function AgentsV2Page() {
         }
         if (!finalContainerUri) return;
 
-        const costInWei = cost ? parseEther(cost) : BigInt(0);
-
         writeContract({
             address: AGENT_REGISTRY_V2_ADDRESS,
             abi: AGENT_REGISTRY_V2_ABI,
             functionName: "setAgent",
-            args: [BigInt(agentId), finalMetadataUri, finalContainerUri, costInWei],
+            args: [BigInt(agentId), finalMetadataUri, finalContainerUri],
         });
     };
 
@@ -291,7 +284,6 @@ export default function AgentsV2Page() {
     const handleEditAgent = (agent: AgentData) => {
         setEditingAgent(agent);
         setAgentId(agent.id);
-        setCost(formatEther(agent.cost));
         setMetadataMode('url');
         setMetadataUrl(agent.metadataUri);
         setContainerMode('url');
@@ -453,7 +445,7 @@ export default function AgentsV2Page() {
                         {editingAgent ? `Edit Agent ${editingAgent.id}` : 'Create New Agent'}
                     </h2>
                     <p className="text-gray-400 text-sm mb-6">
-                        Configure an agent with metadata, container image URI, and invocation cost.
+                        Configure an agent with metadata and container image URI.
                         {!editingAgent && " If the agent doesn't exist, it will be minted to your address."}
                     </p>
 
@@ -593,22 +585,6 @@ export default function AgentsV2Page() {
                                     hint="Upload a .tar, .tar.gz, or .tgz container image"
                                 />
                             )}
-                        </div>
-
-                        <div>
-                            <label htmlFor="cost" className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                                Cost (STT)
-                            </label>
-                            <input
-                                id="cost"
-                                type="text"
-                                value={cost}
-                                onChange={(e) => setCost(e.target.value)}
-                                className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-primary/50 focus:border-primary/50 transition-all font-mono"
-                                placeholder="0.1"
-                                required
-                            />
-                            <p className="text-xs text-gray-500 mt-1">Cost in STT tokens to invoke this agent</p>
                         </div>
 
                         <div className="flex gap-3">
@@ -760,7 +736,7 @@ function AgentCardV2({
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                         <span className="text-sm font-mono text-blue-400">
-                            {formatEther(agent.cost)} STT
+                            Agent
                         </span>
                         <button
                             onClick={() => setExpanded(!expanded)}
