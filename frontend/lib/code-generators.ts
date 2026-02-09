@@ -40,7 +40,6 @@ interface ISomniaAgents {
     ) external payable returns (uint256 requestId);
 
     function getRequestDeposit() external view returns (uint256);
-    function getAdvancedRequestDeposit(uint256 subcommitteeSize) external view returns (uint256);
 }
 
 // Agent interface (for .selector and type safety)
