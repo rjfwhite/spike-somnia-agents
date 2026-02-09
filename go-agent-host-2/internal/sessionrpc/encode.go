@@ -9,8 +9,11 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 )
 
-// DefaultGas is the default gas limit for session transactions (5M gas, hex-encoded).
-const DefaultGas = "0x4C4B40"
+// DefaultGas is the default gas limit for session transactions (2M gas, hex-encoded).
+const DefaultGas = "0x1E8480"
+
+// SubmitResponseGas is the gas limit for submitResponse transactions (20M gas, hex-encoded).
+const SubmitResponseGas = "0x1312D00"
 
 // Minimal ABI fragments — only the write functions called via session RPC.
 

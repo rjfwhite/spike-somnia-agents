@@ -539,7 +539,7 @@ func (l *Listener) submitResponse(requestId *big.Int, result []byte, cost *big.I
 		"cost", cost,
 	)
 
-	receipt, err := l.session.Send(ctx, l.somniaAgentsAddr.Hex(), calldata, "0x0", sessionrpc.DefaultGas)
+	receipt, err := l.session.Send(ctx, l.somniaAgentsAddr.Hex(), calldata, "0x0", sessionrpc.SubmitResponseGas)
 	if err != nil {
 		slog.Error("Failed to submit response",
 			"requestId", requestId,
