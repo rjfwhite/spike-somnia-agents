@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAccount, useReadContract, usePublicClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { parseEther, formatEther, createPublicClient, webSocket, decodeErrorResult, type Hex } from "viem";
+import { formatEther, createPublicClient, webSocket, decodeErrorResult, type Hex } from "viem";
 import {
     SOMNIA_AGENTS_V2_ADDRESS,
     SOMNIA_AGENTS_V2_ABI,
@@ -103,7 +103,6 @@ export default function RequestsV2Page() {
     // Create request form state
     const [agentId, setAgentId] = useState("");
     const [payload, setPayload] = useState("0x");
-    const [maxCost, setMaxCost] = useState("0.01");
     const [callbackAddress, setCallbackAddress] = useState("0x0000000000000000000000000000000000000000");
     const [callbackSelector, setCallbackSelector] = useState("0x00000000");
     const [simulationError, setSimulationError] = useState<string | null>(null);
@@ -144,6 +143,12 @@ export default function RequestsV2Page() {
         address: SOMNIA_AGENTS_V2_ADDRESS,
         abi: SOMNIA_AGENTS_V2_ABI,
         functionName: "maxPerAgentFee",
+    });
+
+    const { data: requestDeposit } = useReadContract({
+        address: SOMNIA_AGENTS_V2_ADDRESS,
+        abi: SOMNIA_AGENTS_V2_ABI,
+        functionName: "getRequestDeposit",
     });
 
     // Read active committee members
@@ -328,12 +333,12 @@ export default function RequestsV2Page() {
 
     const handleCreateRequest = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!agentId || !maxCost || !publicClient || !address) return;
+        if (!agentId || !requestDeposit || !publicClient || !address) return;
 
         setSimulationError(null);
         setIsSimulating(true);
 
-        const costInWei = parseEther(maxCost);
+        const deposit = requestDeposit as bigint;
 
         try {
             // Simulate the transaction first to get detailed revert reasons
@@ -342,7 +347,7 @@ export default function RequestsV2Page() {
                 abi: SOMNIA_AGENTS_V2_ABI,
                 functionName: "createRequest",
                 args: [BigInt(agentId), callbackAddress as `0x${string}`, callbackSelector as `0x${string}`, payload as `0x${string}`],
-                value: costInWei,
+                value: deposit,
                 account: address,
             });
 
@@ -353,7 +358,7 @@ export default function RequestsV2Page() {
                 abi: SOMNIA_AGENTS_V2_ABI,
                 functionName: "createRequest",
                 args: [BigInt(agentId), callbackAddress as `0x${string}`, callbackSelector as `0x${string}`, payload as `0x${string}`],
-                value: costInWei,
+                value: deposit,
             });
         } catch (err: any) {
             setIsSimulating(false);
@@ -814,16 +819,14 @@ export default function RequestsV2Page() {
                             </div>
                             <div>
                                 <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                                    Max Cost (STT)
+                                    Deposit (STT)
                                 </label>
-                                <input
-                                    type="text"
-                                    value={maxCost}
-                                    onChange={(e) => setMaxCost(e.target.value)}
-                                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
-                                    placeholder="0.01"
-                                    required
-                                />
+                                <div className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white font-mono">
+                                    {requestDeposit ? formatEther(requestDeposit as bigint) : '...'} STT
+                                </div>
+                                <p className="text-xs text-gray-500 mt-1">
+                                    Required deposit. Unused funds are rebated after execution.
+                                </p>
                             </div>
                         </div>
 
@@ -972,7 +975,7 @@ export default function RequestsV2Page() {
                                     <p className="text-white">{lookupResult.details.consensusType === 0 ? 'Majority' : 'Threshold'}</p>
                                 </div>
                                 <div>
-                                    <span className="text-gray-500">Max Cost:</span>
+                                    <span className="text-gray-500">Deposit:</span>
                                     <p className="font-mono text-white">{formatEther(lookupResult.details.maxCost)} STT</p>
                                 </div>
                                 <div>
@@ -1188,7 +1191,7 @@ function RequestEventCard({
                             <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Created</div>
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                    <span className="text-gray-500">Max Cost: </span>
+                                    <span className="text-gray-500">Deposit: </span>
                                     <span className="font-mono text-white">{createdEvent.maxCost ? formatEther(createdEvent.maxCost) : '?'} STT</span>
                                 </div>
                             </div>

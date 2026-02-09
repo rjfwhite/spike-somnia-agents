@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { useAccount, useReadContract, usePublicClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { parseEther, formatEther, createPublicClient, webSocket, type Hex } from "viem";
+import { formatEther, createPublicClient, webSocket, type Hex } from "viem";
 import {
     SOMNIA_AGENTS_V2_ADDRESS,
     SOMNIA_AGENTS_V2_ABI,
@@ -70,7 +70,11 @@ export default function AgentRequestPage() {
     // Method selection state
     const [selectedMethod, setSelectedMethod] = useState<AbiFunction | null>(null);
     const [inputValues, setInputValues] = useState<Record<string, string>>({});
-    const [maxCost, setMaxCost] = useState("0.01");
+    const { data: requestDeposit } = useReadContract({
+        address: SOMNIA_AGENTS_V2_ADDRESS,
+        abi: SOMNIA_AGENTS_V2_ABI,
+        functionName: "getRequestDeposit",
+    });
 
     // Request tracking state
     const [trackedRequest, setTrackedRequest] = useState<TrackedRequest | null>(null);
@@ -240,7 +244,7 @@ export default function AgentRequestPage() {
                 return parseInputValue(rawValue, input.type);
             });
             const encodedPayload = encodeFunctionCall(selectedMethod, values);
-            const costInWei = parseEther(maxCost);
+            const deposit = requestDeposit as bigint;
 
             // Zero address for callback (we'll poll for results)
             const callbackAddress = "0x0000000000000000000000000000000000000000" as `0x${string}`;
@@ -252,7 +256,7 @@ export default function AgentRequestPage() {
                 abi: SOMNIA_AGENTS_V2_ABI,
                 functionName: "createRequest",
                 args: [BigInt(agentId), callbackAddress, callbackSelector, encodedPayload],
-                value: costInWei,
+                value: deposit,
                 account: address,
             });
 
@@ -263,7 +267,7 @@ export default function AgentRequestPage() {
                 abi: SOMNIA_AGENTS_V2_ABI,
                 functionName: "createRequest",
                 args: [BigInt(agentId), callbackAddress, callbackSelector, encodedPayload],
-                value: costInWei,
+                value: deposit,
             });
         } catch (err: any) {
             setIsSimulating(false);
@@ -472,22 +476,16 @@ export default function AgentRequestPage() {
                                     </p>
                                 )}
 
-                                {/* Max Cost */}
+                                {/* Deposit */}
                                 <div>
                                     <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
-                                        Max Cost (STT)
+                                        Deposit (STT)
                                     </label>
-                                    <input
-                                        type="text"
-                                        value={maxCost}
-                                        onChange={(e) => setMaxCost(e.target.value)}
-                                        className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
-                                        placeholder="0.01"
-                                        required
-                                    />
+                                    <div className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white font-mono">
+                                        {requestDeposit ? formatEther(requestDeposit as bigint) : '...'} STT
+                                    </div>
                                     <p className="text-xs text-gray-500 mt-1">
-                                        Maximum amount to pay. Unused funds will be refunded.
-                                        Maximum amount to pay. Unused funds will be refunded.
+                                        Required deposit. Unused funds are rebated after execution.
                                     </p>
                                 </div>
 
