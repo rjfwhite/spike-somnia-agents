@@ -48,7 +48,7 @@ struct Response {
 /// @notice Consumer interface for requesting agent execution
 interface ISomniaAgents {
     // Events
-    event RequestCreated(uint256 indexed requestId, uint256 indexed agentId, uint256 maxCost, bytes payload, address[] subcommittee);
+    event RequestCreated(uint256 indexed requestId, uint256 indexed agentId, uint256 maxCostPerAgent, bytes payload, address[] subcommittee);
     event RequestFinalized(uint256 indexed requestId, ResponseStatus status);
     // Request Creation (payable - sends max cost upfront)
     function createRequest(
@@ -282,7 +282,7 @@ contract SomniaAgents is ISomniaAgents, ISomniaAgentsRunner {
         req.finalCost = 0;
         req.agentCreator = agent.owner;
 
-        emit RequestCreated(requestId, agentId, msg.value, payload, subcommittee);
+        emit RequestCreated(requestId, agentId, maxPerAgentFee, payload, subcommittee);
     }
 
     // ============ Response Functions ============

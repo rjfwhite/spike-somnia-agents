@@ -41,7 +41,7 @@ import {
 interface RequestEvent {
     requestId: bigint;
     agentId?: bigint;
-    maxCost?: bigint;
+    maxCostPerAgent?: bigint;
     payload?: string;
     subcommittee?: string[];
     validator?: string;
@@ -244,10 +244,10 @@ export default function RequestsV2Page() {
             eventName: "RequestCreated",
             onLogs: (logs) => {
                 logs.forEach((log) => {
-                    const { requestId, agentId, maxCost, payload, subcommittee } = log.args as {
+                    const { requestId, agentId, maxCostPerAgent, payload, subcommittee } = log.args as {
                         requestId: bigint;
                         agentId: bigint;
-                        maxCost: bigint;
+                        maxCostPerAgent: bigint;
                         payload: string;
                         subcommittee: string[];
                     };
@@ -255,7 +255,7 @@ export default function RequestsV2Page() {
                     const event: RequestEvent = {
                         requestId,
                         agentId,
-                        maxCost,
+                        maxCostPerAgent,
                         payload,
                         subcommittee,
                         timestamp: Date.now(),
@@ -1191,8 +1191,8 @@ function RequestEventCard({
                             <div className="text-xs text-gray-500 uppercase tracking-wider mb-2">Created</div>
                             <div className="grid grid-cols-2 gap-2">
                                 <div>
-                                    <span className="text-gray-500">Deposit: </span>
-                                    <span className="font-mono text-white">{createdEvent.maxCost ? formatEther(createdEvent.maxCost) : '?'} STT</span>
+                                    <span className="text-gray-500">Cost Per Agent: </span>
+                                    <span className="font-mono text-white">{createdEvent.maxCostPerAgent ? formatEther(createdEvent.maxCostPerAgent) : '?'} STT</span>
                                 </div>
                             </div>
                             {createdEvent.subcommittee && (

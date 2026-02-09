@@ -881,7 +881,7 @@ export const SOMNIA_AGENTS_V2_ABI = [
     "inputs": [
       { "indexed": true, "internalType": "uint256", "name": "requestId", "type": "uint256" },
       { "indexed": true, "internalType": "uint256", "name": "agentId", "type": "uint256" },
-      { "indexed": false, "internalType": "uint256", "name": "maxCost", "type": "uint256" },
+      { "indexed": false, "internalType": "uint256", "name": "maxCostPerAgent", "type": "uint256" },
       { "indexed": false, "internalType": "bytes", "name": "payload", "type": "bytes" },
       { "indexed": false, "internalType": "address[]", "name": "subcommittee", "type": "address[]" }
     ],

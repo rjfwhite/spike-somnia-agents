@@ -24,6 +24,7 @@ import {
     Play
 } from "lucide-react";
 import Link from "next/link";
+import { MethodViewer } from "@/components/MethodViewer";
 
 type InputMode = 'upload' | 'url';
 
@@ -712,6 +713,7 @@ function AgentCardV2({
     isDeleting: boolean;
 }) {
     const [expanded, setExpanded] = useState(false);
+    const [expandedMethod, setExpandedMethod] = useState<string | null>(null);
     const metadata = agent.metadata;
     const methods = metadata ? getAbiFunctions(metadata) : [];
 
@@ -800,6 +802,22 @@ function AgentCardV2({
                             </a>
                         </div>
                     </div>
+
+                    {/* Methods with code generation */}
+                    {methods.length > 0 && (
+                        <div className="space-y-2">
+                            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Methods ({methods.length})</h4>
+                            {methods.map((method) => (
+                                <MethodViewer
+                                    key={method.name}
+                                    method={method}
+                                    isExpanded={expandedMethod === method.name}
+                                    onToggle={() => setExpandedMethod(expandedMethod === method.name ? null : method.name)}
+                                    agentId={agent.id}
+                                />
+                            ))}
+                        </div>
+                    )}
 
                     <div className="flex gap-2 pt-2">
                         <Link

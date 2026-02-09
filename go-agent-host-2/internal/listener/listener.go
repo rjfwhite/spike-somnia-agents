@@ -485,7 +485,7 @@ func (l *Listener) handleRequest(event *somniaagents.RequestCreatedEvent) {
 
 	// Submit the response to the blockchain (fire and forget)
 	success := response.Status >= 200 && response.Status < 300
-	go l.submitResponse(requestId, response.Body, agent.Cost, success)
+	go l.submitResponse(requestId, response.Body, event.MaxCostPerAgent, success)
 }
 
 // uploadReceipt uploads a receipt to the receipts service asynchronously.

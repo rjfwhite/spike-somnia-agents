@@ -1,6 +1,5 @@
 import { AbiFunction } from "./types";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_V2_ADDRESS } from "./contract";
-import { formatEther } from "viem";
+import { SOMNIA_AGENTS_V2_ADDRESS } from "./contract";
 
 // Helper to add memory qualifier for string and bytes types in function signatures
 function withMemory(type: string): string {
@@ -16,15 +15,12 @@ export function generateSolidityExample(method: AbiFunction, agentId?: string, p
   const outputTypes = method.outputs.map(p => withMemory(p.type)).join(", ");
   const outputNames = method.outputs.map((p, i) => p.name || `result${i}`).join(", ");
 
-  // Encoding uses the interface selector
   const encodingLogic = method.inputs.length > 0
-    ? `bytes memory request = abi.encodeWithSelector(IAgent.${method.name}.selector, ${argNames});`
-    : `bytes memory request = abi.encodeWithSelector(IAgent.${method.name}.selector);`;
+    ? `bytes memory payload = abi.encodeWithSelector(IAgent.${method.name}.selector, ${argNames});`
+    : `bytes memory payload = abi.encodeWithSelector(IAgent.${method.name}.selector);`;
 
-  const priceValue = price ? `${formatEther(price)} ether` : "0.01 ether";
   const agentIdValue = agentId || "AGENT_ID";
 
-  // Generate decode logic for outputs
   const decodeLogic = method.outputs.length > 0
     ? `(${outputTypes}) = abi.decode(results[0], (${method.outputs.map(p => p.type).join(", ")}));`
     : `// No return value`;
@@ -32,16 +28,19 @@ export function generateSolidityExample(method: AbiFunction, agentId?: string, p
   return `// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-// Platform interface
-interface IHttpSingletonSomniaAgents {
-    struct AgentRequestData {
-        uint256 agentId;
-        bytes request;          // ABI-encoded function call (selector + params)
-        address callbackAddress; // Contract to receive response
-        bytes4 callbackSelector; // Function selector for callback
-    }
+enum ResponseStatus { Pending, Success, Failed, TimedOut }
 
-    function requestAgent(AgentRequestData calldata data) external payable returns (uint256 requestId);
+// Platform interface
+interface ISomniaAgents {
+    function createRequest(
+        uint256 agentId,
+        address callbackAddress,
+        bytes4 callbackSelector,
+        bytes calldata payload
+    ) external payable returns (uint256 requestId);
+
+    function getRequestDeposit() external view returns (uint256);
+    function getAdvancedRequestDeposit(uint256 subcommitteeSize) external view returns (uint256);
 }
 
 // Agent interface (for .selector and type safety)
@@ -50,43 +49,41 @@ interface IAgent {
 }
 
 contract MyContract {
-    IHttpSingletonSomniaAgents public platform = IHttpSingletonSomniaAgents(${CONTRACT_ADDRESS});
+    ISomniaAgents public platform = ISomniaAgents(${SOMNIA_AGENTS_V2_ADDRESS});
     uint256 constant AGENT_ID = ${agentIdValue};
-
-    // Response status codes
-    uint8 constant STATUS_PENDING = 0;
-    uint8 constant STATUS_SUCCESS = 1;
-    uint8 constant STATUS_FAILED = 2;
-    uint8 constant STATUS_TIMED_OUT = 3;
 
     // Store pending requests
     mapping(uint256 => address) public requestSenders;
 
-    event AgentResponseReceived(uint256 indexed requestId, uint8 status${method.outputs.length > 0 ? `, ${method.outputs.map(p => `${p.type} ${p.name || 'result'}`).join(', ')}` : ''});
+    event AgentResponseReceived(uint256 indexed requestId, ResponseStatus status${method.outputs.length > 0 ? `, ${method.outputs.map(p => `${p.type} ${p.name || 'result'}`).join(', ')}` : ''});
 
     function invoke${method.name.charAt(0).toUpperCase() + method.name.slice(1)}(${inputs ? inputs : ""}) external payable returns (uint256 requestId) {
-        // 1. Encode the FULL function call using interface selector
+        // 1. Encode the function call using the agent interface selector
         ${encodingLogic}
 
-        // 2. Build request - callback to THIS contract's handleResponse function
-        IHttpSingletonSomniaAgents.AgentRequestData memory requestData = IHttpSingletonSomniaAgents.AgentRequestData({
-            agentId: AGENT_ID,
-            request: request,
-            callbackAddress: address(this),
-            callbackSelector: this.handleResponse.selector
-        });
+        // 2. Get the required deposit
+        uint256 deposit = platform.getRequestDeposit();
 
-        // 3. Send request and get requestId
-        requestId = platform.requestAgent{value: ${priceValue}}(requestData);
+        // 3. Send request with callback to this contract
+        requestId = platform.createRequest{value: deposit}(
+            AGENT_ID,
+            address(this),
+            this.handleResponse.selector,
+            payload
+        );
         requestSenders[requestId] = msg.sender;
     }
 
-    // Called by the platform when the agent responds
-    // status: 0 = Pending, 1 = Success, 2 = Failed, 3 = TimedOut
-    function handleResponse(uint256 requestId, bytes[] calldata results, uint8 status, uint256 cost) external {
+    // Called by the platform when consensus is reached
+    function handleResponse(
+        uint256 requestId,
+        bytes[] calldata results,
+        ResponseStatus status,
+        uint256 cost
+    ) external {
         require(msg.sender == address(platform), "Only platform can call");
 
-        if (status == STATUS_SUCCESS && results.length > 0) {
+        if (status == ResponseStatus.Success && results.length > 0) {
             // Decode the first result (consensus result)
             ${decodeLogic}
             emit AgentResponseReceived(requestId, status${method.outputs.length > 0 ? `, ${outputNames}` : ''});
@@ -95,14 +92,15 @@ contract MyContract {
             emit AgentResponseReceived(requestId, status${method.outputs.length > 0 ? method.outputs.map(() => ', 0').join('') : ''});
         }
     }
+
+    // Accept rebates from the platform
+    receive() external payable {}
 }`;
 }
 
 export function generateViemExample(method: AbiFunction, agentId?: string, price?: bigint): string {
   const agentIdValue = agentId ? `${agentId}n` : "1n";
-  const priceValue = price ? `'${formatEther(price)}'` : "'0'";
 
-  // Build the agent's method ABI for encoding
   const methodAbi = {
     type: 'function',
     name: method.name,
@@ -110,37 +108,33 @@ export function generateViemExample(method: AbiFunction, agentId?: string, price
     outputs: method.outputs.map(p => ({ type: p.type, name: p.name })),
   };
 
-  const outputsAbi = method.outputs.map(p => ({ type: p.type, name: p.name }));
-
-  return `import { createPublicClient, createWalletClient, http, webSocket, encodeFunctionData, parseEther, decodeEventLog } from 'viem';
+  return `import { createPublicClient, createWalletClient, http, webSocket, encodeFunctionData, decodeEventLog } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
-const PLATFORM_ADDRESS = '${CONTRACT_ADDRESS}';
+const PLATFORM_ADDRESS = '${SOMNIA_AGENTS_V2_ADDRESS}';
 const RPC_URL = 'https://dream-rpc.somnia.network/';
 const WS_URL = 'wss://dream-rpc.somnia.network/ws';
 
-// Response status codes
-const STATUS_PENDING = 0;
-const STATUS_SUCCESS = 1;
-const STATUS_FAILED = 2;
-const STATUS_TIMED_OUT = 3;
-
-// Platform ABI
+// Platform ABI (subset)
 const platformAbi = [
   {
     type: 'function',
-    name: 'requestAgent',
-    inputs: [{
-      type: 'tuple',
-      name: 'requestData',
-      components: [
-        { type: 'uint256', name: 'agentId' },
-        { type: 'bytes', name: 'request' },
-        { type: 'address', name: 'callbackAddress' },
-        { type: 'bytes4', name: 'callbackSelector' }
-      ]
-    }],
-    outputs: [{ type: 'uint256', name: 'requestId' }]
+    name: 'createRequest',
+    inputs: [
+      { type: 'uint256', name: 'agentId' },
+      { type: 'address', name: 'callbackAddress' },
+      { type: 'bytes4', name: 'callbackSelector' },
+      { type: 'bytes', name: 'payload' }
+    ],
+    outputs: [{ type: 'uint256', name: 'requestId' }],
+    stateMutability: 'payable'
+  },
+  {
+    type: 'function',
+    name: 'getRequestDeposit',
+    inputs: [],
+    outputs: [{ type: 'uint256', name: '' }],
+    stateMutability: 'view'
   },
   {
     type: 'event',
@@ -148,7 +142,7 @@ const platformAbi = [
     inputs: [
       { type: 'uint256', name: 'requestId', indexed: true },
       { type: 'uint256', name: 'agentId', indexed: true },
-      { type: 'uint256', name: 'maxCost', indexed: false },
+      { type: 'uint256', name: 'maxCostPerAgent', indexed: false },
       { type: 'bytes', name: 'payload', indexed: false },
       { type: 'address[]', name: 'subcommittee', indexed: false }
     ]
@@ -179,10 +173,10 @@ const platformAbi = [
   }
 ] as const;
 
-// Agent method ABI (for encoding request)
+// Agent method ABI (for encoding the payload)
 const agentMethodAbi = [${JSON.stringify(methodAbi, null, 2)}] as const;
 
-async function invokeAgentAndWaitForResponse() {
+async function invokeAgent() {
   const account = privateKeyToAccount('0x...'); // Your private key
 
   const walletClient = createWalletClient({
@@ -194,31 +188,37 @@ async function invokeAgentAndWaitForResponse() {
     transport: webSocket(WS_URL)
   });
 
-  // 1. Encode the FULL function call (selector + parameters)
-  const request = encodeFunctionData({
+  // 1. Encode the agent function call (selector + parameters)
+  const payload = encodeFunctionData({
     abi: agentMethodAbi,
     functionName: '${method.name}',
     args: [${method.inputs.map(p => `/* ${p.name}: ${p.type} */`).join(', ')}]
   });
 
-  // 2. Send request (no callback - we'll watch for events)
-  //    For on-chain callbacks, use the Solidity example instead
+  // 2. Get the required deposit
+  const deposit = await publicClient.readContract({
+    address: PLATFORM_ADDRESS,
+    abi: platformAbi,
+    functionName: 'getRequestDeposit'
+  });
+
+  // 3. Send request (no callback - we'll watch for events)
   const hash = await walletClient.writeContract({
     address: PLATFORM_ADDRESS,
     abi: platformAbi,
-    functionName: 'requestAgent',
-    args: [{
-      agentId: ${agentIdValue},
-      request,
-      callbackAddress: '0x0000000000000000000000000000000000000000',
-      callbackSelector: '0x00000000'
-    }],
-    value: parseEther(${priceValue})
+    functionName: 'createRequest',
+    args: [
+      ${agentIdValue},                                          // agentId
+      '0x0000000000000000000000000000000000000000', // no callback
+      '0x00000000',                                 // no callback selector
+      payload
+    ],
+    value: deposit
   });
 
   console.log('Transaction submitted:', hash);
 
-  // 3. Wait for transaction and extract requestId from RequestCreated event
+  // 4. Wait for transaction and extract requestId
   const receipt = await publicClient.waitForTransactionReceipt({ hash });
   const createdLog = receipt.logs.find(log => {
     try {
@@ -230,7 +230,7 @@ async function invokeAgentAndWaitForResponse() {
   const requestId = createdLog?.args?.requestId;
   console.log('Request ID:', requestId);
 
-  // 4. Watch for RequestFinalized event (covers Success, Failed, and TimedOut)
+  // 5. Watch for RequestFinalized event
   return new Promise((resolve, reject) => {
     const unwatch = publicClient.watchContractEvent({
       address: PLATFORM_ADDRESS,
@@ -242,20 +242,20 @@ async function invokeAgentAndWaitForResponse() {
             unwatch();
             const status = Number(log.args.status);
 
-            // 5. Read responses from the contract
+            // 6. Read responses
             publicClient.readContract({
               address: PLATFORM_ADDRESS,
               abi: platformAbi,
               functionName: 'getResponses',
               args: [requestId]
             }).then(responses => {
-              console.log('Finalized! Status:', status === STATUS_SUCCESS ? 'Success' : status === STATUS_FAILED ? 'Failed' : 'TimedOut');
+              console.log('Status:', status === 1 ? 'Success' : status === 2 ? 'Failed' : 'TimedOut');
               console.log('Responses:', responses);
 
-              if (status === STATUS_SUCCESS) {
+              if (status === 1) {
                 resolve({ status: 'success', responses });
               } else {
-                reject(new Error(status === STATUS_FAILED ? 'Agent execution failed' : 'Request timed out'));
+                reject(new Error(status === 2 ? 'Agent execution failed' : 'Request timed out'));
               }
             });
           }
@@ -265,4 +265,3 @@ async function invokeAgentAndWaitForResponse() {
   });
 }`;
 }
-
