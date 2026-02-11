@@ -14,7 +14,10 @@ import {
 } from "@/lib/contract";
 import { TokenMetadata, AbiFunction, getAbiFunctions } from "@/lib/types";
 import { encodeFunctionCall, parseInputValue } from "@/lib/abi-utils";
+import { generateSolidityExample, generateViemExample } from "@/lib/code-generators";
 import { DecodedData } from "@/components/DecodedData";
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ReceiptViewer, ResultDisplay, RequestDisplay } from "@/components/ReceiptViewer";
 import { fetchReceipts } from "@/lib/receipts";
 import {
@@ -70,6 +73,8 @@ export default function AgentRequestPage() {
     // Method selection state
     const [selectedMethod, setSelectedMethod] = useState<AbiFunction | null>(null);
     const [inputValues, setInputValues] = useState<Record<string, string>>({});
+    const [activeTab, setActiveTab] = useState<"run" | "solidity" | "viem">("run");
+    const [copied, setCopied] = useState(false);
     const { data: requestDeposit } = useReadContract({
         address: SOMNIA_AGENTS_V2_ADDRESS,
         abi: SOMNIA_AGENTS_V2_ABI,
@@ -306,6 +311,29 @@ export default function AgentRequestPage() {
     const methods = metadata ? getAbiFunctions(metadata) : [];
     const isLoading = isSimulating || isPending || isConfirming;
 
+    const getCode = () => {
+        if (!selectedMethod) return '';
+        switch (activeTab) {
+            case 'solidity': return generateSolidityExample(selectedMethod, agentId);
+            case 'viem': return generateViemExample(selectedMethod, agentId);
+            default: return '';
+        }
+    };
+
+    const getLanguage = () => {
+        switch (activeTab) {
+            case 'solidity': return 'solidity';
+            case 'viem': return 'typescript';
+            default: return 'text';
+        }
+    };
+
+    const copyToClipboard = () => {
+        navigator.clipboard.writeText(getCode());
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+
     if (loading) {
         return (
             <div className="space-y-6">
@@ -441,7 +469,49 @@ export default function AgentRequestPage() {
                                 )}
                             </div>
 
-                            {/* Input Form */}
+                            {/* Tabs: Run / Solidity / TypeScript */}
+                            <div className="flex items-center justify-between mb-4">
+                                <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                                    {activeTab === 'run' ? 'Execute Method' : 'Integration Snippets'}
+                                </h5>
+                                <div className="flex bg-black/40 rounded-lg p-1 gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('run')}
+                                        className={`px-3 py-1.5 text-xs rounded-md transition-all flex items-center gap-1 ${activeTab === 'run'
+                                            ? 'bg-purple-600 text-white font-bold shadow-sm'
+                                            : 'text-gray-400 hover:text-white hover:bg-white/5'
+                                        }`}
+                                    >
+                                        <Play className="w-3 h-3" /> Run
+                                    </button>
+                                    <div className="w-[1px] bg-white/10 mx-1"></div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('solidity')}
+                                        className={`px-3 py-1.5 text-xs rounded-md transition-all ${activeTab === 'solidity'
+                                            ? 'bg-white/10 text-white font-semibold'
+                                            : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                        }`}
+                                    >
+                                        Solidity
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTab('viem')}
+                                        className={`px-3 py-1.5 text-xs rounded-md transition-all ${activeTab === 'viem'
+                                            ? 'bg-white/10 text-white font-semibold'
+                                            : 'text-gray-500 hover:text-gray-300 hover:bg-white/5'
+                                        }`}
+                                    >
+                                        TypeScript
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Tab Content */}
+                            {activeTab === 'run' ? (
+                            <>
                             <form onSubmit={handleCreateRequest} className="space-y-4">
                                 {selectedMethod.inputs.length > 0 ? (
                                     <div className="space-y-4">
@@ -661,6 +731,32 @@ export default function AgentRequestPage() {
                                             )}
                                         </div>
                                     )}
+                                </div>
+                            )}
+                            </>
+                            ) : (
+                                <div className="relative group">
+                                    <div className="rounded-lg overflow-hidden border border-white/5 shadow-inner">
+                                        <SyntaxHighlighter
+                                            language={getLanguage()}
+                                            style={vscDarkPlus}
+                                            customStyle={{
+                                                margin: 0,
+                                                padding: '1rem',
+                                                fontSize: '0.75rem',
+                                                backgroundColor: 'rgba(2, 6, 23, 0.8)'
+                                            }}
+                                            wrapLongLines={true}
+                                        >
+                                            {getCode()}
+                                        </SyntaxHighlighter>
+                                    </div>
+                                    <button
+                                        onClick={copyToClipboard}
+                                        className="absolute top-2 right-2 px-2 py-1 bg-white/10 text-gray-300 text-xs rounded hover:bg-white/20 transition-colors backdrop-blur-sm opacity-0 group-hover:opacity-100"
+                                    >
+                                        {copied ? "Copied!" : "Copy"}
+                                    </button>
                                 </div>
                             )}
                         </div>
