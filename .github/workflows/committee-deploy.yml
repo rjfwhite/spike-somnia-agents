@@ -15,7 +15,7 @@ env:
   REPO_NAME: agent-runner-repo
   IMAGE_NAME: agent-runner
   SOMNIA_AGENTS_CONTRACT: "0xE7f05032Dcf41dd49721D2C1bf6DCEF4BB4be600"
-  LLM_UPSTREAM_URL: "https://kgjh5inrp412t4-8000.proxy.runpod.net"
+  LLM_UPSTREAM_URL: "https://m0ssj4mr04ozky-8000.proxy.runpod.net"
 
 jobs:
   build-and-deploy:
