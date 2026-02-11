@@ -68,6 +68,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Ensure INPUT chain allows sandbox->host traffic (needed on COS where INPUT policy is DROP)
+	inputPorts := []int{cfg.SandboxProxyPort}
+	if cfg.LLMProxyEnabled {
+		inputPorts = append(inputPorts, cfg.LLMProxyPort)
+	}
+	if err := sandbox.EnsureInputRules(sandboxNet, inputPorts); err != nil {
+		slog.Warn("Failed to add INPUT rules for sandbox", "error", err)
+	}
+
 	// Check 3: Stale containers cleanup
 	if _, err := checker.CheckStaleContainers(ctx); err != nil {
 		// Log but don't fail - partial cleanup is okay

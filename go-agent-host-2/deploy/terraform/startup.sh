@@ -106,6 +106,10 @@ if [ -n "$LLM_UPSTREAM_URL" ]; then
   if [ -n "$LLM_API_KEY" ]; then
     LLM_FLAGS="$LLM_FLAGS --llm-api-key=$LLM_API_KEY"
   fi
+
+  # COS has INPUT policy DROP — allow sandbox containers to reach host proxy ports
+  log "Adding iptables INPUT rule for sandbox->host proxy traffic"
+  iptables -I INPUT 2 -s 172.30.0.0/16 -d 172.30.0.1 -p tcp -m multiport --dports 11434,3128 -j ACCEPT || true
 fi
 
 docker run -d \

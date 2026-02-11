@@ -116,3 +116,51 @@ func (f *FirewallRules) Apply() error {
 	slog.Info("Firewall rules applied successfully")
 	return nil
 }
+
+// EnsureInputRules adds iptables INPUT rules to allow sandbox containers
+// to reach host services (proxies) on the gateway IP. This is needed on
+// systems like COS where the INPUT chain policy is DROP.
+// Unlike Apply(), this is safe to call unconditionally — it only adds
+// ACCEPT rules for the specific subnet/ports and is idempotent.
+func EnsureInputRules(net *NetworkInfo, allowedPorts []int) error {
+	ipt, err := iptables.NewWithProtocol(iptables.ProtocolIPv4)
+	if err != nil {
+		slog.Warn("iptables not available, skipping INPUT rules", "error", err)
+		return nil
+	}
+
+	portStrs := make([]string, 0, len(allowedPorts))
+	for _, p := range allowedPorts {
+		portStrs = append(portStrs, fmt.Sprintf("%d", p))
+	}
+	portList := strings.Join(portStrs, ",")
+
+	rule := []string{
+		"-s", net.Subnet,
+		"-d", net.Gateway,
+		"-p", "tcp",
+		"-m", "multiport", "--dports", portList,
+		"-j", "ACCEPT",
+	}
+
+	exists, err := ipt.Exists("filter", "INPUT", rule...)
+	if err != nil {
+		slog.Warn("Failed to check INPUT rule existence", "error", err)
+		return nil
+	}
+	if exists {
+		slog.Debug("INPUT rule for sandbox already exists")
+		return nil
+	}
+
+	if err := ipt.Insert("filter", "INPUT", 2, rule...); err != nil {
+		return fmt.Errorf("failed to add INPUT ACCEPT rule for sandbox: %w", err)
+	}
+
+	slog.Info("Added INPUT rule for sandbox->host proxy traffic",
+		"subnet", net.Subnet,
+		"gateway", net.Gateway,
+		"ports", allowedPorts,
+	)
+	return nil
+}
