@@ -521,20 +521,6 @@ func (m *Manager) EnsureRunning(agentURL string) (int, bool, error) {
 	// Build environment variables
 	var envVars []string
 	if m.sandboxNetwork != nil {
-		proxyURL := fmt.Sprintf("http://%s:%d", m.sandboxNetwork.Gateway, m.sandboxNetwork.ProxyPort)
-		envVars = append(envVars,
-			"HTTP_PROXY="+proxyURL,
-			"HTTPS_PROXY="+proxyURL,
-			"http_proxy="+proxyURL,
-			"https_proxy="+proxyURL,
-			"NO_PROXY=localhost,127.0.0.1",
-			"no_proxy=localhost,127.0.0.1",
-		)
-		slog.Debug("Injecting proxy environment variables",
-			"proxy_url", proxyURL,
-			"container", containerName,
-		)
-
 		// Inject LLM proxy configuration if enabled
 		if m.sandboxNetwork.LLMProxyPort > 0 {
 			llmBaseURL := fmt.Sprintf("http://%s:%d/v1", m.sandboxNetwork.Gateway, m.sandboxNetwork.LLMProxyPort)
