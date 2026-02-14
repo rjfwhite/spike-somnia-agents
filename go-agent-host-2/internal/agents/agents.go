@@ -209,16 +209,31 @@ func (m *Manager) downloadImage(agentURL, versionHash string) (string, error) {
 
 	if err := os.MkdirAll(m.imageCacheDir, 0755); err != nil {
 		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Image download failed: cannot create cache directory",
+			"url", agentURL,
+			"version", versionHash,
+			"cache_dir", m.imageCacheDir,
+			"error", err,
+		)
 		return "", fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
 	filePath := filepath.Join(m.imageCacheDir, versionHash+".tar")
 
-	slog.Info("Downloading image", "url", agentURL)
+	slog.Info("Downloading container image",
+		"url", agentURL,
+		"version", versionHash,
+		"destination", filePath,
+	)
 
 	req, err := http.NewRequest("GET", agentURL, nil)
 	if err != nil {
 		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Image download failed: cannot create HTTP request",
+			"url", agentURL,
+			"version", versionHash,
+			"error", err,
+		)
 		return "", fmt.Errorf("failed to create GET request: %w", err)
 	}
 	req.Header.Set("Accept", "application/x-tar, application/octet-stream, */*")
@@ -226,41 +241,99 @@ func (m *Manager) downloadImage(agentURL, versionHash string) (string, error) {
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Image download failed: HTTP request failed",
+			"url", agentURL,
+			"version", versionHash,
+			"error", err,
+		)
 		return "", fmt.Errorf("failed to download image: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Image download failed: HTTP error response",
+			"url", agentURL,
+			"version", versionHash,
+			"status_code", resp.StatusCode,
+			"status", resp.Status,
+		)
 		return "", fmt.Errorf("failed to download image: %d %s", resp.StatusCode, resp.Status)
 	}
+
+	// Log content size if available
+	contentLength := resp.Header.Get("Content-Length")
+	slog.Info("Image download started",
+		"url", agentURL,
+		"version", versionHash,
+		"content_length", contentLength,
+		"content_type", resp.Header.Get("Content-Type"),
+	)
 
 	file, err := os.Create(filePath)
 	if err != nil {
 		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Image download failed: cannot create cache file",
+			"url", agentURL,
+			"version", versionHash,
+			"path", filePath,
+			"error", err,
+		)
 		return "", fmt.Errorf("failed to create cache file: %w", err)
 	}
 	defer file.Close()
 
-	_, err = io.Copy(file, resp.Body)
+	bytesWritten, err := io.Copy(file, resp.Body)
 	if err != nil {
 		metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Image download failed: write error",
+			"url", agentURL,
+			"version", versionHash,
+			"bytes_written", bytesWritten,
+			"error", err,
+		)
 		return "", fmt.Errorf("failed to write cache file: %w", err)
 	}
 
 	metrics.ImageDownloadsTotal.WithLabelValues(agentURL, "success").Inc()
-	metrics.ImageDownloadDuration.WithLabelValues(agentURL).Observe(time.Since(start).Seconds())
+	duration := time.Since(start)
+	metrics.ImageDownloadDuration.WithLabelValues(agentURL).Observe(duration.Seconds())
 
-	slog.Debug("Downloaded image", "path", filePath)
+	slog.Info("Image download complete",
+		"url", agentURL,
+		"version", versionHash,
+		"path", filePath,
+		"bytes", bytesWritten,
+		"duration_ms", duration.Milliseconds(),
+	)
 	return filePath, nil
 }
 
 // loadImage loads a Docker image from a tar file.
 func (m *Manager) loadImage(tarPath string) (string, error) {
-	slog.Debug("Loading Docker image", "path", tarPath)
+	start := time.Now()
+
+	// Get file info for logging
+	fileInfo, err := os.Stat(tarPath)
+	if err != nil {
+		slog.Error("Image load failed: cannot stat tar file",
+			"path", tarPath,
+			"error", err,
+		)
+		return "", fmt.Errorf("failed to stat tar file: %w", err)
+	}
+
+	slog.Info("Loading Docker image from tar",
+		"path", tarPath,
+		"size_bytes", fileInfo.Size(),
+	)
 
 	file, err := os.Open(tarPath)
 	if err != nil {
+		slog.Error("Image load failed: cannot open tar file",
+			"path", tarPath,
+			"error", err,
+		)
 		return "", fmt.Errorf("failed to open tar file: %w", err)
 	}
 	defer file.Close()
@@ -268,6 +341,10 @@ func (m *Manager) loadImage(tarPath string) (string, error) {
 	ctx := context.Background()
 	resp, err := m.client.ImageLoad(ctx, file, true)
 	if err != nil {
+		slog.Error("Image load failed: Docker ImageLoad error",
+			"path", tarPath,
+			"error", err,
+		)
 		return "", fmt.Errorf("failed to load image: %w", err)
 	}
 	defer resp.Body.Close()
@@ -278,6 +355,11 @@ func (m *Manager) loadImage(tarPath string) (string, error) {
 
 	re := regexp.MustCompile(`Loaded image[: ]+([^\s"\\]+)`)
 	if match := re.FindStringSubmatch(outputStr); match != nil {
+		slog.Info("Docker image loaded successfully",
+			"path", tarPath,
+			"image_name", match[1],
+			"duration_ms", time.Since(start).Milliseconds(),
+		)
 		return match[1], nil
 	}
 
@@ -289,11 +371,20 @@ func (m *Manager) loadImage(tarPath string) (string, error) {
 		}
 		if err := json.Unmarshal([]byte(line), &jsonLine); err == nil && jsonLine.Stream != "" {
 			if match := re.FindStringSubmatch(jsonLine.Stream); match != nil {
+				slog.Info("Docker image loaded successfully",
+					"path", tarPath,
+					"image_name", match[1],
+					"duration_ms", time.Since(start).Milliseconds(),
+				)
 				return match[1], nil
 			}
 		}
 	}
 
+	slog.Error("Image load failed: could not parse image name from Docker output",
+		"path", tarPath,
+		"docker_output", outputStr,
+	)
 	return "", fmt.Errorf("could not parse image name from: %s", outputStr)
 }
 
@@ -353,23 +444,64 @@ func (m *Manager) streamContainerLogs(containerID, versionHash, agentURL string)
 
 // waitForContainerReady waits for a container to be ready to accept requests.
 func (m *Manager) waitForContainerReady(port int, maxAttempts int, delayMs int) error {
-	slog.Debug("Waiting for container", "port", port)
+	slog.Info("Waiting for container readiness",
+		"port", port,
+		"max_attempts", maxAttempts,
+		"delay_ms", delayMs,
+	)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
+
+	var lastError error
+	consecutiveConnectionRefused := 0
 
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		url := fmt.Sprintf("http://localhost:%d/", port)
 		resp, err := client.Get(url)
 		if err == nil {
 			resp.Body.Close()
-			slog.Debug("Container ready", "port", port, "attempts", attempt)
+			slog.Info("Container ready",
+				"port", port,
+				"attempts", attempt,
+				"status_code", resp.StatusCode,
+			)
 			return nil
 		}
 
+		lastError = err
+		errStr := err.Error()
+
+		// Track connection refused errors specifically - this often indicates
+		// the container is listening on 127.0.0.1 instead of 0.0.0.0
+		if strings.Contains(errStr, "connection refused") {
+			consecutiveConnectionRefused++
+		} else {
+			consecutiveConnectionRefused = 0
+		}
+
+		// Log every 5 attempts to avoid spam
+		if attempt%5 == 0 || attempt == 1 {
+			slog.Debug("Container readiness check failed",
+				"port", port,
+				"attempt", attempt,
+				"max_attempts", maxAttempts,
+				"error", errStr,
+			)
+		}
+
+		// If we get many consecutive connection refused errors, warn early
+		if consecutiveConnectionRefused >= 5 && attempt < maxAttempts {
+			slog.Warn("Container readiness: persistent connection refused - container may be listening on 127.0.0.1 instead of 0.0.0.0",
+				"port", port,
+				"attempts", attempt,
+				"consecutive_refused", consecutiveConnectionRefused,
+			)
+		}
+
 		if attempt == maxAttempts {
-			return fmt.Errorf("container did not become ready after %d attempts", maxAttempts)
+			return fmt.Errorf("container did not become ready after %d attempts: %w", maxAttempts, lastError)
 		}
 
 		time.Sleep(time.Duration(delayMs) * time.Millisecond)
@@ -603,7 +735,13 @@ func (m *Manager) EnsureRunning(agentURL string) (int, bool, error) {
 	metrics.ContainersActive.WithLabelValues(agentURL).Inc()
 	m.containersMutex.Unlock()
 
-	slog.Info("Container started", "url", fmt.Sprintf("http://localhost:%d", hostPort))
+	slog.Info("Container started",
+		"container_id", resp.ID[:12],
+		"agent_url", agentURL,
+		"version", versionHash,
+		"host_port", hostPort,
+		"image", imageName,
+	)
 
 	if err := m.waitForContainerReady(hostPort, 30, 1000); err != nil {
 		metrics.ContainerOperationsTotal.WithLabelValues(agentURL, "start", "error").Inc()
@@ -618,17 +756,35 @@ func (m *Manager) EnsureRunning(agentURL string) (int, bool, error) {
 
 // Forward forwards a request to an agent container using JSON-in-JSON-out protocol.
 func (m *Manager) Forward(agentURL string, body []byte, headers map[string]string) (*Response, error) {
-	port, _, err := m.EnsureRunning(agentURL)
+	requestID := headers["X-Request-Id"]
+
+	slog.Info("Forwarding request to container",
+		"request_id", requestID,
+		"agent_url", agentURL,
+		"payload_size", len(body),
+	)
+
+	port, newlyStarted, err := m.EnsureRunning(agentURL)
 	if err != nil {
 		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Forward failed: container not running",
+			"request_id", requestID,
+			"agent_url", agentURL,
+			"error", err,
+		)
 		return nil, err
 	}
 
 	start := time.Now()
 	url := fmt.Sprintf("http://localhost:%d/", port)
 
+	slog.Debug("Container ready for request",
+		"request_id", requestID,
+		"port", port,
+		"newly_started", newlyStarted,
+	)
+
 	requestHex := "0x" + hex.EncodeToString(body)
-	requestID := headers["X-Request-Id"]
 
 	jsonRequest := map[string]string{
 		"requestId": requestID,
@@ -638,12 +794,22 @@ func (m *Manager) Forward(agentURL string, body []byte, headers map[string]strin
 	jsonBody, err := json.Marshal(jsonRequest)
 	if err != nil {
 		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Forward failed: cannot marshal request",
+			"request_id", requestID,
+			"agent_url", agentURL,
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonBody))
 	if err != nil {
 		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Forward failed: cannot create HTTP request",
+			"request_id", requestID,
+			"agent_url", agentURL,
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -651,13 +817,41 @@ func (m *Manager) Forward(agentURL string, body []byte, headers map[string]strin
 	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
-		return nil, fmt.Errorf("failed to forward request: %w", err)
+
+		// Provide detailed diagnostics for connection errors
+		errMsg := err.Error()
+		var diagnosis string
+		if strings.Contains(errMsg, "connection refused") {
+			diagnosis = "Container may have crashed or may be listening on 127.0.0.1 instead of 0.0.0.0"
+		} else if strings.Contains(errMsg, "connection reset") {
+			diagnosis = "Container closed the connection unexpectedly"
+		} else if strings.Contains(errMsg, "timeout") || strings.Contains(errMsg, "deadline exceeded") {
+			diagnosis = "Container is not responding in time - may be overloaded or hung"
+		} else if strings.Contains(errMsg, "EOF") {
+			diagnosis = "Container closed connection before sending response"
+		}
+
+		slog.Error("Forward failed: HTTP request to container failed",
+			"request_id", requestID,
+			"agent_url", agentURL,
+			"port", port,
+			"error", errMsg,
+			"diagnosis", diagnosis,
+		)
+
+		return nil, fmt.Errorf("failed to forward request to agent: %w", err)
 	}
 	defer resp.Body.Close()
 
 	responseText, err := io.ReadAll(resp.Body)
 	if err != nil {
 		metrics.AgentRequestsTotal.WithLabelValues(agentURL, "error").Inc()
+		slog.Error("Forward failed: cannot read response body",
+			"request_id", requestID,
+			"agent_url", agentURL,
+			"status_code", resp.StatusCode,
+			"error", err,
+		)
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
@@ -682,9 +876,19 @@ func (m *Manager) Forward(agentURL string, body []byte, headers map[string]strin
 		responseBody = responseText
 	}
 
+	duration := time.Since(start)
 	statusCode := fmt.Sprintf("%d", resp.StatusCode)
 	metrics.AgentRequestsTotal.WithLabelValues(agentURL, statusCode).Inc()
-	metrics.AgentRequestDuration.WithLabelValues(agentURL).Observe(time.Since(start).Seconds())
+	metrics.AgentRequestDuration.WithLabelValues(agentURL).Observe(duration.Seconds())
+
+	slog.Info("Forward complete",
+		"request_id", requestID,
+		"agent_url", agentURL,
+		"status_code", resp.StatusCode,
+		"response_size", len(responseBody),
+		"duration_ms", duration.Milliseconds(),
+		"has_receipt", receipt != nil,
+	)
 
 	return &Response{
 		Status:  resp.StatusCode,
@@ -692,6 +896,7 @@ func (m *Manager) Forward(agentURL string, body []byte, headers map[string]strin
 		Receipt: receipt,
 	}, nil
 }
+
 
 // Cleanup removes all running containers.
 func (m *Manager) Cleanup() {
