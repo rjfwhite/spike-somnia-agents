@@ -18,6 +18,12 @@ const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/triggers/E03DJ6FHZQD/10388673
 
 const DEFAULT_NUM_REQUESTS = 20;
 
+// Pre-encoded createRequest calldata for LLM agent (agentId 1544433800053681703)
+// Payload: "what is the color of cheese?" with system prompt "answer one word only /no_think"
+// Pre-encoded calldata: createRequest(agentId=1544433800053681703, ...)
+// Payload: "what is the color of cheese?" / "answer one word only /no_think"
+const LLM_REQUEST_CALLDATA = '0xaee3c00b000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001c776861742069732074686520636f6c6f72206f66206368656573653f00000000000000000000000000000000000000000000000000000000000000000000001e616e73776572206f6e6520776f7264206f6e6c79202f6e6f5f7468696e6b0000' as `0x${string}`;
+
 async function postToSlack(message: string): Promise<void> {
   try {
     await fetch(SLACK_WEBHOOK_URL, {
@@ -69,10 +75,11 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const numRequests = Math.max(1, parseInt(searchParams.get('n') || String(DEFAULT_NUM_REQUESTS), 10) || DEFAULT_NUM_REQUESTS);
+    const mode = searchParams.get('mode') || 'add'; // 'add' or 'llm'
     const sessionSeed = process.env.SESSION_SEED || '0x84d9bfc4bb7d2a83a068e41f063dc7afcb182f439ac320840940ceb01475072f';
 
     const sessionAddress = await jsonRpc('somnia_getSessionAddress', [sessionSeed]) as string;
-    console.log(`[Qualifier] Session: ${sessionAddress}, sending ${numRequests} requests`);
+    console.log(`[Qualifier] Session: ${sessionAddress}, mode: ${mode}, sending ${numRequests} requests`);
 
     // Step 1: Read required deposit
     const httpClient = createPublicClient({
@@ -130,25 +137,31 @@ export async function GET(request: Request) {
     let sendErrors = 0;
 
     const sendPromises = Array.from({ length: numRequests }, async (_, i) => {
-      const a = BigInt(Math.floor(Math.random() * 100));
-      const b = BigInt(Math.floor(Math.random() * 100));
+      let calldata: `0x${string}`;
 
-      const agentPayload = encodeFunctionData({
-        abi: agentMethodAbi,
-        functionName: 'add',
-        args: [a, b]
-      });
+      if (mode === 'llm') {
+        calldata = LLM_REQUEST_CALLDATA;
+      } else {
+        const a = BigInt(Math.floor(Math.random() * 100));
+        const b = BigInt(Math.floor(Math.random() * 100));
 
-      const calldata = encodeFunctionData({
-        abi: SOMNIA_AGENTS_V2_ABI,
-        functionName: 'createRequest',
-        args: [
-          BigInt('6857928810370910649'),
-          '0x0000000000000000000000000000000000000000' as `0x${string}`,
-          '0x00000000' as `0x${string}`,
-          agentPayload
-        ]
-      });
+        const agentPayload = encodeFunctionData({
+          abi: agentMethodAbi,
+          functionName: 'add',
+          args: [a, b]
+        });
+
+        calldata = encodeFunctionData({
+          abi: SOMNIA_AGENTS_V2_ABI,
+          functionName: 'createRequest',
+          args: [
+            BigInt('6857928810370910649'),
+            '0x0000000000000000000000000000000000000000' as `0x${string}`,
+            '0x00000000' as `0x${string}`,
+            agentPayload
+          ]
+        });
+      }
 
       try {
         const txResult = await jsonRpc('somnia_sendSessionTransaction', [{
@@ -197,7 +210,7 @@ export async function GET(request: Request) {
     };
 
     const message = [
-      `Qualifier Batch Complete (${numRequests} requests)`,
+      `Qualifier Batch Complete (${numRequests} ${mode} requests)`,
       ``,
       `Submitted:  ${submitted}`,
       `Send errors: ${sendErrors}`,
@@ -216,6 +229,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       sessionAddress,
+      mode,
       stats,
       timings: {
         submitAll: `${submitDuration}ms`,
