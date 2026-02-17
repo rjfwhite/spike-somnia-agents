@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createPublicClient, http, webSocket, decodeFunctionData, type Hex } from "viem";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_RPC_URL, Agent } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import type { TokenMetadata, AbiFunction } from "@/lib/types";
 import { decodeAbi, formatDecodedValue } from "@/lib/abi-utils";
 
@@ -104,6 +105,9 @@ function decodeResponseData(responseData: string, methodName: string | undefined
 }
 
 export function EventStream() {
+  const { currentNetwork } = useNetwork();
+  const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
+  const SOMNIA_RPC_URL = currentNetwork.rpcUrl;
   const [events, setEvents] = useState<Map<string, RequestEvent>>(new Map());
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
   const [metadataCache, setMetadataCache] = useState<Map<string, TokenMetadata>>(new Map());
@@ -155,7 +159,7 @@ export function EventStream() {
 
   useEffect(() => {
     // Use WebSocket for real-time event streaming
-    const wsUrl = SOMNIA_RPC_URL.replace('https://', 'wss://').replace('http://', 'ws://') + 'ws';
+    const wsUrl = currentNetwork.wsUrl;
     const client = createPublicClient({
       transport: webSocket(wsUrl),
     });

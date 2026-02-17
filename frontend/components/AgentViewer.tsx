@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useReadContract } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import type { TokenMetadata, AbiFunction } from "@/lib/types";
 import { getAbiFunctions } from "@/lib/types";
 import { MethodViewer } from "./MethodViewer";
@@ -10,6 +11,8 @@ import Link from "next/link";
 import { Settings } from "lucide-react";
 
 export function AgentViewer({ initialAgentId }: { initialAgentId?: string }) {
+  const { currentNetwork } = useNetwork();
+  const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
   const [agentId, setAgentId] = useState<string>(initialAgentId || "1");
   const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
   const [metadataLoading, setMetadataLoading] = useState(false);

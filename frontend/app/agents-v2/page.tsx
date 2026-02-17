@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAccount, useReadContract, usePublicClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { AGENT_REGISTRY_V2_ADDRESS, AGENT_REGISTRY_V2_ABI, Agent } from "@/lib/contract";
+import { AGENT_REGISTRY_V2_ABI, Agent } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { TokenMetadata, getAbiFunctions } from "@/lib/types";
 import { uploadFile } from "@/lib/files";
 import {
@@ -47,6 +48,8 @@ interface AgentData {
 export default function AgentsV2Page() {
     const { address, isConnected } = useAccount();
     const publicClient = usePublicClient();
+    const { currentNetwork } = useNetwork();
+    const AGENT_REGISTRY_V2_ADDRESS = currentNetwork.contracts.agentRegistry;
     const [agents, setAgents] = useState<AgentData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

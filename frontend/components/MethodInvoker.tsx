@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt, usePublicClient, useAccount } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { formatEther, decodeEventLog } from "viem";
 import type { AbiFunction } from "@/lib/types";
 import { encodeFunctionCall, parseInputValue } from "@/lib/abi-utils";
@@ -33,6 +34,8 @@ const ZERO_SELECTOR = "0x00000000" as const;
 export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
     const [inputValues, setInputValues] = useState<Record<string, string>>({});
     const [trackedRequest, setTrackedRequest] = useState<TrackedRequest | null>(null);
+    const { currentNetwork } = useNetwork();
+    const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
 
     const publicClient = usePublicClient();
     const { address: userAddress } = useAccount();

@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { CONTRACT_ADDRESS } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 
 export function MintAgent() {
+  const { currentNetwork } = useNetwork();
+  const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
   return (
     <div className="glass-panel rounded-xl shadow-xl p-8 space-y-6 max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-primary to-secondary">Register Agent</h2>

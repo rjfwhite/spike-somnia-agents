@@ -2,12 +2,14 @@
 
 import { http, createConfig } from "wagmi";
 import { defineChain } from "viem";
-import { SOMNIA_CHAIN_ID, SOMNIA_RPC_URL } from "./contract";
+import { NETWORKS } from "./networks";
 
-// Define the Somnia chain
+const testnetConfig = NETWORKS.testnet;
+const devnetConfig = NETWORKS.devnet;
+
 export const somnia = defineChain({
-  id: SOMNIA_CHAIN_ID,
-  name: "Somnia",
+  id: testnetConfig.chainId,
+  name: "Somnia Testnet",
   nativeCurrency: {
     name: "STT",
     symbol: "STT",
@@ -15,21 +17,42 @@ export const somnia = defineChain({
   },
   rpcUrls: {
     default: {
-      http: [SOMNIA_RPC_URL],
+      http: [testnetConfig.rpcUrl],
     },
   },
   blockExplorers: {
     default: {
       name: "Somnia Explorer",
-      url: "https://explorer.somnia.network",
+      url: testnetConfig.explorerUrl,
+    },
+  },
+});
+
+export const somniaDevnet = defineChain({
+  id: devnetConfig.chainId,
+  name: "Somnia Devnet",
+  nativeCurrency: {
+    name: "STT",
+    symbol: "STT",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: [devnetConfig.rpcUrl],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Somnia Explorer",
+      url: devnetConfig.explorerUrl,
     },
   },
 });
 
 export const config = createConfig({
-  chains: [somnia],
+  chains: [somnia, somniaDevnet],
   transports: {
     [somnia.id]: http(),
+    [somniaDevnet.id]: http(),
   },
 });
-

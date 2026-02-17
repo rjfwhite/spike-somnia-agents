@@ -5,13 +5,11 @@ import { useParams } from "next/navigation";
 import { useAccount, useReadContract, usePublicClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { formatEther, createPublicClient, webSocket, type Hex } from "viem";
 import {
-    SOMNIA_AGENTS_V2_ADDRESS,
     SOMNIA_AGENTS_V2_ABI,
-    AGENT_REGISTRY_V2_ADDRESS,
     AGENT_REGISTRY_V2_ABI,
-    SOMNIA_RPC_URL,
     Agent
 } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { TokenMetadata, AbiFunction, getAbiFunctions } from "@/lib/types";
 import { encodeFunctionCall, parseInputValue } from "@/lib/abi-utils";
 import { generateSolidityExample, generateViemExample } from "@/lib/code-generators";
@@ -63,6 +61,10 @@ export default function AgentRequestPage() {
     const agentId = params.agentId as string;
     const { address, isConnected } = useAccount();
     const publicClient = usePublicClient();
+    const { currentNetwork } = useNetwork();
+    const SOMNIA_AGENTS_V2_ADDRESS = currentNetwork.contracts.somniaAgents;
+    const AGENT_REGISTRY_V2_ADDRESS = currentNetwork.contracts.agentRegistry;
+    const SOMNIA_RPC_URL = currentNetwork.rpcUrl;
 
     // Agent data state
     const [agent, setAgent] = useState<Agent | null>(null);
@@ -194,7 +196,7 @@ export default function AgentRequestPage() {
     useEffect(() => {
         if (!trackedRequest || trackedRequest.status !== 'pending' || !publicClient) return;
 
-        const wsUrl = SOMNIA_RPC_URL.replace("https://", "wss://").replace("http://", "ws://") + "ws";
+        const wsUrl = currentNetwork.wsUrl;
         const client = createPublicClient({
             transport: webSocket(wsUrl),
         });
@@ -314,8 +316,8 @@ export default function AgentRequestPage() {
     const getCode = () => {
         if (!selectedMethod) return '';
         switch (activeTab) {
-            case 'solidity': return generateSolidityExample(selectedMethod, agentId);
-            case 'viem': return generateViemExample(selectedMethod, agentId);
+            case 'solidity': return generateSolidityExample(selectedMethod, agentId, undefined, SOMNIA_AGENTS_V2_ADDRESS);
+            case 'viem': return generateViemExample(selectedMethod, agentId, undefined, SOMNIA_AGENTS_V2_ADDRESS);
             default: return '';
         }
     };

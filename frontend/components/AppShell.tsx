@@ -17,11 +17,15 @@ import {
     FileText,
     Users,
     Box,
-    Send
+    Send,
+    Globe
 } from "lucide-react";
+import { useNetwork } from "@/lib/network-context";
+import { NETWORKS, type NetworkKey } from "@/lib/networks";
 export function AppShell({ children }: { children: React.ReactNode }) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const pathname = usePathname();
+    const { networkKey, setNetwork } = useNetwork();
 
     const navItems = [
         { id: 'agents', label: 'Agents', icon: LayoutGrid, path: '/' },
@@ -125,6 +129,35 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     })}
                 </nav>
 
+                {/* Network Switcher */}
+                <div className="p-4 border-t border-white/5">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Globe className="w-4 h-4 text-gray-500" />
+                        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Network</span>
+                    </div>
+                    <div className="flex gap-1">
+                        {(Object.keys(NETWORKS) as NetworkKey[]).map((key) => {
+                            const isActive = networkKey === key;
+                            const dotColor = key === "testnet" ? "bg-green-500" : "bg-orange-500";
+                            return (
+                                <button
+                                    key={key}
+                                    onClick={() => !isActive && setNetwork(key)}
+                                    className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                                        isActive
+                                            ? "bg-white/10 text-white border border-white/20"
+                                            : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
+                                    }`}
+                                >
+                                    <span className={`w-2 h-2 rounded-full ${dotColor} ${isActive ? "shadow-[0_0_6px]" : "opacity-50"}`}
+                                        style={isActive ? { boxShadow: `0 0 6px ${key === "testnet" ? "#22c55e" : "#f97316"}` } : {}}
+                                    />
+                                    {NETWORKS[key].name}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
             </aside>
 
             {/* Main Content Area */}
@@ -219,6 +252,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                     </Link>
                                 );
                             })}
+
+                            {/* Mobile Network Switcher */}
+                            <div className="mt-6 pt-4 border-t border-white/10">
+                                <div className="flex items-center gap-2 mb-2 px-4">
+                                    <Globe className="w-4 h-4 text-gray-500" />
+                                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Network</span>
+                                </div>
+                                <div className="flex gap-1 px-4">
+                                    {(Object.keys(NETWORKS) as NetworkKey[]).map((key) => {
+                                        const isActive = networkKey === key;
+                                        const dotColor = key === "testnet" ? "bg-green-500" : "bg-orange-500";
+                                        return (
+                                            <button
+                                                key={key}
+                                                onClick={() => !isActive && setNetwork(key)}
+                                                className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                                                    isActive
+                                                        ? "bg-white/10 text-white border border-white/20"
+                                                        : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
+                                                }`}
+                                            >
+                                                <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                                                {NETWORKS[key].name}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </nav>
                     </div>
                 </div>

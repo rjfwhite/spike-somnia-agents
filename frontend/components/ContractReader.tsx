@@ -1,9 +1,15 @@
 "use client";
 
 import { useReadContract } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, SOMNIA_CHAIN_ID, SOMNIA_RPC_URL } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 
 export function ContractReader() {
+  const { currentNetwork } = useNetwork();
+  const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
+  const SOMNIA_CHAIN_ID = currentNetwork.chainId;
+  const SOMNIA_RPC_URL = currentNetwork.rpcUrl;
+
   // Read contract owner
   const { data: owner } = useReadContract({
     address: CONTRACT_ADDRESS,

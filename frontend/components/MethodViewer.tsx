@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { AbiFunction } from "@/lib/types";
 import { generateSolidityExample, generateViemExample } from "@/lib/code-generators";
+import { useNetwork } from "@/lib/network-context";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
@@ -19,11 +20,13 @@ interface MethodViewerProps {
 export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: MethodViewerProps) {
     const [activeTab, setActiveTab] = useState<"solidity" | "viem" | "run">("run");
     const [copied, setCopied] = useState(false);
+    const { currentNetwork } = useNetwork();
+    const platformAddress = currentNetwork.contracts.somniaAgents;
 
     const getCode = () => {
         switch (activeTab) {
-            case 'solidity': return generateSolidityExample(method, agentId, price);
-            case 'viem': return generateViemExample(method, agentId, price);
+            case 'solidity': return generateSolidityExample(method, agentId, price, platformAddress);
+            case 'viem': return generateViemExample(method, agentId, price, platformAddress);
             default: return '';
         }
     };

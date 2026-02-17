@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { useAccount, useReadContract, usePublicClient } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { TokenMetadata } from "@/lib/types";
 import Link from "next/link";
 import { Plus, Loader2, Wallet } from "lucide-react";
@@ -18,6 +19,8 @@ interface MyAgentData {
 export default function MyAgentsPage() {
     const { address, isConnected } = useAccount();
     const publicClient = usePublicClient();
+    const { currentNetwork } = useNetwork();
+    const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
     const [agents, setAgents] = useState<MyAgentData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);

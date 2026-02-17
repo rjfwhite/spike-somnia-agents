@@ -4,15 +4,12 @@ import { useState, useEffect, useCallback } from "react";
 import { useAccount, useReadContract, usePublicClient, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { formatEther, createPublicClient, webSocket, decodeErrorResult, type Hex } from "viem";
 import {
-    SOMNIA_AGENTS_V2_ADDRESS,
     SOMNIA_AGENTS_V2_ABI,
-    AGENT_REGISTRY_V2_ADDRESS,
     AGENT_REGISTRY_V2_ABI,
-    COMMITTEE_CONTRACT_ADDRESS,
     COMMITTEE_ABI,
-    SOMNIA_RPC_URL,
     Agent
 } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { TokenMetadata, AbiFunction, getAbiFunctions } from "@/lib/types";
 import { DecodedData } from "@/components/DecodedData";
 import { ReceiptViewer } from "@/components/ReceiptViewer";
@@ -86,6 +83,11 @@ interface AgentWithMetadata {
 export default function RequestsV2Page() {
     const { address, isConnected } = useAccount();
     const publicClient = usePublicClient();
+    const { currentNetwork } = useNetwork();
+    const SOMNIA_AGENTS_V2_ADDRESS = currentNetwork.contracts.somniaAgents;
+    const AGENT_REGISTRY_V2_ADDRESS = currentNetwork.contracts.agentRegistry;
+    const COMMITTEE_CONTRACT_ADDRESS = currentNetwork.contracts.committee;
+    const SOMNIA_RPC_URL = currentNetwork.rpcUrl;
     const [events, setEvents] = useState<Map<string, RequestEvent[]>>(new Map());
     const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
     const [showCreateForm, setShowCreateForm] = useState(false);
@@ -231,7 +233,7 @@ export default function RequestsV2Page() {
 
     // Watch for events via WebSocket
     useEffect(() => {
-        const wsUrl = SOMNIA_RPC_URL.replace("https://", "wss://").replace("http://", "ws://") + "ws";
+        const wsUrl = currentNetwork.wsUrl;
         const client = createPublicClient({
             transport: webSocket(wsUrl),
         });
@@ -317,7 +319,7 @@ export default function RequestsV2Page() {
             unwatchCreated();
             unwatchFinalized();
         };
-    }, []);
+    }, [currentNetwork]);
 
     // Refetch contract state after successful request
     useEffect(() => {

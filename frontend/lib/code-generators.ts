@@ -1,5 +1,4 @@
 import { AbiFunction } from "./types";
-import { SOMNIA_AGENTS_V2_ADDRESS } from "./contract";
 
 // Helper to add memory qualifier for string and bytes types in function signatures
 function withMemory(type: string): string {
@@ -9,7 +8,8 @@ function withMemory(type: string): string {
   return type;
 }
 
-export function generateSolidityExample(method: AbiFunction, agentId?: string, price?: bigint): string {
+export function generateSolidityExample(method: AbiFunction, agentId?: string, price?: bigint, platformAddress?: string): string {
+  const SOMNIA_AGENTS_V2_ADDRESS = platformAddress || "0x0000000000000000000000000000000000000000";
   const inputs = method.inputs.map(p => `${withMemory(p.type)} ${p.name}`).join(", ");
   const argNames = method.inputs.map(p => p.name).join(", ");
   const outputTypes = method.outputs.map(p => withMemory(p.type)).join(", ");
@@ -97,7 +97,8 @@ contract MyContract {
 }`;
 }
 
-export function generateViemExample(method: AbiFunction, agentId?: string, price?: bigint): string {
+export function generateViemExample(method: AbiFunction, agentId?: string, price?: bigint, platformAddress?: string): string {
+  const SOMNIA_AGENTS_V2_ADDRESS = platformAddress || "0x0000000000000000000000000000000000000000";
   const agentIdValue = agentId ? `${agentId}n` : "1n";
 
   const methodAbi = {

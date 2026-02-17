@@ -6,17 +6,19 @@ import { createPublicClient, http } from "viem";
 import { ReceiptViewer, RequestDisplay } from "@/components/ReceiptViewer";
 import { fetchReceipts } from "@/lib/receipts";
 import {
-    AGENT_REGISTRY_V2_ADDRESS,
     AGENT_REGISTRY_V2_ABI,
-    SOMNIA_RPC_URL,
     Agent
 } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { Loader2, ExternalLink } from "lucide-react";
 import Link from "next/link";
 
 export default function ReceiptPage() {
     const params = useParams();
     const requestId = params.id as string;
+    const { currentNetwork } = useNetwork();
+    const AGENT_REGISTRY_V2_ADDRESS = currentNetwork.contracts.agentRegistry;
+    const SOMNIA_RPC_URL = currentNetwork.rpcUrl;
 
     const [receipts, setReceipts] = useState<any[] | null>(null);
     const [loading, setLoading] = useState(true);

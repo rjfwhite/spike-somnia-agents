@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useAccount, useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI, Agent } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { uploadFile } from "@/lib/files";
 import { X, Check, FileJson, Package, ExternalLink, Loader2, Trash2, AlertTriangle } from "lucide-react";
 
@@ -26,6 +27,8 @@ interface AgentManagerProps {
 
 export function AgentManager({ agentId, initialValues }: AgentManagerProps) {
     const { address, isConnected } = useAccount();
+    const { currentNetwork } = useNetwork();
+    const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
 
     // Read existing agent data
     const { data: agentData, isLoading: isLoadingAgent, refetch } = useReadContract({

@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { usePublicClient } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI, Agent } from "./contract";
+import { SOMNIA_AGENTS_ABI, Agent } from "./contract";
+import { useNetwork } from "./network-context";
 import { TokenMetadata } from "./types";
 
 export interface AgentData {
@@ -28,6 +29,8 @@ export function AgentsProvider({ children }: { children: ReactNode }) {
     const [error, setError] = useState<string | null>(null);
 
     const publicClient = usePublicClient();
+    const { currentNetwork } = useNetwork();
+    const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
 
     const fetchAllAgents = async () => {
         if (!publicClient) return;

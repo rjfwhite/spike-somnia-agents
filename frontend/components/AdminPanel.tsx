@@ -2,7 +2,8 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { uploadFile } from "@/lib/files";
 import { X, Check, FileJson, Package, ExternalLink, Loader2, AlertTriangle, Dices } from "lucide-react";
 import Link from "next/link";
@@ -27,6 +28,8 @@ interface AdminPanelProps {
 
 export function AdminPanel({ initialValues }: AdminPanelProps = {}) {
     const { address, isConnected } = useAccount();
+    const { currentNetwork } = useNetwork();
+    const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
     const [agentId, setAgentId] = useState(initialValues?.agentId || "");
 
     // Metadata mode - default to 'url' if we have a metadataUri, otherwise 'upload'

@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, keccak256, formatEther } from "viem";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
-import { COMMITTEE_CONTRACT_ADDRESS, COMMITTEE_ABI, SOMNIA_RPC_URL } from "@/lib/contract";
+import { COMMITTEE_ABI } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle, Coins } from "lucide-react";
 
 interface MemberEvent {
@@ -16,6 +17,9 @@ interface MemberEvent {
 
 export function CommitteeViewer() {
   const { address, isConnected } = useAccount();
+  const { currentNetwork } = useNetwork();
+  const COMMITTEE_CONTRACT_ADDRESS = currentNetwork.contracts.committee;
+  const SOMNIA_RPC_URL = currentNetwork.rpcUrl;
   const [activeTab, setActiveTab] = useState<"state" | "events" | "actions">("state");
   const [events, setEvents] = useState<MemberEvent[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<"connecting" | "connected" | "error">("connecting");
@@ -127,7 +131,7 @@ export function CommitteeViewer() {
       return;
     }
 
-    const wsUrl = SOMNIA_RPC_URL.replace("https://", "wss://").replace("http://", "ws://") + "ws";
+    const wsUrl = currentNetwork.wsUrl;
     const client = createPublicClient({
       transport: webSocket(wsUrl),
     });
@@ -220,7 +224,7 @@ export function CommitteeViewer() {
       unwatchLeft();
       unwatchTimedOut();
     };
-  }, [refetchMembers, refetchUserActive]);
+  }, [refetchMembers, refetchUserActive, currentNetwork]);
 
   const handleHeartbeat = () => {
     sendHeartbeat({

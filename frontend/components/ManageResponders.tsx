@@ -2,9 +2,12 @@
 
 import Link from "next/link";
 import { useReadContract } from "wagmi";
-import { CONTRACT_ADDRESS, SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { SOMNIA_AGENTS_ABI } from "@/lib/contract";
+import { useNetwork } from "@/lib/network-context";
 
 export function ManageResponders() {
+  const { currentNetwork } = useNetwork();
+  const CONTRACT_ADDRESS = currentNetwork.contracts.legacyContract;
   // Read contract owner
   const { data: owner } = useReadContract({
     address: CONTRACT_ADDRESS,
