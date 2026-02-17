@@ -1184,6 +1184,14 @@ export const SOMNIA_AGENTS_V2_ABI = [
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  // Upkeep
+  {
+    "inputs": [],
+    "name": "upkeepRequests",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ] as const;
 

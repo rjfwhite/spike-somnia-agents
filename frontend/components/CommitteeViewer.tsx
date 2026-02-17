@@ -3,9 +3,9 @@
 import { useEffect, useState } from "react";
 import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, keccak256, formatEther } from "viem";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
-import { COMMITTEE_ABI } from "@/lib/contract";
+import { COMMITTEE_ABI, SOMNIA_AGENTS_V2_ABI } from "@/lib/contract";
 import { useNetwork } from "@/lib/network-context";
-import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle, Coins } from "lucide-react";
+import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle, Coins, Wrench } from "lucide-react";
 
 interface MemberEvent {
   type: "joined" | "left" | "timedOut";
@@ -82,6 +82,12 @@ export function CommitteeViewer() {
   const { writeContract: sendClaim, data: claimTxHash, isPending: isClaimPending } = useWriteContract();
   const { isLoading: isClaimConfirming, isSuccess: isClaimSuccess } = useWaitForTransactionReceipt({
     hash: claimTxHash,
+  });
+
+  // Write contract for upkeep
+  const { writeContract: sendUpkeep, data: upkeepTxHash, isPending: isUpkeepPending } = useWriteContract();
+  const { isLoading: isUpkeepConfirming, isSuccess: isUpkeepSuccess } = useWaitForTransactionReceipt({
+    hash: upkeepTxHash,
   });
 
   // Refresh all data when heartbeat, leave, or claim succeeds
@@ -247,6 +253,15 @@ export function CommitteeViewer() {
       address: COMMITTEE_CONTRACT_ADDRESS,
       abi: COMMITTEE_ABI,
       functionName: "claim",
+    });
+  };
+
+  const handleUpkeep = () => {
+    sendUpkeep({
+      address: currentNetwork.contracts.somniaAgents,
+      abi: SOMNIA_AGENTS_V2_ABI,
+      functionName: "upkeepRequests",
+      gas: 50_000_000n,
     });
   };
 
@@ -547,7 +562,7 @@ export function CommitteeViewer() {
 
       {/* Actions Tab */}
       {activeTab === "actions" && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           {/* Heartbeat Card */}
           <div className="glass-panel rounded-xl p-6">
             <div className="flex items-center gap-3 mb-4">
@@ -730,8 +745,65 @@ export function CommitteeViewer() {
             </div>
           </div>
 
+          {/* Upkeep Card */}
+          <div className="glass-panel rounded-xl p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-orange-500/20 flex items-center justify-center">
+                <Wrench className="w-6 h-6 text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Upkeep</h3>
+                <p className="text-xs text-gray-500">Timeout stale requests (high gas)</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Target Contract</div>
+                <div className="text-sm text-gray-400">
+                  SomniaAgents &mdash; walks pending requests and times out expired ones.
+                </div>
+              </div>
+
+              <button
+                onClick={handleUpkeep}
+                disabled={!isConnected || isUpkeepPending || isUpkeepConfirming}
+                className={`w-full py-3 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
+                  !isConnected
+                    ? "bg-gray-700 text-gray-500 cursor-not-allowed"
+                    : isUpkeepPending || isUpkeepConfirming
+                    ? "bg-orange-500/20 text-orange-400 border border-orange-500/30"
+                    : "bg-orange-600 hover:bg-orange-500 text-white"
+                }`}
+              >
+                {isUpkeepPending ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : isUpkeepConfirming ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    Confirming...
+                  </>
+                ) : (
+                  <>
+                    <Wrench className="w-4 h-4" />
+                    Run Upkeep
+                  </>
+                )}
+              </button>
+
+              {isUpkeepSuccess && (
+                <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm">
+                  Upkeep completed successfully!
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Elect Subcommittee Card */}
-          <div className="glass-panel rounded-xl p-6 md:col-span-3">
+          <div className="glass-panel rounded-xl p-6 md:col-span-4">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center">
                 <Shuffle className="w-6 h-6 text-cyan-400" />
