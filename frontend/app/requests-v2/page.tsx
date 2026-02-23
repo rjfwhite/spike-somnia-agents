@@ -504,7 +504,7 @@ export default function RequestsV2Page() {
             // Fetch receipts for execution details
             let receipts: any[] = [];
             try {
-                receipts = await fetchReceipts(lookupRequestId);
+                receipts = await fetchReceipts(currentNetwork.receiptsUrl, lookupRequestId);
             } catch (e) {
                 // Ignore - receipts may not be available
             }
@@ -540,7 +540,7 @@ export default function RequestsV2Page() {
 
         setReceiptsLoading(true);
         try {
-            const receipts = await fetchReceipts(lookupRequestId);
+            const receipts = await fetchReceipts(currentNetwork.receiptsUrl, lookupRequestId);
             if (lookupResult) {
                 setLookupResult(prev => prev ? { ...prev, receipts } : null);
             } else {

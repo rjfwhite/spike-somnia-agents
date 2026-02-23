@@ -3,7 +3,7 @@ import { URL } from 'url';
 import { forwardToAgent, cleanupContainers } from './docker.js';
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 8080;
-const RECEIPTS_SERVICE_URL = process.env.RECEIPTS_SERVICE_URL || 'https://agent-receipts-937722299914.us-central1.run.app';
+const RECEIPTS_SERVICE_URL = process.env.RECEIPTS_SERVICE_URL || 'https://testnet-agent-receipts-ldxj422yua-ew.a.run.app';
 
 /**
  * Upload a receipt to the receipts service

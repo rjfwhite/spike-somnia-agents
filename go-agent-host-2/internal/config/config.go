@@ -54,7 +54,7 @@ func Parse() *Config {
 	cfg := &Config{}
 
 	flag.IntVar(&cfg.Port, "port", 8080, "HTTP server port")
-	flag.StringVar(&cfg.ReceiptsServiceURL, "receipts-url", "https://agent-receipts-937722299914.us-central1.run.app", "URL for receipt uploads (empty to disable)")
+	flag.StringVar(&cfg.ReceiptsServiceURL, "receipts-url", "https://testnet-agent-receipts-ldxj422yua-ew.a.run.app", "URL for receipt uploads (empty to disable)")
 	flag.StringVar(&cfg.CacheDir, "cache-dir", "./image-cache", "Directory to cache downloaded container images")
 	flag.IntVar(&cfg.StartPort, "start-port", 10000, "Starting port for container allocation")
 	flag.StringVar(&cfg.Runtime, "runtime", "", "Container runtime (e.g., runsc for gVisor)")

@@ -47,5 +47,11 @@ export default defineConfig({
       url: "https://dream-rpc.somnia.network/",
       accounts: [configVariable("PRIVATE_KEY")],
     },
+    somniaDevnet: {
+      type: "http",
+      chainType: "l1",
+      url: "https://api.infra.devnet.somnia.network",
+      accounts: [configVariable("PRIVATE_KEY")],
+    },
   },
 });

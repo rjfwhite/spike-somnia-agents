@@ -6,6 +6,7 @@ import { encodeFunctionCall, decodeAbi, parseInputValue } from "@/lib/abi-utils"
 import { hexToBytes } from "viem";
 import { ReceiptViewer, ResultDisplay, RequestDisplay } from "@/components/ReceiptViewer";
 import { fetchReceipts } from "@/lib/receipts";
+import { useNetwork } from "@/lib/network-context";
 
 const INVOKE_API_URL = "/api/invoke";
 const METADATA_API_URL = "/api/metadata";
@@ -31,6 +32,7 @@ interface InvocationResult {
 }
 
 export function DirectInvoker({ initialMetadataUrl, initialContainerUrl }: DirectInvokerProps) {
+    const { currentNetwork } = useNetwork();
     const [metadataUrl, setMetadataUrl] = useState<string>(initialMetadataUrl || "https://agents.src.host/new-test-agent.json");
     const [containerImageUrl, setContainerImageUrl] = useState<string>(initialContainerUrl || "https://storage.googleapis.com/my-public-stuff/my-container-9000.tar");
     const [metadata, setMetadata] = useState<TokenMetadata | null>(null);
@@ -161,7 +163,7 @@ export function DirectInvoker({ initialMetadataUrl, initialContainerUrl }: Direc
 
         // Wait a moment for receipts to be uploaded, then fetch
         await new Promise(resolve => setTimeout(resolve, 1000));
-        const receipts = await fetchReceipts(requestId);
+        const receipts = await fetchReceipts(currentNetwork.receiptsUrl, requestId);
 
         const hasErrors = invocations.some(inv => inv.error);
         setInvocationResults(prev => ({

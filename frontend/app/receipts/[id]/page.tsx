@@ -38,7 +38,7 @@ export default function ReceiptPage() {
             setError(null);
 
             try {
-                const data = await fetchReceipts(requestId);
+                const data = await fetchReceipts(currentNetwork.receiptsUrl, requestId);
                 setReceipts(data);
                 if (data.length === 0) {
                     setError("No receipts found for this request ID");

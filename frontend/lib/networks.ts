@@ -6,6 +6,7 @@ export interface NetworkConfig {
   rpcUrl: string;
   wsUrl: string;
   explorerUrl: string;
+  receiptsUrl: string;
   contracts: {
     somniaAgents: `0x${string}`;
     committee: `0x${string}`;
@@ -21,6 +22,7 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     rpcUrl: "https://dream-rpc.somnia.network/",
     wsUrl: "wss://dream-rpc.somnia.network/ws",
     explorerUrl: "https://shannon-explorer.somnia.network",
+    receiptsUrl: "https://testnet-agent-receipts-ldxj422yua-ew.a.run.app",
     contracts: {
       somniaAgents: "0xE7f05032Dcf41dd49721D2C1bf6DCEF4BB4be600",
       committee: "0xA4D2E22EFA337423147C993E2F348Da68F921119",
@@ -34,6 +36,7 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     rpcUrl: "https://api.infra.devnet.somnia.network",
     wsUrl: "wss://api.infra.devnet.somnia.network/ws",
     explorerUrl: "https://shannon-explorer.somnia.network", // TODO: update when devnet explorer is available
+    receiptsUrl: "https://devnet-agent-receipts-t7egsqstqa-ew.a.run.app",
     contracts: {
       somniaAgents: "0x6FB8cC9621137920867418456e7E3D9732197888",
       committee: "0xC3760dBC467FA7B1B3e9f2540CA289F22641d2C0",

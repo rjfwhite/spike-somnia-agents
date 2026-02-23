@@ -109,7 +109,7 @@ export function MethodInvoker({ agentId, method, price }: MethodInvokerProps) {
 
                         // Fetch receipts after a short delay to allow upload
                         setTimeout(async () => {
-                            const receipts = await fetchReceipts(requestId.toString());
+                            const receipts = await fetchReceipts(currentNetwork.receiptsUrl, requestId.toString());
                             setTrackedRequest(prev => prev ? ({
                                 ...prev,
                                 receipts,

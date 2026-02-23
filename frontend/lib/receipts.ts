@@ -1,9 +1,7 @@
-export const RECEIPTS_SERVICE_URL = "https://agent-receipts-937722299914.us-central1.run.app";
-
-async function fetchReceiptsOnce(requestId: string): Promise<any[]> {
+async function fetchReceiptsOnce(receiptsUrl: string, requestId: string): Promise<any[]> {
     try {
         const response = await fetch(
-            `${RECEIPTS_SERVICE_URL}/agent-receipts?requestId=${encodeURIComponent(requestId)}`
+            `${receiptsUrl}/agent-receipts?requestId=${encodeURIComponent(requestId)}`
         );
         if (!response.ok) {
             console.error(`Failed to fetch receipts: ${response.status}`);
@@ -20,12 +18,13 @@ async function fetchReceiptsOnce(requestId: string): Promise<any[]> {
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export async function fetchReceipts(
+    receiptsUrl: string,
     requestId: string,
     maxRetries: number = 5,
     retryDelayMs: number = 500
 ): Promise<any[]> {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
-        const receipts = await fetchReceiptsOnce(requestId);
+        const receipts = await fetchReceiptsOnce(receiptsUrl, requestId);
         if (receipts.length > 0) {
             return receipts;
         }

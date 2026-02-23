@@ -220,7 +220,7 @@ export default function AgentRequestPage() {
                         } : null);
 
                         // Fetch receipts after finalization
-                        const receipts = await fetchReceipts(requestId.toString());
+                        const receipts = await fetchReceipts(currentNetwork.receiptsUrl, requestId.toString());
                         setTrackedRequest(prev => prev ? {
                             ...prev,
                             receipts,
@@ -302,7 +302,7 @@ export default function AgentRequestPage() {
             receiptsFetching: true,
         } : null);
 
-        const receipts = await fetchReceipts(trackedRequest.id.toString());
+        const receipts = await fetchReceipts(currentNetwork.receiptsUrl, trackedRequest.id.toString());
         setTrackedRequest(prev => prev ? {
             ...prev,
             receipts,

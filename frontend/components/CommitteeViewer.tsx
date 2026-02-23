@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, keccak256, formatEther } from "viem";
+import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, encodeFunctionData, keccak256, formatEther } from "viem";
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
 import { COMMITTEE_ABI, SOMNIA_AGENTS_V2_ABI } from "@/lib/contract";
 import { useNetwork } from "@/lib/network-context";
@@ -85,8 +85,8 @@ export function CommitteeViewer() {
   });
 
   // Write contract for upkeep
-  const { writeContract: sendUpkeep, data: upkeepTxHash, isPending: isUpkeepPending } = useWriteContract();
-  const { isLoading: isUpkeepConfirming, isSuccess: isUpkeepSuccess } = useWaitForTransactionReceipt({
+  const { writeContract: sendUpkeep, data: upkeepTxHash, isPending: isUpkeepPending, error: upkeepSendError } = useWriteContract();
+  const { isLoading: isUpkeepConfirming, isSuccess: isUpkeepSuccess, isError: isUpkeepTxError } = useWaitForTransactionReceipt({
     hash: upkeepTxHash,
   });
 
@@ -797,6 +797,22 @@ export function CommitteeViewer() {
               {isUpkeepSuccess && (
                 <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm">
                   Upkeep completed successfully!
+                </div>
+              )}
+
+              {(upkeepSendError || isUpkeepTxError) && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 space-y-2">
+                  <div className="text-red-400 text-sm font-medium">Upkeep failed</div>
+                  {upkeepSendError && (
+                    <div className="text-xs text-red-300 break-all">{upkeepSendError.message.slice(0, 200)}</div>
+                  )}
+                  <div className="text-xs text-gray-500 uppercase tracking-wider mt-2">Raw calldata</div>
+                  <div className="font-mono text-xs text-gray-300 bg-black/30 p-2 rounded break-all select-all">
+                    {encodeFunctionData({ abi: SOMNIA_AGENTS_V2_ABI, functionName: "upkeepRequests" })}
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    To: {currentNetwork.contracts.somniaAgents}
+                  </div>
                 </div>
               )}
             </div>
