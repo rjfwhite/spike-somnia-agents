@@ -138,7 +138,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <div className="flex gap-1">
                         {(Object.keys(NETWORKS) as NetworkKey[]).map((key) => {
                             const isActive = networkKey === key;
-                            const dotColor = key === "testnet" ? "bg-green-500" : "bg-orange-500";
+                            const colors: Record<NetworkKey, { bg: string; glow: string }> = {
+                                devnet: { bg: "bg-orange-500", glow: "#f97316" },
+                                testnet: { bg: "bg-green-500", glow: "#22c55e" },
+                                mainnet: { bg: "bg-blue-500", glow: "#3b82f6" },
+                            };
+                            const { bg: dotColor, glow } = colors[key];
                             return (
                                 <button
                                     key={key}
@@ -150,7 +155,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                     }`}
                                 >
                                     <span className={`w-2 h-2 rounded-full ${dotColor} ${isActive ? "shadow-[0_0_6px]" : "opacity-50"}`}
-                                        style={isActive ? { boxShadow: `0 0 6px ${key === "testnet" ? "#22c55e" : "#f97316"}` } : {}}
+                                        style={isActive ? { boxShadow: `0 0 6px ${glow}` } : {}}
                                     />
                                     {NETWORKS[key].name}
                                 </button>
@@ -262,7 +267,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                 <div className="flex gap-1 px-4">
                                     {(Object.keys(NETWORKS) as NetworkKey[]).map((key) => {
                                         const isActive = networkKey === key;
-                                        const dotColor = key === "testnet" ? "bg-green-500" : "bg-orange-500";
+                                        const colors: Record<NetworkKey, string> = {
+                                            devnet: "bg-orange-500",
+                                            testnet: "bg-green-500",
+                                            mainnet: "bg-blue-500",
+                                        };
                                         return (
                                             <button
                                                 key={key}
@@ -273,7 +282,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                                         : "text-gray-500 hover:bg-white/5 hover:text-gray-300"
                                                 }`}
                                             >
-                                                <span className={`w-2 h-2 rounded-full ${dotColor}`} />
+                                                <span className={`w-2 h-2 rounded-full ${colors[key]}`} />
                                                 {NETWORKS[key].name}
                                             </button>
                                         );

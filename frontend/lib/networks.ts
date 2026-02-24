@@ -1,4 +1,4 @@
-export type NetworkKey = "testnet" | "devnet";
+export type NetworkKey = "devnet" | "testnet" | "mainnet";
 
 export interface NetworkConfig {
   name: string;
@@ -16,31 +16,45 @@ export interface NetworkConfig {
 }
 
 export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
-  testnet: {
-    name: "Testnet",
-    chainId: 50312,
-    rpcUrl: "https://dream-rpc.somnia.network/",
-    wsUrl: "wss://dream-rpc.somnia.network/ws",
-    explorerUrl: "https://shannon-explorer.somnia.network",
-    receiptsUrl: "https://testnet-agent-receipts-ldxj422yua-ew.a.run.app",
-    contracts: {
-      somniaAgents: "0xE7f05032Dcf41dd49721D2C1bf6DCEF4BB4be600",
-      committee: "0xA4D2E22EFA337423147C993E2F348Da68F921119",
-      agentRegistry: "0x81A80E8A7923566F4c0120fE7e93aF12A0e180C3",
-      legacyContract: "0x58ade7Fe7633b54B0052F9006863c175b8a231bE",
-    },
-  },
   devnet: {
     name: "Devnet",
     chainId: 100810,
     rpcUrl: "https://api.infra.devnet.somnia.network",
     wsUrl: "wss://api.infra.devnet.somnia.network/ws",
-    explorerUrl: "https://shannon-explorer.somnia.network", // TODO: update when devnet explorer is available
+    explorerUrl: "https://shannon-explorer.somnia.network",
     receiptsUrl: "https://devnet-agent-receipts-t7egsqstqa-ew.a.run.app",
     contracts: {
-      somniaAgents: "0x6FB8cC9621137920867418456e7E3D9732197888",
-      committee: "0xC3760dBC467FA7B1B3e9f2540CA289F22641d2C0",
-      agentRegistry: "0x9f00f0b42df3BB78524AAc644FD53c44e3a36f62",
+      somniaAgents: "0x8d0048a4B30753f076057E477D3817f557009668",
+      committee: "0xc67C853b00319a63E9037F6c63ebf998B2903694",
+      agentRegistry: "0x748Df19Aab2b147026471eEd8068F3D90DeAeFD3",
+      legacyContract: "0x0000000000000000000000000000000000000000",
+    },
+  },
+  testnet: {
+    name: "Testnet",
+    chainId: 50312,
+    rpcUrl: "https://api.infra.testnet.somnia.network",
+    wsUrl: "wss://api.infra.testnet.somnia.network/ws",
+    explorerUrl: "https://shannon-explorer.somnia.network",
+    receiptsUrl: "https://testnet-agent-receipts-ldxj422yua-ew.a.run.app",
+    contracts: {
+      somniaAgents: "0x155A171B3CCfBDe910078b0A6Bf8386cb506B365",
+      committee: "0x3533eFd0f7E6668BB97859c05fcAD584691ed594",
+      agentRegistry: "0x8fb55E1dDFba1ae01914c5e881699335eDee2905",
+      legacyContract: "0x58ade7Fe7633b54B0052F9006863c175b8a231bE",
+    },
+  },
+  mainnet: {
+    name: "Mainnet",
+    chainId: 5031,
+    rpcUrl: "https://api.infra.mainnet.somnia.network",
+    wsUrl: "wss://api.infra.mainnet.somnia.network/ws",
+    explorerUrl: "https://somnia.blockscout.com",
+    receiptsUrl: "",
+    contracts: {
+      somniaAgents: "0x92A2f65cD78116a16EFCb37f83810864070D01cb",
+      committee: "0x8e612853073982F25EFF97699847b4dC2Ef6A4Ba",
+      agentRegistry: "0xa7C8078609372c3Ad55514f79C8CB96eee4A4eBC",
       legacyContract: "0x0000000000000000000000000000000000000000",
     },
   },

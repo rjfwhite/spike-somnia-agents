@@ -317,7 +317,7 @@ export default function AgentRequestPage() {
         if (!selectedMethod) return '';
         switch (activeTab) {
             case 'solidity': return generateSolidityExample(selectedMethod, agentId, undefined, SOMNIA_AGENTS_V2_ADDRESS);
-            case 'viem': return generateViemExample(selectedMethod, agentId, undefined, SOMNIA_AGENTS_V2_ADDRESS);
+            case 'viem': return generateViemExample(selectedMethod, agentId, undefined, SOMNIA_AGENTS_V2_ADDRESS, currentNetwork.rpcUrl, currentNetwork.wsUrl);
             default: return '';
         }
     };

@@ -13,7 +13,7 @@ import {
   SOMNIA_RPC_URL,
 } from '@/lib/contract';
 
-const WS_URL = 'wss://dream-rpc.somnia.network/ws';
+const WS_URL = 'wss://api.infra.testnet.somnia.network/ws';
 const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/triggers/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';
 
 const DEFAULT_NUM_REQUESTS = 20;

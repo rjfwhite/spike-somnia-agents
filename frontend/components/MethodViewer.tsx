@@ -26,7 +26,7 @@ export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: M
     const getCode = () => {
         switch (activeTab) {
             case 'solidity': return generateSolidityExample(method, agentId, price, platformAddress);
-            case 'viem': return generateViemExample(method, agentId, price, platformAddress);
+            case 'viem': return generateViemExample(method, agentId, price, platformAddress, currentNetwork.rpcUrl, currentNetwork.wsUrl);
             default: return '';
         }
     };

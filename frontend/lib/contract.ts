@@ -1,9 +1,10 @@
+// Legacy constants used by qualifier API route — points to testnet
 export const SOMNIA_CHAIN_ID = 50312;
-export const SOMNIA_RPC_URL = "https://dream-rpc.somnia.network/";
+export const SOMNIA_RPC_URL = "https://api.infra.testnet.somnia.network";
 export const CONTRACT_ADDRESS = "0x58ade7Fe7633b54B0052F9006863c175b8a231bE" as const;
-export const COMMITTEE_CONTRACT_ADDRESS = "0xA4D2E22EFA337423147C993E2F348Da68F921119" as const;
-export const AGENT_REGISTRY_V2_ADDRESS = "0x81A80E8A7923566F4c0120fE7e93aF12A0e180C3" as const;
-export const SOMNIA_AGENTS_V2_ADDRESS = "0xE7f05032Dcf41dd49721D2C1bf6DCEF4BB4be600" as const;
+export const COMMITTEE_CONTRACT_ADDRESS = "0x3533eFd0f7E6668BB97859c05fcAD584691ed594" as const;
+export const AGENT_REGISTRY_V2_ADDRESS = "0x8fb55E1dDFba1ae01914c5e881699335eDee2905" as const;
+export const SOMNIA_AGENTS_V2_ADDRESS = "0x155A171B3CCfBDe910078b0A6Bf8386cb506B365" as const;
 
 // Contract ABI for SomniaAgents (ERC721 Enumerable)
 export const SOMNIA_AGENTS_ABI = [

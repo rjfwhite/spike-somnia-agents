@@ -97,9 +97,11 @@ contract MyContract {
 }`;
 }
 
-export function generateViemExample(method: AbiFunction, agentId?: string, price?: bigint, platformAddress?: string): string {
+export function generateViemExample(method: AbiFunction, agentId?: string, price?: bigint, platformAddress?: string, rpcUrl?: string, wsUrl?: string): string {
   const SOMNIA_AGENTS_V2_ADDRESS = platformAddress || "0x0000000000000000000000000000000000000000";
   const agentIdValue = agentId ? `${agentId}n` : "1n";
+  const effectiveRpcUrl = rpcUrl || "https://api.infra.testnet.somnia.network";
+  const effectiveWsUrl = wsUrl || "wss://api.infra.testnet.somnia.network/ws";
 
   const methodAbi = {
     type: 'function',
@@ -112,8 +114,8 @@ export function generateViemExample(method: AbiFunction, agentId?: string, price
 import { privateKeyToAccount } from 'viem/accounts';
 
 const PLATFORM_ADDRESS = '${SOMNIA_AGENTS_V2_ADDRESS}';
-const RPC_URL = 'https://dream-rpc.somnia.network/';
-const WS_URL = 'wss://dream-rpc.somnia.network/ws';
+const RPC_URL = '${effectiveRpcUrl}';
+const WS_URL = '${effectiveWsUrl}';
 
 // Platform ABI (subset)
 const platformAbi = [

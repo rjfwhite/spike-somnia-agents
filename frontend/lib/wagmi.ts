@@ -6,6 +6,7 @@ import { NETWORKS } from "./networks";
 
 const testnetConfig = NETWORKS.testnet;
 const devnetConfig = NETWORKS.devnet;
+const mainnetConfig = NETWORKS.mainnet;
 
 export const somnia = defineChain({
   id: testnetConfig.chainId,
@@ -49,10 +50,32 @@ export const somniaDevnet = defineChain({
   },
 });
 
+export const somniaMainnet = defineChain({
+  id: mainnetConfig.chainId,
+  name: "Somnia Mainnet",
+  nativeCurrency: {
+    name: "STT",
+    symbol: "STT",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: [mainnetConfig.rpcUrl],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Somnia Explorer",
+      url: mainnetConfig.explorerUrl,
+    },
+  },
+});
+
 export const config = createConfig({
-  chains: [somnia, somniaDevnet],
+  chains: [somnia, somniaDevnet, somniaMainnet],
   transports: {
     [somnia.id]: http(),
     [somniaDevnet.id]: http(),
+    [somniaMainnet.id]: http(),
   },
 });

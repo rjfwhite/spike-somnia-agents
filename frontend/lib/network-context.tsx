@@ -16,7 +16,7 @@ const STORAGE_KEY = "somnia-network";
 function getInitialNetwork(): NetworkKey {
   if (typeof window === "undefined") return "testnet";
   const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "testnet" || stored === "devnet") return stored;
+  if (stored === "testnet" || stored === "devnet" || stored === "mainnet") return stored;
   return "testnet";
 }
 
