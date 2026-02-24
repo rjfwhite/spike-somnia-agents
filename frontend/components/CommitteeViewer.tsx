@@ -5,7 +5,7 @@ import { createPublicClient, http, webSocket, type Hex, encodeAbiParameters, enc
 import { useAccount, useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi";
 import { COMMITTEE_ABI, SOMNIA_AGENTS_V2_ABI } from "@/lib/contract";
 import { useNetwork } from "@/lib/network-context";
-import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle, Coins, Wrench } from "lucide-react";
+import { RefreshCw, Heart, Users, Shuffle, Clock, LogOut, AlertTriangle, Coins, Wrench, SlidersHorizontal } from "lucide-react";
 
 interface MemberEvent {
   type: "joined" | "left" | "timedOut";
@@ -27,6 +27,10 @@ export function CommitteeViewer() {
   // Member balances and pending rewards
   const [balances, setBalances] = useState<Record<string, bigint>>({});
   const [pendingRewards, setPendingRewards] = useState<Record<string, bigint>>({});
+
+  // Settings state
+  const [newSubcommitteeSize, setNewSubcommitteeSize] = useState("");
+  const [newThreshold, setNewThreshold] = useState("");
 
   // Subcommittee election state
   const [subcommitteeSize, setSubcommitteeSize] = useState("3");
@@ -90,6 +94,31 @@ export function CommitteeViewer() {
     hash: upkeepTxHash,
   });
 
+  // Read default subcommittee size and threshold from SomniaAgents
+  const { data: currentSubcommitteeSize, refetch: refetchSubcommitteeSize } = useReadContract({
+    address: currentNetwork.contracts.somniaAgents,
+    abi: SOMNIA_AGENTS_V2_ABI,
+    functionName: "defaultSubcommitteeSize",
+  });
+
+  const { data: currentThreshold, refetch: refetchThreshold } = useReadContract({
+    address: currentNetwork.contracts.somniaAgents,
+    abi: SOMNIA_AGENTS_V2_ABI,
+    functionName: "defaultThreshold",
+  });
+
+  // Write contract for setting subcommittee size
+  const { writeContract: sendSetSize, data: setSizeTxHash, isPending: isSetSizePending } = useWriteContract();
+  const { isLoading: isSetSizeConfirming, isSuccess: isSetSizeSuccess } = useWaitForTransactionReceipt({
+    hash: setSizeTxHash,
+  });
+
+  // Write contract for setting threshold
+  const { writeContract: sendSetThreshold, data: setThresholdTxHash, isPending: isSetThresholdPending } = useWriteContract();
+  const { isLoading: isSetThresholdConfirming, isSuccess: isSetThresholdSuccess } = useWaitForTransactionReceipt({
+    hash: setThresholdTxHash,
+  });
+
   // Refresh all data when heartbeat, leave, or claim succeeds
   useEffect(() => {
     if (isHeartbeatSuccess || isLeaveSuccess || isClaimSuccess) {
@@ -98,6 +127,12 @@ export function CommitteeViewer() {
       refetchLastUpkeep();
     }
   }, [isHeartbeatSuccess, isLeaveSuccess, isClaimSuccess, refetchMembers, refetchUserActive, refetchLastUpkeep]);
+
+  // Refresh settings when size/threshold updates succeed
+  useEffect(() => {
+    if (isSetSizeSuccess) refetchSubcommitteeSize();
+    if (isSetThresholdSuccess) refetchThreshold();
+  }, [isSetSizeSuccess, isSetThresholdSuccess, refetchSubcommitteeSize, refetchThreshold]);
 
   // Fetch STT balances and pending rewards for all active members
   useEffect(() => {
@@ -253,6 +288,28 @@ export function CommitteeViewer() {
       address: COMMITTEE_CONTRACT_ADDRESS,
       abi: COMMITTEE_ABI,
       functionName: "claim",
+    });
+  };
+
+  const handleSetSubcommitteeSize = () => {
+    const size = parseInt(newSubcommitteeSize);
+    if (!size || size < 1) return;
+    sendSetSize({
+      address: currentNetwork.contracts.somniaAgents,
+      abi: SOMNIA_AGENTS_V2_ABI,
+      functionName: "setDefaultSubcommitteeSize",
+      args: [BigInt(size)],
+    });
+  };
+
+  const handleSetThreshold = () => {
+    const threshold = parseInt(newThreshold);
+    if (!threshold || threshold < 1) return;
+    sendSetThreshold({
+      address: currentNetwork.contracts.somniaAgents,
+      abi: SOMNIA_AGENTS_V2_ABI,
+      functionName: "setDefaultThreshold",
+      args: [BigInt(threshold)],
     });
   };
 
@@ -818,8 +875,117 @@ export function CommitteeViewer() {
             </div>
           </div>
 
+          {/* Committee Settings Card */}
+          <div className="glass-panel rounded-xl p-6 md:col-span-2">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center">
+                <SlidersHorizontal className="w-6 h-6 text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white">Committee Settings</h3>
+                <p className="text-xs text-gray-500">Set default subcommittee size and threshold (owner only)</p>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              {/* Current values */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                  <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Size</div>
+                  <div className="text-lg font-bold text-white">
+                    {currentSubcommitteeSize !== undefined ? currentSubcommitteeSize.toString() : "..."}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-black/20 border border-white/5">
+                  <div className="text-xs text-gray-500 uppercase tracking-wider mb-1">Current Threshold</div>
+                  <div className="text-lg font-bold text-white">
+                    {currentThreshold !== undefined ? currentThreshold.toString() : "..."}
+                  </div>
+                </div>
+              </div>
+
+              {/* Set Subcommittee Size */}
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider block mb-2">
+                  New Subcommittee Size
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder={currentSubcommitteeSize !== undefined ? currentSubcommitteeSize.toString() : ""}
+                    value={newSubcommitteeSize}
+                    onChange={(e) => setNewSubcommitteeSize(e.target.value)}
+                    className="flex-1 px-4 py-2 rounded-lg bg-black/20 border border-white/10 text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+                  />
+                  <button
+                    onClick={handleSetSubcommitteeSize}
+                    disabled={!isConnected || !newSubcommitteeSize || isSetSizePending || isSetSizeConfirming}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 text-sm ${
+                      !isConnected || !newSubcommitteeSize
+                        ? "bg-gray-700 text-gray-500 cursor-not-allowed"
+                        : isSetSizePending || isSetSizeConfirming
+                        ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                        : "bg-purple-600 hover:bg-purple-500 text-white"
+                    }`}
+                  >
+                    {isSetSizePending || isSetSizeConfirming ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      "Set"
+                    )}
+                  </button>
+                </div>
+                {isSetSizeSuccess && (
+                  <div className="mt-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm">
+                    Subcommittee size updated!
+                  </div>
+                )}
+              </div>
+
+              {/* Set Threshold */}
+              <div>
+                <label className="text-xs text-gray-500 uppercase tracking-wider block mb-2">
+                  New Threshold
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    placeholder={currentThreshold !== undefined ? currentThreshold.toString() : ""}
+                    value={newThreshold}
+                    onChange={(e) => setNewThreshold(e.target.value)}
+                    className="flex-1 px-4 py-2 rounded-lg bg-black/20 border border-white/10 text-white placeholder-gray-600 focus:border-purple-500/50 focus:outline-none"
+                  />
+                  <button
+                    onClick={handleSetThreshold}
+                    disabled={!isConnected || !newThreshold || isSetThresholdPending || isSetThresholdConfirming}
+                    className={`px-4 py-2 rounded-lg font-medium transition-all flex items-center gap-2 text-sm ${
+                      !isConnected || !newThreshold
+                        ? "bg-gray-700 text-gray-500 cursor-not-allowed"
+                        : isSetThresholdPending || isSetThresholdConfirming
+                        ? "bg-purple-500/20 text-purple-400 border border-purple-500/30"
+                        : "bg-purple-600 hover:bg-purple-500 text-white"
+                    }`}
+                  >
+                    {isSetThresholdPending || isSetThresholdConfirming ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      "Set"
+                    )}
+                  </button>
+                </div>
+                {isSetThresholdSuccess && (
+                  <div className="mt-2 p-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 text-sm">
+                    Threshold updated!
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           {/* Elect Subcommittee Card */}
-          <div className="glass-panel rounded-xl p-6 md:col-span-4">
+          <div className="glass-panel rounded-xl p-6 md:col-span-2">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-12 h-12 rounded-xl bg-cyan-500/20 flex items-center justify-center">
                 <Shuffle className="w-6 h-6 text-cyan-400" />
