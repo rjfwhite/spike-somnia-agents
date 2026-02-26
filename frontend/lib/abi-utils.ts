@@ -121,10 +121,53 @@ export function formatDecodedValue(value: any, type: string): string {
 }
 
 /**
- * Parse user input value based on ABI type
+ * Parse user input value based on ABI type.
+ * For tuple types, pass the components array from the ABI parameter.
  */
-export function parseInputValue(value: string, type: string): any {
-    const trimmed = value.trim();
+export function parseInputValue(value: any, type: string, components?: AbiParameter[]): any {
+    // Handle tuple[] (before generic array check since tuple[] ends with [])
+    if (type === 'tuple[]' && components) {
+        if (Array.isArray(value)) {
+            return value.map(item => parseInputValue(item, 'tuple', components));
+        }
+        // Fallback: try JSON parse if string
+        if (typeof value === 'string' && value.trim()) {
+            try {
+                const parsed = JSON.parse(value.trim());
+                if (Array.isArray(parsed)) {
+                    return parsed.map(item => parseInputValue(item, 'tuple', components));
+                }
+            } catch (e) { /* fall through */ }
+        }
+        return [];
+    }
+
+    // Handle single tuple
+    if (type === 'tuple' && components) {
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            const result: Record<string, any> = {};
+            for (const comp of components) {
+                result[comp.name] = parseInputValue(value[comp.name] ?? '', comp.type, comp.components);
+            }
+            return result;
+        }
+        // Fallback: try JSON parse if string
+        if (typeof value === 'string' && value.trim()) {
+            try {
+                const parsed = JSON.parse(value.trim());
+                if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+                    const result: Record<string, any> = {};
+                    for (const comp of components) {
+                        result[comp.name] = parseInputValue(parsed[comp.name] ?? '', comp.type, comp.components);
+                    }
+                    return result;
+                }
+            } catch (e) { /* fall through */ }
+        }
+        return {};
+    }
+
+    const trimmed = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
 
     // Handle uint/int types
     if (type.startsWith('uint') || type.startsWith('int')) {

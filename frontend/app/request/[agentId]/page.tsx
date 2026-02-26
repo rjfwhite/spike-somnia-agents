@@ -14,6 +14,7 @@ import { TokenMetadata, AbiFunction, getAbiFunctions } from "@/lib/types";
 import { encodeFunctionCall, parseInputValue } from "@/lib/abi-utils";
 import { generateSolidityExample, generateViemExample } from "@/lib/code-generators";
 import { DecodedData } from "@/components/DecodedData";
+import { TupleFieldInput } from "@/components/TupleFieldInput";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ReceiptViewer, ResultDisplay, RequestDisplay } from "@/components/ReceiptViewer";
@@ -74,7 +75,7 @@ export default function AgentRequestPage() {
 
     // Method selection state
     const [selectedMethod, setSelectedMethod] = useState<AbiFunction | null>(null);
-    const [inputValues, setInputValues] = useState<Record<string, string>>({});
+    const [inputValues, setInputValues] = useState<Record<string, any>>({});
     const [activeTab, setActiveTab] = useState<"run" | "solidity" | "viem">("run");
     const [copied, setCopied] = useState(false);
     const { data: requestDeposit } = useReadContract({
@@ -145,9 +146,17 @@ export default function AgentRequestPage() {
     // Initialize input values when method changes
     useEffect(() => {
         if (!selectedMethod) return;
-        const initialValues: Record<string, string> = {};
+        const initialValues: Record<string, any> = {};
         selectedMethod.inputs.forEach((input) => {
-            initialValues[input.name] = '';
+            if (input.type === 'tuple[]') {
+                initialValues[input.name] = [];
+            } else if (input.type === 'tuple' && input.components) {
+                const obj: Record<string, any> = {};
+                input.components.forEach(c => { obj[c.name] = ''; });
+                initialValues[input.name] = obj;
+            } else {
+                initialValues[input.name] = '';
+            }
         });
         setInputValues(initialValues);
     }, [selectedMethod]);
@@ -247,8 +256,8 @@ export default function AgentRequestPage() {
         try {
             // Parse and encode the method call
             const values = selectedMethod.inputs.map(input => {
-                const rawValue = inputValues[input.name] || '';
-                return parseInputValue(rawValue, input.type);
+                const rawValue = inputValues[input.name] ?? '';
+                return parseInputValue(rawValue, input.type, input.components);
             });
             const encodedPayload = encodeFunctionCall(selectedMethod, values);
             const deposit = requestDeposit as bigint;
@@ -522,23 +531,34 @@ export default function AgentRequestPage() {
                                                 <label className="block text-xs font-semibold text-gray-400 mb-1.5 uppercase tracking-wide">
                                                     {input.name} <span className="text-purple-400">({input.type})</span>
                                                 </label>
-                                                <input
-                                                    type="text"
-                                                    value={inputValues[input.name] || ''}
-                                                    onChange={(e) => setInputValues({
-                                                        ...inputValues,
-                                                        [input.name]: e.target.value
-                                                    })}
-                                                    className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
-                                                    placeholder={
-                                                        input.type.endsWith('[]') ? '["a", "b"] or a, b' :
-                                                        input.type.startsWith('uint') || input.type.startsWith('int') ? '123' :
-                                                        input.type === 'bool' ? 'true' :
-                                                        input.type === 'address' ? '0x...' :
-                                                        'value'
-                                                    }
-                                                    required
-                                                />
+                                                {(input.type === 'tuple' || input.type === 'tuple[]') && input.components ? (
+                                                    <TupleFieldInput
+                                                        input={input}
+                                                        value={inputValues[input.name]}
+                                                        onChange={(v) => setInputValues({
+                                                            ...inputValues,
+                                                            [input.name]: v
+                                                        })}
+                                                    />
+                                                ) : (
+                                                    <input
+                                                        type="text"
+                                                        value={inputValues[input.name] || ''}
+                                                        onChange={(e) => setInputValues({
+                                                            ...inputValues,
+                                                            [input.name]: e.target.value
+                                                        })}
+                                                        className="w-full px-3 py-2 bg-black/40 border border-white/10 rounded-lg text-sm text-white placeholder-gray-600 focus:outline-none focus:ring-1 focus:ring-purple-500/50 font-mono"
+                                                        placeholder={
+                                                            input.type.endsWith('[]') ? '["a", "b"] or a, b' :
+                                                            input.type.startsWith('uint') || input.type.startsWith('int') ? '123' :
+                                                            input.type === 'bool' ? 'true' :
+                                                            input.type === 'address' ? '0x...' :
+                                                            'value'
+                                                        }
+                                                        required
+                                                    />
+                                                )}
                                             </div>
                                         ))}
                                     </div>
