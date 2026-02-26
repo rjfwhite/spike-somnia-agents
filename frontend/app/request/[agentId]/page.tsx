@@ -130,7 +130,7 @@ export default function AgentRequestPage() {
             } catch (err: any) {
                 console.error("Failed to fetch agent:", err);
                 if (err.message?.includes('AgentNotFound') || err.message?.includes('0x0ede9759')) {
-                    setError(`Agent ${agentId} not found in the V2 registry`);
+                    setError(`Agent ${agentId} not found in the registry`);
                 } else {
                     setError(err.message || "Failed to load agent");
                 }
@@ -340,7 +340,7 @@ export default function AgentRequestPage() {
         return (
             <div className="space-y-6">
                 <div className="flex items-center gap-4">
-                    <Link href="/requests-v2" className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+                    <Link href="/requests" className="p-2 hover:bg-white/5 rounded-lg transition-colors">
                         <ArrowLeft className="w-5 h-5 text-gray-400" />
                     </Link>
                     <div>
@@ -361,7 +361,7 @@ export default function AgentRequestPage() {
         return (
             <div className="space-y-6">
                 <div className="flex items-center gap-4">
-                    <Link href="/requests-v2" className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+                    <Link href="/requests" className="p-2 hover:bg-white/5 rounded-lg transition-colors">
                         <ArrowLeft className="w-5 h-5 text-gray-400" />
                     </Link>
                     <div>
@@ -375,10 +375,10 @@ export default function AgentRequestPage() {
                             <h3 className="text-red-400 font-bold text-sm">Error Loading Agent</h3>
                             <p className="text-red-300/80 text-sm mt-1">{error}</p>
                             <Link
-                                href="/agents-v2"
+                                href="/agents"
                                 className="inline-flex items-center gap-2 mt-3 text-sm text-purple-400 hover:text-purple-300"
                             >
-                                Create an agent on the Agents v2 page
+                                Create an agent on the Agents page
                                 <ExternalLink className="w-4 h-4" />
                             </Link>
                         </div>
@@ -392,7 +392,7 @@ export default function AgentRequestPage() {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center gap-4">
-                <Link href="/requests-v2" className="p-2 hover:bg-white/5 rounded-lg transition-colors">
+                <Link href="/requests" className="p-2 hover:bg-white/5 rounded-lg transition-colors">
                     <ArrowLeft className="w-5 h-5 text-gray-400" />
                 </Link>
                 <div className="flex-1">
@@ -623,7 +623,7 @@ export default function AgentRequestPage() {
                                         <div className="text-xs">
                                             <span className="text-gray-500">Transaction: </span>
                                             <a
-                                                href={`https://shannon-explorer.somnia.network/tx/${trackedRequest.txHash}`}
+                                                href={`${currentNetwork.explorerUrl}/tx/${trackedRequest.txHash}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 className="text-purple-400 hover:underline font-mono"
@@ -792,11 +792,11 @@ export default function AgentRequestPage() {
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Contract Addresses</h3>
                 <div className="space-y-2">
                     <div>
-                        <span className="text-xs text-gray-500">SomniaAgents v2: </span>
+                        <span className="text-xs text-gray-500">SomniaAgents: </span>
                         <span className="font-mono text-xs text-purple-400">{SOMNIA_AGENTS_V2_ADDRESS}</span>
                     </div>
                     <div>
-                        <span className="text-xs text-gray-500">AgentRegistry v2: </span>
+                        <span className="text-xs text-gray-500">AgentRegistry: </span>
                         <span className="font-mono text-xs text-green-400">{AGENT_REGISTRY_V2_ADDRESS}</span>
                     </div>
                 </div>

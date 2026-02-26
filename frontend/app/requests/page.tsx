@@ -80,7 +80,7 @@ interface AgentWithMetadata {
     loading: boolean;
 }
 
-export default function RequestsV2Page() {
+export default function RequestsPage() {
     const { address, isConnected } = useAccount();
     const publicClient = usePublicClient();
     const { currentNetwork } = useNetwork();
@@ -375,7 +375,7 @@ export default function RequestsV2Page() {
             if (viemErrorMatch) {
                 const [, errorName, args] = viemErrorMatch;
                 if (errorName === 'AgentNotFound') {
-                    errorMessage = `Agent not found: ID ${args} does not exist in the AgentRegistry. Create the agent first on the Agents v2 page.`;
+                    errorMessage = `Agent not found: ID ${args} does not exist in the AgentRegistry. Create the agent first on the Agents page.`;
                     setSimulationError(errorMessage);
                     return;
                 } else {
@@ -407,7 +407,7 @@ export default function RequestsV2Page() {
                     // If decoding fails, check for known error signatures
                     if (errorData.startsWith('0x0ede9759')) {
                         // AgentNotFound(uint256)
-                        errorMessage = `Agent not found: ID ${agentId} does not exist in the AgentRegistry. Create the agent first on the Agents v2 page.`;
+                        errorMessage = `Agent not found: ID ${agentId} does not exist in the AgentRegistry. Create the agent first on the Agents page.`;
                     } else if (errorData.startsWith('0x08c379a0')) {
                         // Error(string) - standard revert with message
                         // Try to extract the message
@@ -438,7 +438,7 @@ export default function RequestsV2Page() {
                         errorMessage = `SomniaAgents: ${agentMatch[1]}`;
                     }
                 } else if (err.message.includes("0x0ede9759")) {
-                    errorMessage = `Agent not found: ID ${agentId} does not exist in the AgentRegistry. Create the agent first on the Agents v2 page.`;
+                    errorMessage = `Agent not found: ID ${agentId} does not exist in the AgentRegistry. Create the agent first on the Agents page.`;
                 } else if (err.message.includes("not enough active members")) {
                     errorMessage = `Not enough active committee members. Need ${defaultSubcommitteeSize || 3}, have ${(activeMembers as string[])?.length || 0}`;
                 } else if (err.shortMessage) {
@@ -602,7 +602,7 @@ export default function RequestsV2Page() {
             <div className="flex items-center justify-between">
                 <div>
                     <h1 className="text-3xl font-bold text-white">Requests</h1>
-                    <p className="text-gray-400 mt-2">Monitor and create agent requests on SomniaAgents v2</p>
+                    <p className="text-gray-400 mt-2">Monitor and create agent requests</p>
                 </div>
                 <button
                     onClick={() => setShowCreateForm(!showCreateForm)}
@@ -666,7 +666,7 @@ export default function RequestsV2Page() {
                                 <Bot className="w-12 h-12 mx-auto text-gray-600 mb-3" />
                                 <p className="text-gray-500">No agents found in the registry</p>
                                 <Link
-                                    href="/agents-v2"
+                                    href="/agents"
                                     className="inline-flex items-center gap-2 mt-3 text-sm text-purple-400 hover:text-purple-300"
                                 >
                                     Create an agent
@@ -680,7 +680,7 @@ export default function RequestsV2Page() {
                                     return (
                                         <Link
                                             key={agentData.id}
-                                            href={`/request-v2/${agentData.id}`}
+                                            href={`/request/${agentData.id}`}
                                             className="block p-4 bg-black/30 hover:bg-black/40 border border-white/5 hover:border-purple-500/30 rounded-lg transition-all group"
                                         >
                                             <div className="flex items-start gap-3">
@@ -734,7 +734,7 @@ export default function RequestsV2Page() {
                                 Refresh
                             </button>
                             <Link
-                                href="/agents-v2"
+                                href="/agents"
                                 className="flex items-center gap-2 px-3 py-1.5 text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded-lg transition-colors"
                             >
                                 <List className="w-3 h-3" />
@@ -811,7 +811,7 @@ export default function RequestsV2Page() {
                                 </div>
                                 {agentId && allAgents.length > 0 && (
                                     <Link
-                                        href={`/request-v2/${agentId}`}
+                                        href={`/request/${agentId}`}
                                         className="inline-flex items-center gap-1 text-xs text-purple-400 hover:text-purple-300 mt-1"
                                     >
                                         <Play className="w-3 h-3" />
@@ -903,7 +903,7 @@ export default function RequestsV2Page() {
                         <div className="mt-4 p-4 rounded-lg border bg-green-500/10 border-green-500/20">
                             <p className="text-sm font-medium text-green-400">Request created successfully!</p>
                             <a
-                                href={`https://shannon-explorer.somnia.network/tx/${txHash}`}
+                                href={`${currentNetwork.explorerUrl}/tx/${txHash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1 mt-1"
@@ -1117,7 +1117,7 @@ export default function RequestsV2Page() {
 
             {/* Contract Info */}
             <div className="bg-slate-900/50 border border-white/10 rounded-lg p-4">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">SomniaAgents v2 Contract</h3>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">SomniaAgents Contract</h3>
                 <p className="font-mono text-sm text-purple-400 break-all">{SOMNIA_AGENTS_V2_ADDRESS}</p>
             </div>
         </div>

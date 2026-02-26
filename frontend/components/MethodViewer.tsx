@@ -7,8 +7,6 @@ import { useNetwork } from "@/lib/network-context";
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
-import { MethodInvoker } from "./MethodInvoker";
-
 interface MethodViewerProps {
     method: AbiFunction;
     isExpanded: boolean;
@@ -18,7 +16,7 @@ interface MethodViewerProps {
 }
 
 export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: MethodViewerProps) {
-    const [activeTab, setActiveTab] = useState<"solidity" | "viem" | "run">("run");
+    const [activeTab, setActiveTab] = useState<"solidity" | "viem">("solidity");
     const [copied, setCopied] = useState(false);
     const { currentNetwork } = useNetwork();
     const platformAddress = currentNetwork.contracts.somniaAgents;
@@ -68,7 +66,7 @@ export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: M
                         <p className="text-sm text-gray-400 italic">{method.description}</p>
                     )}
 
-                    {/* Inputs */}
+                    {/* Signature */}
                     <div className="flex justify-between items-start gap-4">
                         <div className="flex-1">
                             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Signature</span>
@@ -98,23 +96,13 @@ export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: M
                         </div>
                     </div>
 
-                    {/* Tabs */}
+                    {/* Code Snippets */}
                     <div className="pt-2">
                         <div className="flex items-center justify-between mb-2">
                             <h5 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                                {activeTab === 'run' ? 'Execute Method' : 'Integration Snippets'}
+                                Integration Snippets
                             </h5>
                             <div className="flex bg-black/40 rounded-lg p-1 gap-1">
-                                <button
-                                    onClick={() => setActiveTab('run')}
-                                    className={`px-3 py-1 text-[10px] rounded-md transition-all flex items-center gap-1 ${activeTab === 'run'
-                                        ? 'bg-primary text-white font-bold shadow-sm shadow-primary/20'
-                                        : 'text-gray-400 hover:text-white hover:bg-white/5'
-                                        }`}
-                                >
-                                    <span>▶</span> Run
-                                </button>
-                                <div className="w-[1px] bg-white/10 mx-1"></div>
                                 {(['solidity', 'viem'] as const).map((tab) => (
                                     <button
                                         key={tab}
@@ -130,46 +118,33 @@ export function MethodViewer({ method, isExpanded, onToggle, agentId, price }: M
                             </div>
                         </div>
 
-                        {activeTab === 'run' ? (
-                            <div className="bg-black/20 rounded-lg border border-white/5 p-1">
-                                {agentId ? (
-                                    <MethodInvoker method={method} agentId={agentId} price={price} />
-                                ) : (
-                                    <div className="p-4 text-center text-sm text-gray-500">
-                                        Agent ID is required to run this method.
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-                            <div className="relative group">
-                                <div className="rounded-lg overflow-hidden border border-white/5 shadow-inner">
-                                    <SyntaxHighlighter
-                                        language={getLanguage()}
-                                        style={vscDarkPlus}
-                                        customStyle={{
-                                            margin: 0,
-                                            padding: '1rem',
-                                            fontSize: '0.75rem',
-                                            backgroundColor: 'rgba(2, 6, 23, 0.8)'
-                                        }}
-                                        wrapLongLines={true}
-                                    >
-                                        {getCode()}
-                                    </SyntaxHighlighter>
-                                </div>
-
-                                <button
-                                    onClick={copyToClipboard}
-                                    className="absolute top-2 right-2 px-2 py-1 bg-white/10 text-gray-300 text-[10px] rounded hover:bg-white/20 transition-colors backdrop-blur-sm opacity-0 group-hover:opacity-100"
+                        <div className="relative group">
+                            <div className="rounded-lg overflow-hidden border border-white/5 shadow-inner">
+                                <SyntaxHighlighter
+                                    language={getLanguage()}
+                                    style={vscDarkPlus}
+                                    customStyle={{
+                                        margin: 0,
+                                        padding: '1rem',
+                                        fontSize: '0.75rem',
+                                        backgroundColor: 'rgba(2, 6, 23, 0.8)'
+                                    }}
+                                    wrapLongLines={true}
                                 >
-                                    {copied ? "Copied!" : "Copy"}
-                                </button>
+                                    {getCode()}
+                                </SyntaxHighlighter>
                             </div>
-                        )}
+
+                            <button
+                                onClick={copyToClipboard}
+                                className="absolute top-2 right-2 px-2 py-1 bg-white/10 text-gray-300 text-[10px] rounded hover:bg-white/20 transition-colors backdrop-blur-sm opacity-0 group-hover:opacity-100"
+                            >
+                                {copied ? "Copied!" : "Copy"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
         </div>
     );
 }
-

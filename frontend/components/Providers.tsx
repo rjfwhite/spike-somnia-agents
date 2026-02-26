@@ -6,7 +6,6 @@ import { config } from "@/lib/wagmi";
 import { useState } from "react";
 import "@rainbow-me/rainbowkit/styles.css";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
-import { AgentsProvider } from "@/lib/agents-context";
 import { NetworkProvider } from "@/lib/network-context";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -17,9 +16,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <WagmiProvider config={config}>
         <QueryClientProvider client={queryClient}>
           <RainbowKitProvider>
-            <AgentsProvider>
-              {children}
-            </AgentsProvider>
+            {children}
           </RainbowKitProvider>
         </QueryClientProvider>
       </WagmiProvider>

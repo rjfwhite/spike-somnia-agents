@@ -1,12 +1,5 @@
-import { AgentList } from "@/components/AgentList";
+import { redirect } from "next/navigation";
 
 export default function Home() {
-  return (
-    <div className="space-y-8">
-      <section>
-        <AgentList />
-      </section>
-    </div>
-  );
+  redirect("/agents");
 }
-

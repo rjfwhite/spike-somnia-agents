@@ -45,7 +45,7 @@ interface AgentData {
     metadata: TokenMetadata | null;
 }
 
-export default function AgentsV2Page() {
+export default function AgentsPage() {
     const { address, isConnected } = useAccount();
     const publicClient = usePublicClient();
     const { currentNetwork } = useNetwork();
@@ -384,8 +384,8 @@ export default function AgentsV2Page() {
         return (
             <div className="space-y-6">
                 <div>
-                    <h1 className="text-3xl font-bold text-white">Agents v2</h1>
-                    <p className="text-gray-400 mt-2">Manage agents on the standalone AgentRegistry contract</p>
+                    <h1 className="text-3xl font-bold text-white">Agents</h1>
+                    <p className="text-gray-400 mt-2">Manage your agents on the AgentRegistry contract</p>
                 </div>
 
                 <div className="bg-slate-900/50 border border-white/10 rounded-lg p-8">
@@ -395,7 +395,7 @@ export default function AgentsV2Page() {
                         </div>
                         <h3 className="text-lg font-semibold text-white">Connect Your Wallet</h3>
                         <p className="text-gray-400 text-sm max-w-md mx-auto">
-                            Connect your wallet to view and manage your agents on the AgentRegistry v2 contract.
+                            Connect your wallet to view and manage your agents on the AgentRegistry contract.
                         </p>
                     </div>
                 </div>
@@ -407,8 +407,8 @@ export default function AgentsV2Page() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold text-white">Agents v2</h1>
-                    <p className="text-gray-400 mt-2">Manage agents on the standalone AgentRegistry contract</p>
+                    <h1 className="text-3xl font-bold text-white">Agents</h1>
+                    <p className="text-gray-400 mt-2">Manage your agents on the AgentRegistry contract</p>
                 </div>
                 <button
                     onClick={() => {
@@ -626,7 +626,7 @@ export default function AgentsV2Page() {
                             <p className="text-sm font-medium text-green-400">Success!</p>
                             <p className="text-xs text-gray-400 mt-1">Agent {editingAgent ? 'updated' : 'created'} successfully.</p>
                             <a
-                                href={`https://shannon-explorer.somnia.network/tx/${hash}`}
+                                href={`${currentNetwork.explorerUrl}/tx/${hash}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1 mt-2"
@@ -664,7 +664,7 @@ export default function AgentsV2Page() {
                         </div>
                         <h3 className="text-lg font-semibold text-white">No Agents Yet</h3>
                         <p className="text-gray-400 text-sm max-w-md mx-auto">
-                            You haven&apos;t created any agents on the v2 registry yet. Create your first agent to get started.
+                            You haven&apos;t created any agents yet. Create your first agent to get started.
                         </p>
                         <button
                             onClick={() => setShowCreateForm(true)}
@@ -683,7 +683,7 @@ export default function AgentsV2Page() {
                     <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">Your Agents ({agents.length})</h3>
                     <div className="flex flex-col gap-4">
                         {agents.map((agent) => (
-                            <AgentCardV2
+                            <AgentCard
                                 key={agent.id}
                                 agent={agent}
                                 onEdit={handleEditAgent}
@@ -697,14 +697,14 @@ export default function AgentsV2Page() {
 
             {/* Contract Info */}
             <div className="bg-slate-900/50 border border-white/10 rounded-lg p-4">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">AgentRegistry v2 Contract</h3>
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">AgentRegistry Contract</h3>
                 <p className="font-mono text-sm text-green-400 break-all">{AGENT_REGISTRY_V2_ADDRESS}</p>
             </div>
         </div>
     );
 }
 
-function AgentCardV2({
+function AgentCard({
     agent,
     onEdit,
     onDelete,
@@ -824,7 +824,7 @@ function AgentCardV2({
 
                     <div className="flex gap-2 pt-2">
                         <Link
-                            href={`/request-v2/${agent.id}`}
+                            href={`/request/${agent.id}`}
                             className="flex items-center gap-2 px-3 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-400 text-sm font-medium rounded-lg transition-colors"
                         >
                             <Play className="w-4 h-4" />

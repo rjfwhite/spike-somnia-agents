@@ -5,15 +5,9 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
-    LayoutGrid,
-    Activity,
-    PlusCircle,
     Menu,
     X,
     BookOpen,
-    Zap,
-    Settings,
-    User,
     FileText,
     Users,
     Box,
@@ -28,19 +22,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const { networkKey, setNetwork } = useNetwork();
 
     const navItems = [
-        { id: 'agents', label: 'Agents', icon: LayoutGrid, path: '/' },
-        { id: 'my-agents', label: 'My Agents', icon: User, path: '/my-agents' },
-        { id: 'live', label: 'Live Feed', icon: Activity, path: '/live' },
-        { id: 'admin', label: 'Admin', icon: Settings, path: '/admin' },
-        { id: 'invoke', label: 'Direct Invoke', icon: Zap, path: '/invoke' },
-        { id: 'docs', label: 'Documentation', icon: BookOpen, path: 'https://metaversal.gitbook.io/agents/s8KLL5NzoS6LwJVIQCiT/', external: true },
-    ];
-
-    const v2NavItems = [
-        { id: 'agents-v2', label: 'Agents', icon: Box, path: '/agents-v2' },
-        { id: 'requests-v2', label: 'Requests', icon: Send, path: '/requests-v2' },
+        { id: 'agents', label: 'Agents', icon: Box, path: '/agents' },
+        { id: 'requests', label: 'Requests', icon: Send, path: '/requests' },
         { id: 'receipts', label: 'Receipts', icon: FileText, path: '/receipts' },
         { id: 'committee', label: 'Committee', icon: Users, path: '/committee' },
+        { id: 'docs', label: 'Documentation', icon: BookOpen, path: 'https://metaversal.gitbook.io/agents/s8KLL5NzoS6LwJVIQCiT/', external: true },
     ];
 
     return (
@@ -68,7 +54,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
                     <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4 px-2">Menu</div>
                     {navItems.map((item) => {
-                        const isActive = !item.external && pathname === item.path;
+                        const isActive = !item.external && (pathname === item.path || (item.path !== '/' && pathname.startsWith(item.path)));
                         const Icon = item.icon;
                         const linkClass = `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${isActive
                             ? 'bg-blue-600/10 text-blue-400 border border-blue-600/20 shadow-[0_0_15px_rgba(37,99,235,0.1)]'
@@ -100,30 +86,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                 className={linkClass}
                             >
                                 {content}
-                            </Link>
-                        );
-                    })}
-
-                    {/* Agents v2 Section */}
-                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-8 mb-4 px-2">Agents v2</div>
-                    {v2NavItems.map((item) => {
-                        const isActive = pathname === item.path;
-                        const Icon = item.icon;
-                        const linkClass = `flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-200 group ${isActive
-                            ? 'bg-purple-600/10 text-purple-400 border border-purple-600/20 shadow-[0_0_15px_rgba(147,51,234,0.1)]'
-                            : 'text-gray-400 hover:bg-white/5 hover:text-gray-200'
-                        }`;
-                        return (
-                            <Link
-                                key={item.id}
-                                href={item.path}
-                                className={linkClass}
-                            >
-                                <Icon className={`w-5 h-5 ${isActive ? 'text-purple-400' : 'text-gray-500 group-hover:text-gray-300'}`} />
-                                <span className="font-medium">{item.label}</span>
-                                {isActive && (
-                                    <div className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400 shadow-[0_0_8px_rgba(192,132,252,0.8)]"></div>
-                                )}
                             </Link>
                         );
                     })}
@@ -209,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                         </div>
                         <nav className="space-y-2">
                             {navItems.map(item => {
-                                const isActive = !item.external && pathname === item.path;
+                                const isActive = !item.external && (pathname === item.path || (item.path !== '/' && pathname.startsWith(item.path)));
                                 const linkClass = `flex items-center gap-3 px-4 py-3 rounded-lg ${isActive ? 'bg-blue-600/20 text-blue-400' : 'text-gray-400'}`;
                                 const content = (
                                     <>
@@ -236,24 +198,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                                         className={linkClass}
                                     >
                                         {content}
-                                    </Link>
-                                );
-                            })}
-
-                            {/* Agents v2 Section */}
-                            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mt-6 mb-2 px-4">Agents v2</div>
-                            {v2NavItems.map(item => {
-                                const isActive = pathname === item.path;
-                                const linkClass = `flex items-center gap-3 px-4 py-3 rounded-lg ${isActive ? 'bg-purple-600/20 text-purple-400' : 'text-gray-400'}`;
-                                return (
-                                    <Link
-                                        key={item.id}
-                                        href={item.path}
-                                        onClick={() => setMobileMenuOpen(false)}
-                                        className={linkClass}
-                                    >
-                                        <item.icon className="w-5 h-5" />
-                                        {item.label}
                                     </Link>
                                 );
                             })}
