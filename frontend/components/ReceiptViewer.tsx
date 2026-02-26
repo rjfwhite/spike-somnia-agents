@@ -159,7 +159,7 @@ function SingleReceiptView({ receipt, abi }: { receipt: Receipt; abi?: any[] }) 
 
             {/* Result */}
             {receipt.result && (
-                <ResultDisplay result={receipt.result} abi={abi} />
+                <ResultDisplay result={receipt.result} abi={abi} request={receipt.request} />
             )}
         </div>
     );
@@ -234,41 +234,59 @@ function StepAccordion({ step, index, highlight }: { step: Step; index: number; 
     );
 }
 
-export function ResultDisplay({ result, abi, label = "Result" }: { result: string; abi?: any[]; label?: string }) {
+export function ResultDisplay({ result, abi, label = "Result", request }: { result: string; abi?: any[]; label?: string; request?: string }) {
     const [isOpen, setIsOpen] = useState(true);
 
-    // Try to decode the result if ABI is provided
+    const isHex = result && result.startsWith('0x') && result.length > 2;
+
+    // Try to decode the result using the request calldata to identify the function
     const decodedFields = useMemo(() => {
-        if (!abi || !result || result === '0x') return null;
+        if (!abi || !result || result === '0x' || !isHex) return null;
 
         try {
-            // Find the function that was called (look for response_encoded step or use first function)
-            const functions = abi.filter((item: any) => item.type === 'function');
-            if (functions.length === 0) return null;
+            const { decodeAbiParameters, decodeFunctionData } = require('viem');
 
-            // For now, try each function's outputs until one works
-            for (const fn of functions) {
-                if (!fn.outputs || fn.outputs.length === 0) continue;
+            let fn: any = null;
 
+            // Primary path: identify function from request calldata
+            if (request && request.length >= 10) {
                 try {
-                    // Dynamic import would be better, but for simplicity:
-                    const { decodeAbiParameters } = require('viem');
-                    const decoded = decodeAbiParameters(fn.outputs, result as `0x${string}`);
-
-                    return fn.outputs.map((output: any, idx: number) => ({
-                        name: output.name || `output_${idx}`,
-                        type: output.type,
-                        value: decoded[idx],
-                    }));
+                    const { functionName } = decodeFunctionData({ abi, data: request as `0x${string}` });
+                    fn = abi.find((item: any) => item.type === 'function' && item.name === functionName);
                 } catch {
-                    continue;
+                    // Request decode failed, fall through to brute-force
                 }
             }
+
+            // Fallback: try each function's outputs, preferring functions with more outputs
+            if (!fn) {
+                const functions = abi
+                    .filter((item: any) => item.type === 'function' && item.outputs?.length > 0)
+                    .sort((a: any, b: any) => (b.outputs?.length || 0) - (a.outputs?.length || 0));
+
+                for (const candidate of functions) {
+                    try {
+                        decodeAbiParameters(candidate.outputs, result as `0x${string}`);
+                        fn = candidate;
+                        break;
+                    } catch {
+                        // This function's outputs don't match, try next
+                    }
+                }
+            }
+
+            if (!fn?.outputs?.length) return null;
+
+            const decoded = decodeAbiParameters(fn.outputs, result as `0x${string}`);
+            return fn.outputs.map((output: any, idx: number) => ({
+                name: output.name || `output_${idx}`,
+                type: output.type,
+                value: decoded[idx],
+            }));
         } catch {
             return null;
         }
-        return null;
-    }, [result, abi]);
+    }, [result, abi, request, isHex]);
 
     return (
         <div className="mt-3 bg-gradient-to-r from-green-500/10 to-emerald-500/10 rounded-lg border border-green-500/20 overflow-hidden">
@@ -308,9 +326,9 @@ export function ResultDisplay({ result, abi, label = "Result" }: { result: strin
                         </div>
                     )}
 
-                    {/* Raw hex */}
+                    {/* Raw data */}
                     <div className="pt-1 border-t border-green-500/10">
-                        <div className="text-[10px] text-green-700 mb-1">Raw hex:</div>
+                        <div className="text-[10px] text-green-700 mb-1">{isHex ? 'Raw hex:' : 'Raw value:'}</div>
                         <div className="font-mono text-[10px] text-green-500/70 break-all bg-black/20 rounded px-2 py-1">
                             {result}
                         </div>
